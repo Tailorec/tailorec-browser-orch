@@ -1,0 +1,2 @@
+export const DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME = "default";
+export const DEFAULT_OPENCLAW_BROWSER_COLOR = "blue";

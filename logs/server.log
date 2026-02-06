@@ -1,0 +1,8 @@
+nohup: ignoring input
+
+> tailorec-browser-service@1.0.0 start
+> node dist/server.js
+
+[37m2026-02-05 18:39:08.771[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37mdist/server.js:8[39m[0m[0m[1m[37m	main[39m[22m[0m[0m	Starting Tailorec Browser Service...
+[37m2026-02-05 18:39:08.779[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37mdist/browser/server.js:49[39m[0m[0m[1m[37m	server[39m[22m[0m[0m	Browser control listening on http://127.0.0.1:4000/
+[37m2026-02-05 18:39:08.779[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37mdist/server.js:11[39m[0m[0m[1m[37m	main[39m[22m[0m[0m	Service ready on port 4000
