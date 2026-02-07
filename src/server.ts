@@ -3,6 +3,16 @@ import { createSubsystemLogger } from "./logging/subsystem.js";
 
 const log = createSubsystemLogger("main");
 
+process.on("uncaughtException", (err) => {
+  log.exception("Uncaught exception", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  log.exception("Unhandled promise rejection", reason);
+  process.exit(1);
+});
+
 async function main() {
   try {
     log.info("Starting Tailorec Browser Service...");
@@ -14,7 +24,7 @@ async function main() {
       process.exit(1);
     }
   } catch (err) {
-    log.error(`Fatal error: ${err}`);
+    log.exception("Fatal error during service startup", err);
     process.exit(1);
   }
 }

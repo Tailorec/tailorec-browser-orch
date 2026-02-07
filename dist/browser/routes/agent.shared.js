@@ -8,6 +8,8 @@ exports.getPwAiModule = getPwAiModule;
 exports.requirePwAi = requirePwAi;
 const pw_ai_module_js_1 = require("../pw-ai-module.js");
 const utils_js_1 = require("./utils.js");
+const subsystem_js_1 = require("../../logging/subsystem.js");
+const log = (0, subsystem_js_1.createSubsystemLogger)("agent-shared");
 exports.SELECTOR_UNSUPPORTED_MESSAGE = [
     "Error: 'selector' is not supported. Use 'ref' from snapshot instead.",
     "",
@@ -27,16 +29,20 @@ function readBody(req) {
 function handleRouteError(ctx, res, err) {
     const mapped = ctx.mapTabError(err);
     if (mapped) {
+        log.warn("route error mapped", { status: mapped.status, message: mapped.message });
         return (0, utils_js_1.jsonError)(res, mapped.status, mapped.message);
     }
+    log.exception("route error unmapped", err);
     (0, utils_js_1.jsonError)(res, 500, String(err));
 }
 function resolveProfileContext(req, res, ctx) {
     const result = (0, utils_js_1.getProfileContext)(req, ctx);
     if ("error" in result) { // Check if it's the error object
+        log.warn("profile context resolution failed", { status: result.status, error: result.error });
         (0, utils_js_1.jsonError)(res, result.status, result.error);
         return null;
     }
+    log.debug("profile context resolved", { profile: result.profile.name });
     return result;
 }
 async function getPwAiModule() {

@@ -12,6 +12,8 @@ const promises_1 = __importDefault(require("node:fs/promises"));
 const node_path_1 = __importDefault(require("node:path"));
 const pw_session_js_1 = require("./pw-session.js");
 const pw_tools_core_shared_js_1 = require("./pw-tools-core.shared.js");
+const subsystem_js_1 = require("../logging/subsystem.js");
+const log = (0, subsystem_js_1.createSubsystemLogger)("pw-downloads");
 function buildTempDownloadPath(fileName) {
     const id = node_crypto_1.default.randomUUID();
     const safeName = fileName.trim() ? fileName.trim() : "download.bin";
@@ -62,6 +64,13 @@ function createPageDownloadWaiter(page, timeoutMs) {
     };
 }
 async function armFileUploadViaPlaywright(opts) {
+    const started = Date.now();
+    log.info("arm file upload started", {
+        cdp_url: opts.cdpUrl,
+        target_id: opts.targetId,
+        paths_count: opts.paths?.length ?? 0,
+        timeout_ms: opts.timeoutMs,
+    });
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     const timeout = Math.max(500, Math.min(120_000, opts.timeoutMs ?? 120_000));
@@ -102,8 +111,11 @@ async function armFileUploadViaPlaywright(opts) {
         .catch(() => {
         // Ignore timeouts; the chooser may never appear.
     });
+    log.info("arm file upload registered", { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
 }
 async function armDialogViaPlaywright(opts) {
+    const started = Date.now();
+    log.info("arm dialog started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, accept: opts.accept, timeout_ms: opts.timeoutMs });
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     const timeout = (0, pw_tools_core_shared_js_1.normalizeTimeoutMs)(opts.timeoutMs, 120_000);
@@ -125,8 +137,11 @@ async function armDialogViaPlaywright(opts) {
         .catch(() => {
         // Ignore timeouts; the dialog may never appear.
     });
+    log.info("arm dialog registered", { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
 }
 async function waitForDownloadViaPlaywright(opts) {
+    const started = Date.now();
+    log.info("wait for download started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, timeout_ms: opts.timeoutMs, path: opts.path });
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     const timeout = (0, pw_tools_core_shared_js_1.normalizeTimeoutMs)(opts.timeoutMs, 120_000);
@@ -142,18 +157,29 @@ async function waitForDownloadViaPlaywright(opts) {
         const outPath = opts.path?.trim() || buildTempDownloadPath(suggested);
         await promises_1.default.mkdir(node_path_1.default.dirname(outPath), { recursive: true });
         await download.saveAs?.(outPath);
-        return {
+        const result = {
             url: download.url?.() || "",
             suggestedFilename: suggested,
             path: node_path_1.default.resolve(outPath),
         };
+        log.info("wait for download succeeded", {
+            cdp_url: opts.cdpUrl,
+            target_id: opts.targetId,
+            path: result.path,
+            suggested_filename: result.suggestedFilename,
+            duration_ms: Date.now() - started,
+        });
+        return result;
     }
     catch (err) {
         waiter.cancel();
+        log.exception("wait for download failed", err, { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
         throw err;
     }
 }
 async function downloadViaPlaywright(opts) {
+    const started = Date.now();
+    log.info("download action started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, ref: opts.ref, path: opts.path });
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     (0, pw_session_js_1.restoreRoleRefsForTarget)({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -181,14 +207,24 @@ async function downloadViaPlaywright(opts) {
         const suggested = download.suggestedFilename?.() || "download.bin";
         await promises_1.default.mkdir(node_path_1.default.dirname(outPath), { recursive: true });
         await download.saveAs?.(outPath);
-        return {
+        const result = {
             url: download.url?.() || "",
             suggestedFilename: suggested,
             path: node_path_1.default.resolve(outPath),
         };
+        log.info("download action succeeded", {
+            cdp_url: opts.cdpUrl,
+            target_id: opts.targetId,
+            ref,
+            path: result.path,
+            suggested_filename: result.suggestedFilename,
+            duration_ms: Date.now() - started,
+        });
+        return result;
     }
     catch (err) {
         waiter.cancel();
+        log.exception("download action failed", err, { cdp_url: opts.cdpUrl, target_id: opts.targetId, ref: opts.ref, duration_ms: Date.now() - started });
         throw err;
     }
 }

@@ -12,12 +12,17 @@ import {
   storeRoleRefsForTarget,
   type WithSnapshotForAI,
 } from "./pw-session.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("pw-snapshot");
 
 export async function snapshotAriaViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
   limit?: number;
 }): Promise<{ nodes: AriaSnapshotNode[] }> {
+  const started = Date.now();
+  log.debug("snapshot aria started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, limit: opts.limit });
   const limit = Math.max(1, Math.min(2000, Math.floor(opts.limit ?? 500)));
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
@@ -31,7 +36,14 @@ export async function snapshotAriaViaPlaywright(opts: {
       nodes?: RawAXNode[];
     };
     const nodes = Array.isArray(res?.nodes) ? res.nodes : [];
-    return { nodes: formatAriaSnapshot(nodes, limit) };
+    const out = { nodes: formatAriaSnapshot(nodes, limit) };
+    log.info("snapshot aria succeeded", {
+      cdp_url: opts.cdpUrl,
+      target_id: opts.targetId,
+      nodes: out.nodes.length,
+      duration_ms: Date.now() - started,
+    });
+    return out;
   } finally {
     await session.detach().catch(() => {});
   }
@@ -43,6 +55,8 @@ export async function snapshotAiViaPlaywright(opts: {
   timeoutMs?: number;
   maxChars?: number;
 }): Promise<{ snapshot: string; truncated?: boolean; refs: RoleRefMap }> {
+  const started = Date.now();
+  log.debug("snapshot ai started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, max_chars: opts.maxChars });
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
@@ -78,7 +92,16 @@ export async function snapshotAiViaPlaywright(opts: {
     refs: built.refs,
     mode: "aria",
   });
-  return truncated ? { snapshot, truncated, refs: built.refs } : { snapshot, refs: built.refs };
+  const response = truncated ? { snapshot, truncated, refs: built.refs } : { snapshot, refs: built.refs };
+  log.info("snapshot ai succeeded", {
+    cdp_url: opts.cdpUrl,
+    target_id: opts.targetId,
+    chars: snapshot.length,
+    refs: Object.keys(built.refs).length,
+    truncated,
+    duration_ms: Date.now() - started,
+  });
+  return response;
 }
 
 export async function snapshotRoleViaPlaywright(opts: {
@@ -93,6 +116,14 @@ export async function snapshotRoleViaPlaywright(opts: {
   refs: Record<string, { role: string; name?: string; nth?: number }>;
   stats: { lines: number; chars: number; refs: number; interactive: number };
 }> {
+  const started = Date.now();
+  log.debug("snapshot role started", {
+    cdp_url: opts.cdpUrl,
+    target_id: opts.targetId,
+    refs_mode: opts.refsMode ?? "role",
+    selector: opts.selector,
+    frame_selector: opts.frameSelector,
+  });
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
@@ -119,11 +150,19 @@ export async function snapshotRoleViaPlaywright(opts: {
       refs: built.refs,
       mode: "aria",
     });
-    return {
+    const out = {
       snapshot: built.snapshot,
       refs: built.refs,
       stats: getRoleSnapshotStats(built.snapshot, built.refs),
     };
+    log.info("snapshot role succeeded", {
+      cdp_url: opts.cdpUrl,
+      target_id: opts.targetId,
+      refs: Object.keys(out.refs).length,
+      chars: out.snapshot.length,
+      duration_ms: Date.now() - started,
+    });
+    return out;
   }
 
   const frameSelector = opts.frameSelector?.trim() || "";
@@ -146,11 +185,19 @@ export async function snapshotRoleViaPlaywright(opts: {
     frameSelector: frameSelector || undefined,
     mode: "role",
   });
-  return {
+  const out = {
     snapshot: built.snapshot,
     refs: built.refs,
     stats: getRoleSnapshotStats(built.snapshot, built.refs),
   };
+  log.info("snapshot role succeeded", {
+    cdp_url: opts.cdpUrl,
+    target_id: opts.targetId,
+    refs: Object.keys(out.refs).length,
+    chars: out.snapshot.length,
+    duration_ms: Date.now() - started,
+  });
+  return out;
 }
 
 export async function navigateViaPlaywright(opts: {
@@ -159,6 +206,8 @@ export async function navigateViaPlaywright(opts: {
   url: string;
   timeoutMs?: number;
 }): Promise<{ url: string }> {
+  const started = Date.now();
+  log.info("navigate started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, url: opts.url });
   const url = String(opts.url ?? "").trim();
   if (!url) {
     throw new Error("url is required");
@@ -168,7 +217,9 @@ export async function navigateViaPlaywright(opts: {
   await page.goto(url, {
     timeout: Math.max(1000, Math.min(120_000, opts.timeoutMs ?? 20_000)),
   });
-  return { url: page.url() };
+  const result = { url: page.url() };
+  log.info("navigate succeeded", { cdp_url: opts.cdpUrl, target_id: opts.targetId, url: result.url, duration_ms: Date.now() - started });
+  return result;
 }
 
 export async function resizeViewportViaPlaywright(opts: {
@@ -177,29 +228,38 @@ export async function resizeViewportViaPlaywright(opts: {
   width: number;
   height: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("resize started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, width: opts.width, height: opts.height });
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   await page.setViewportSize({
     width: Math.max(1, Math.floor(opts.width)),
     height: Math.max(1, Math.floor(opts.height)),
   });
+  log.info("resize succeeded", { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
 }
 
 export async function closePageViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
 }): Promise<void> {
+  const started = Date.now();
+  log.info("close page started", { cdp_url: opts.cdpUrl, target_id: opts.targetId });
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   await page.close();
+  log.info("close page succeeded", { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
 }
 
 export async function pdfViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
 }): Promise<{ buffer: Buffer }> {
+  const started = Date.now();
+  log.debug("pdf generation started", { cdp_url: opts.cdpUrl, target_id: opts.targetId });
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   const buffer = await page.pdf({ printBackground: true });
+  log.info("pdf generation succeeded", { cdp_url: opts.cdpUrl, target_id: opts.targetId, bytes: buffer.length, duration_ms: Date.now() - started });
   return { buffer };
 }

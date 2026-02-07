@@ -5,6 +5,8 @@ const agent_act_shared_js_1 = require("./agent.act.shared.js");
 const agent_shared_js_1 = require("./agent.shared.js");
 const utils_js_1 = require("./utils.js");
 const pw_ai_module_js_1 = require("../pw-ai-module.js");
+const subsystem_js_1 = require("../../logging/subsystem.js");
+const log = (0, subsystem_js_1.createSubsystemLogger)("browser-act");
 function registerBrowserAgentActRoutes(app, ctx) {
     app.post("/act", async (req, res) => {
         const profileCtx = (0, agent_shared_js_1.resolveProfileContext)(req, res, ctx);
@@ -26,6 +28,11 @@ function registerBrowserAgentActRoutes(app, ctx) {
             const cdpUrl = profileCtx.profile.cdpUrl;
             const pw = await (0, pw_ai_module_js_1.getPwAiModule)();
             const evaluateEnabled = ctx.state().resolved.evaluateEnabled;
+            log.info("act request", {
+                kind,
+                target_id: tab.targetId,
+                profile: profileCtx.profile.name,
+            });
             switch (kind) {
                 case "click": {
                     const ref = (0, utils_js_1.toStringOrEmpty)(body.ref);
@@ -306,6 +313,7 @@ function registerBrowserAgentActRoutes(app, ctx) {
             }
         }
         catch (err) {
+            log.exception("act route failed", err, { kind: kindRaw, target_id: targetId });
             (0, agent_shared_js_1.handleRouteError)(ctx, res, err);
         }
     });

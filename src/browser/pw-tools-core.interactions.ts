@@ -6,19 +6,30 @@ import {
   restoreRoleRefsForTarget,
 } from "./pw-session.js";
 import { normalizeTimeoutMs, requireRef, toAIFriendlyError } from "./pw-tools-core.shared.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("pw-actions");
+
+function actionMeta(opts: { targetId?: string; cdpUrl: string }, extra?: Record<string, unknown>) {
+  return { target_id: opts.targetId, cdp_url: opts.cdpUrl, ...(extra || {}) };
+}
 
 export async function highlightViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
   ref: string;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action highlight started", actionMeta(opts, { ref: opts.ref }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
   const ref = requireRef(opts.ref);
   try {
     await refLocator(page, ref).highlight();
+    log.debug("action highlight succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action highlight failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
   }
 }
@@ -32,6 +43,8 @@ export async function clickViaPlaywright(opts: {
   modifiers?: Array<"Alt" | "Control" | "ControlOrMeta" | "Meta" | "Shift">;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action click started", actionMeta(opts, { ref: opts.ref, double_click: opts.doubleClick }));
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
@@ -55,7 +68,9 @@ export async function clickViaPlaywright(opts: {
         modifiers: opts.modifiers,
       });
     }
+    log.info("action click succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action click failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
   }
 }
@@ -66,6 +81,8 @@ export async function hoverViaPlaywright(opts: {
   ref: string;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action hover started", actionMeta(opts, { ref: opts.ref }));
   const ref = requireRef(opts.ref);
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
@@ -74,7 +91,9 @@ export async function hoverViaPlaywright(opts: {
     await refLocator(page, ref).hover({
       timeout: Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000)),
     });
+    log.info("action hover succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action hover failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
   }
 }
@@ -86,6 +105,8 @@ export async function dragViaPlaywright(opts: {
   endRef: string;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action drag started", actionMeta(opts, { start_ref: opts.startRef, end_ref: opts.endRef }));
   const startRef = requireRef(opts.startRef);
   const endRef = requireRef(opts.endRef);
   if (!startRef || !endRef) {
@@ -98,7 +119,9 @@ export async function dragViaPlaywright(opts: {
     await refLocator(page, startRef).dragTo(refLocator(page, endRef), {
       timeout: Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000)),
     });
+    log.info("action drag succeeded", actionMeta(opts, { start_ref: startRef, end_ref: endRef, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action drag failed", err, actionMeta(opts, { start_ref: startRef, end_ref: endRef, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, `${startRef} -> ${endRef}`);
   }
 }
@@ -110,6 +133,8 @@ export async function selectOptionViaPlaywright(opts: {
   values: string[];
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action select started", actionMeta(opts, { ref: opts.ref, values_count: opts.values?.length ?? 0 }));
   const ref = requireRef(opts.ref);
   if (!opts.values?.length) {
     throw new Error("values are required");
@@ -121,7 +146,9 @@ export async function selectOptionViaPlaywright(opts: {
     await refLocator(page, ref).selectOption(opts.values, {
       timeout: Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000)),
     });
+    log.info("action select succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action select failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
   }
 }
@@ -132,6 +159,8 @@ export async function pressKeyViaPlaywright(opts: {
   key: string;
   delayMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action press started", actionMeta(opts, { key: opts.key }));
   const key = String(opts.key ?? "").trim();
   if (!key) {
     throw new Error("key is required");
@@ -141,6 +170,7 @@ export async function pressKeyViaPlaywright(opts: {
   await page.keyboard.press(key, {
     delay: Math.max(0, Math.floor(opts.delayMs ?? 0)),
   });
+  log.info("action press succeeded", actionMeta(opts, { key, duration_ms: Date.now() - started }));
 }
 
 export async function typeViaPlaywright(opts: {
@@ -152,6 +182,8 @@ export async function typeViaPlaywright(opts: {
   slowly?: boolean;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action type started", actionMeta(opts, { ref: opts.ref, submit: opts.submit, slowly: opts.slowly }));
   const text = String(opts.text ?? "");
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
@@ -169,7 +201,9 @@ export async function typeViaPlaywright(opts: {
     if (opts.submit) {
       await locator.press("Enter", { timeout });
     }
+    log.info("action type succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action type failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
   }
 }
@@ -180,6 +214,8 @@ export async function fillFormViaPlaywright(opts: {
   fields: BrowserFormField[];
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action fill started", actionMeta(opts, { fields: opts.fields.length }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -211,9 +247,11 @@ export async function fillFormViaPlaywright(opts: {
     try {
       await locator.fill(value, { timeout });
     } catch (err) {
+      log.exception("action fill field failed", err, actionMeta(opts, { ref, type, duration_ms: Date.now() - started }));
       throw toAIFriendlyError(err, ref);
     }
   }
+  log.info("action fill succeeded", actionMeta(opts, { fields: opts.fields.length, duration_ms: Date.now() - started }));
 }
 
 export async function evaluateViaPlaywright(opts: {
@@ -222,6 +260,8 @@ export async function evaluateViaPlaywright(opts: {
   fn: string;
   ref?: string;
 }): Promise<unknown> {
+  const started = Date.now();
+  log.debug("action evaluate started", actionMeta(opts, { ref: opts.ref, fn_chars: opts.fn?.length ?? 0 }));
   const fnText = String(opts.fn ?? "").trim();
   if (!fnText) {
     throw new Error("function is required");
@@ -247,7 +287,9 @@ export async function evaluateViaPlaywright(opts: {
       }
       `,
     ) as (el: Element, fnBody: string) => unknown;
-    return await locator.evaluate(elementEvaluator, fnText);
+    const result = await locator.evaluate(elementEvaluator, fnText);
+    log.info("action evaluate succeeded", actionMeta(opts, { ref: opts.ref, duration_ms: Date.now() - started }));
+    return result;
   }
   // Use Function constructor at runtime to avoid esbuild adding __name helper
   // which doesn't exist in the browser context
@@ -264,7 +306,9 @@ export async function evaluateViaPlaywright(opts: {
     }
     `,
   ) as (fnBody: string) => unknown;
-  return await page.evaluate(browserEvaluator, fnText);
+  const result = await page.evaluate(browserEvaluator, fnText);
+  log.info("action evaluate succeeded", actionMeta(opts, { duration_ms: Date.now() - started }));
+  return result;
 }
 
 export async function scrollIntoViewViaPlaywright(opts: {
@@ -273,6 +317,8 @@ export async function scrollIntoViewViaPlaywright(opts: {
   ref: string;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action scrollIntoView started", actionMeta(opts, { ref: opts.ref }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -282,7 +328,9 @@ export async function scrollIntoViewViaPlaywright(opts: {
   const locator = refLocator(page, ref);
   try {
     await locator.scrollIntoViewIfNeeded({ timeout });
+    log.info("action scrollIntoView succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action scrollIntoView failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
   }
 }
@@ -299,6 +347,16 @@ export async function waitForViaPlaywright(opts: {
   fn?: string;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action wait started", actionMeta(opts, {
+    has_time: opts.timeMs !== undefined,
+    has_text: Boolean(opts.text),
+    has_text_gone: Boolean(opts.textGone),
+    has_selector: Boolean(opts.selector),
+    has_url: Boolean(opts.url),
+    has_load_state: Boolean(opts.loadState),
+    has_fn: Boolean(opts.fn),
+  }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   const timeout = normalizeTimeoutMs(opts.timeoutMs, 20_000);
@@ -339,6 +397,7 @@ export async function waitForViaPlaywright(opts: {
       await page.waitForFunction(fn, { timeout });
     }
   }
+  log.info("action wait succeeded", actionMeta(opts, { duration_ms: Date.now() - started }));
 }
 
 export async function takeScreenshotViaPlaywright(opts: {
@@ -349,6 +408,8 @@ export async function takeScreenshotViaPlaywright(opts: {
   fullPage?: boolean;
   type?: "png" | "jpeg";
 }): Promise<{ buffer: Buffer }> {
+  const started = Date.now();
+  log.debug("action screenshot started", actionMeta(opts, { ref: opts.ref, element: opts.element, full_page: opts.fullPage }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -373,6 +434,7 @@ export async function takeScreenshotViaPlaywright(opts: {
     type,
     fullPage: Boolean(opts.fullPage),
   });
+  log.info("action screenshot succeeded", actionMeta(opts, { bytes: buffer.length, duration_ms: Date.now() - started }));
   return { buffer };
 }
 
@@ -383,6 +445,8 @@ export async function screenshotWithLabelsViaPlaywright(opts: {
   maxLabels?: number;
   type?: "png" | "jpeg";
 }): Promise<{ buffer: Buffer; labels: number; skipped: number }> {
+  const started = Date.now();
+  log.debug("action screenshotWithLabels started", actionMeta(opts, { refs_count: Object.keys(opts.refs ?? {}).length }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -492,6 +556,7 @@ export async function screenshotWithLabelsViaPlaywright(opts: {
     }
 
     const buffer = await page.screenshot({ type });
+    log.info("action screenshotWithLabels succeeded", actionMeta(opts, { labels: boxes.length, skipped, bytes: buffer.length, duration_ms: Date.now() - started }));
     return { buffer, labels: boxes.length, skipped };
   } finally {
     await page
@@ -510,6 +575,8 @@ export async function setInputFilesViaPlaywright(opts: {
   element?: string;
   paths: string[];
 }): Promise<void> {
+  const started = Date.now();
+  log.debug("action setInputFiles started", actionMeta(opts, { input_ref: opts.inputRef, has_element: Boolean(opts.element), paths_count: opts.paths.length }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -529,7 +596,9 @@ export async function setInputFilesViaPlaywright(opts: {
 
   try {
     await locator.setInputFiles(opts.paths);
+    log.info("action setInputFiles succeeded", actionMeta(opts, { duration_ms: Date.now() - started }));
   } catch (err) {
+    log.exception("action setInputFiles failed", err, actionMeta(opts, { duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, inputRef || element);
   }
   try {
