@@ -25,6 +25,33 @@ async function startBrowserControlServerFromConfig() {
     }
     const app = (0, express_1.default)();
     app.use(express_1.default.json({ limit: "50mb" })); // Increased limit for snapshots
+    app.use((req, res, next) => {
+        const correlationId = (0, subsystem_js_1.getOrCreateCorrelationIdFromHeaders)(req.headers);
+        const headerName = (process.env.CORRELATION_ID_HEADER || "x-correlation-id").toLowerCase();
+        const start = Date.now();
+        res.setHeader(headerName, correlationId);
+        (0, subsystem_js_1.withCorrelationId)(correlationId, () => {
+            logServer.info("request started", {
+                method: req.method,
+                path: req.path,
+                query: req.query,
+                body: req.body && typeof req.body === "object"
+                    ? req.body
+                    : req.body === undefined
+                        ? undefined
+                        : String(req.body),
+            });
+            res.on("finish", () => {
+                logServer.info("request completed", {
+                    method: req.method,
+                    path: req.path,
+                    status_code: res.statusCode,
+                    duration_ms: Date.now() - start,
+                });
+            });
+            next();
+        });
+    });
     const ctx = (0, server_context_js_1.createBrowserRouteContext)({
         getState: () => state,
     });

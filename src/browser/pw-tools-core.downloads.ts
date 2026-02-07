@@ -16,6 +16,9 @@ import {
   requireRef,
   toAIFriendlyError,
 } from "./pw-tools-core.shared.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("pw-downloads");
 
 function buildTempDownloadPath(fileName: string): string {
   const id = crypto.randomUUID();
@@ -78,6 +81,13 @@ export async function armFileUploadViaPlaywright(opts: {
   paths?: string[];
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.info("arm file upload started", {
+    cdp_url: opts.cdpUrl,
+    target_id: opts.targetId,
+    paths_count: opts.paths?.length ?? 0,
+    timeout_ms: opts.timeoutMs,
+  });
   const page = await getPageForTargetId(opts);
   const state = ensurePageState(page);
   const timeout = Math.max(500, Math.min(120_000, opts.timeoutMs ?? 120_000));
@@ -119,6 +129,7 @@ export async function armFileUploadViaPlaywright(opts: {
     .catch(() => {
       // Ignore timeouts; the chooser may never appear.
     });
+  log.info("arm file upload registered", { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
 }
 
 export async function armDialogViaPlaywright(opts: {
@@ -128,6 +139,8 @@ export async function armDialogViaPlaywright(opts: {
   promptText?: string;
   timeoutMs?: number;
 }): Promise<void> {
+  const started = Date.now();
+  log.info("arm dialog started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, accept: opts.accept, timeout_ms: opts.timeoutMs });
   const page = await getPageForTargetId(opts);
   const state = ensurePageState(page);
   const timeout = normalizeTimeoutMs(opts.timeoutMs, 120_000);
@@ -150,6 +163,7 @@ export async function armDialogViaPlaywright(opts: {
     .catch(() => {
       // Ignore timeouts; the dialog may never appear.
     });
+  log.info("arm dialog registered", { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
 }
 
 export async function waitForDownloadViaPlaywright(opts: {
@@ -162,6 +176,8 @@ export async function waitForDownloadViaPlaywright(opts: {
   suggestedFilename: string;
   path: string;
 }> {
+  const started = Date.now();
+  log.info("wait for download started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, timeout_ms: opts.timeoutMs, path: opts.path });
   const page = await getPageForTargetId(opts);
   const state = ensurePageState(page);
   const timeout = normalizeTimeoutMs(opts.timeoutMs, 120_000);
@@ -183,13 +199,22 @@ export async function waitForDownloadViaPlaywright(opts: {
     const outPath = opts.path?.trim() || buildTempDownloadPath(suggested);
     await fs.mkdir(path.dirname(outPath), { recursive: true });
     await download.saveAs?.(outPath);
-    return {
+    const result = {
       url: download.url?.() || "",
       suggestedFilename: suggested,
       path: path.resolve(outPath),
     };
+    log.info("wait for download succeeded", {
+      cdp_url: opts.cdpUrl,
+      target_id: opts.targetId,
+      path: result.path,
+      suggested_filename: result.suggestedFilename,
+      duration_ms: Date.now() - started,
+    });
+    return result;
   } catch (err) {
     waiter.cancel();
+    log.exception("wait for download failed", err, { cdp_url: opts.cdpUrl, target_id: opts.targetId, duration_ms: Date.now() - started });
     throw err;
   }
 }
@@ -205,6 +230,8 @@ export async function downloadViaPlaywright(opts: {
   suggestedFilename: string;
   path: string;
 }> {
+  const started = Date.now();
+  log.info("download action started", { cdp_url: opts.cdpUrl, target_id: opts.targetId, ref: opts.ref, path: opts.path });
   const page = await getPageForTargetId(opts);
   const state = ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
@@ -239,13 +266,23 @@ export async function downloadViaPlaywright(opts: {
     const suggested = download.suggestedFilename?.() || "download.bin";
     await fs.mkdir(path.dirname(outPath), { recursive: true });
     await download.saveAs?.(outPath);
-    return {
+    const result = {
       url: download.url?.() || "",
       suggestedFilename: suggested,
       path: path.resolve(outPath),
     };
+    log.info("download action succeeded", {
+      cdp_url: opts.cdpUrl,
+      target_id: opts.targetId,
+      ref,
+      path: result.path,
+      suggested_filename: result.suggestedFilename,
+      duration_ms: Date.now() - started,
+    });
+    return result;
   } catch (err) {
     waiter.cancel();
+    log.exception("download action failed", err, { cdp_url: opts.cdpUrl, target_id: opts.targetId, ref: opts.ref, duration_ms: Date.now() - started });
     throw err;
   }
 }

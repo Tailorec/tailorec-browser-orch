@@ -1,5 +1,8 @@
 import os from "node:os";
 import path from "node:path";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("browser-config");
 
 export interface BrowserConfig {
   enabled: boolean;
@@ -48,28 +51,42 @@ export function loadConfig(): { browser: BrowserConfig } {
   // In a real app, load from file/env.
   const headless = process.env.HEADLESS === "true";
   const controlPort = Number(process.env.PORT) || 4000;
-  
-  return {
+  const loaded = {
     browser: {
       ...DEFAULT_CONFIG,
       controlPort,
       headless
     }
   };
+  log.info("browser config loaded", {
+    control_port: loaded.browser.controlPort,
+    headless: loaded.browser.headless,
+    evaluate_enabled: loaded.browser.evaluateEnabled,
+    profile_count: Object.keys(loaded.browser.profiles).length,
+  });
+  return loaded;
 }
 
 export function resolveBrowserConfig(config: BrowserConfig, rootConfig: any): ResolvedBrowserConfig {
+  log.debug("browser config resolved", {
+    enabled: config.enabled,
+    control_port: config.controlPort,
+    profile_count: Object.keys(config.profiles).length,
+  });
   return config;
 }
 
 export function resolveProfile(config: ResolvedBrowserConfig, name: string): ResolvedBrowserProfile | null {
   const profile = config.profiles[name];
-  if (!profile) return null;
+  if (!profile) {
+    log.warn("profile resolution failed", { profile: name });
+    return null;
+  }
   
   const cdpPort = profile.cdpPort || 9222;
   const cdpUrl = profile.cdpUrl || `http://127.0.0.1:${cdpPort}`;
   
-  return {
+  const resolved = {
     name,
     cdpPort,
     cdpUrl,
@@ -77,4 +94,12 @@ export function resolveProfile(config: ResolvedBrowserConfig, name: string): Res
     driver: profile.driver || "chrome",
     color: profile.color || "blue"
   };
+  log.debug("profile resolved", {
+    profile: name,
+    cdp_url: resolved.cdpUrl,
+    cdp_port: resolved.cdpPort,
+    cdp_is_loopback: resolved.cdpIsLoopback,
+    driver: resolved.driver,
+  });
+  return resolved;
 }

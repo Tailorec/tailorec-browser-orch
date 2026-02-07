@@ -18,6 +18,8 @@ const cdp_helpers_js_1 = require("./cdp.helpers.js");
 const chrome_executables_js_1 = require("./chrome.executables.js");
 const chrome_profile_decoration_js_1 = require("./chrome.profile-decoration.js");
 const constants_js_1 = require("./constants.js");
+const subsystem_js_1 = require("../logging/subsystem.js");
+const log = (0, subsystem_js_1.createSubsystemLogger)("chrome");
 function exists(filePath) {
     try {
         return node_fs_1.default.existsSync(filePath);
@@ -73,6 +75,14 @@ async function getChromeWebSocketUrl(cdpUrl, timeoutMs = 500) {
     return wsUrl; // In OpenClaw this used normalizeCdpWsUrl but we can probably trust it for now or implement full normalization if needed
 }
 async function launchOpenClawChrome(resolved, profile) {
+    const started = Date.now();
+    log.info("launch chrome requested", {
+        profile: profile.name,
+        cdp_url: profile.cdpUrl,
+        cdp_port: profile.cdpPort,
+        driver: profile.driver,
+        headless: resolved.headless,
+    });
     if (!profile.cdpIsLoopback) {
         throw new Error(`Profile "${profile.name}" is remote; cannot launch local Chrome.`);
     }
@@ -129,6 +139,7 @@ async function launchOpenClawChrome(resolved, profile) {
     // If the profile doesn't exist yet, bootstrap it once so Chrome creates defaults.
     // Then decorate (if needed) before the "real" run.
     if (needsBootstrap) {
+        log.debug("bootstrapping chrome profile", { profile: profile.name, user_data_dir: userDataDir });
         const bootstrap = spawnOnce();
         const deadline = Date.now() + 10_000;
         while (Date.now() < deadline) {
@@ -157,16 +168,17 @@ async function launchOpenClawChrome(resolved, profile) {
                 name: profile.name,
                 color: profile.color,
             });
+            log.debug("profile decoration applied", { profile: profile.name, color: profile.color });
         }
         catch (err) {
-            // ignore log
+            log.exception("profile decoration failed", err, { profile: profile.name });
         }
     }
     try {
         (0, chrome_profile_decoration_js_1.ensureProfileCleanExit)(userDataDir);
     }
     catch (err) {
-        // ignore log
+        log.warn("profile clean-exit preparation failed", { profile: profile.name, error: String(err) });
     }
     const proc = spawnOnce();
     // Wait for CDP to come up.
@@ -187,7 +199,7 @@ async function launchOpenClawChrome(resolved, profile) {
         throw new Error(`Failed to start Chrome CDP on port ${profile.cdpPort} for profile "${profile.name}".`);
     }
     const pid = proc.pid ?? -1;
-    return {
+    const running = {
         pid,
         exe,
         userDataDir,
@@ -195,8 +207,20 @@ async function launchOpenClawChrome(resolved, profile) {
         startedAt,
         proc,
     };
+    log.info("chrome launch succeeded", {
+        profile: profile.name,
+        pid,
+        executable: exe.path,
+        duration_ms: Date.now() - started,
+    });
+    return running;
 }
 async function stopOpenClawChrome(running, timeoutMs = 2500) {
+    log.info("stop chrome requested", {
+        pid: running.pid,
+        cdp_port: running.cdpPort,
+        timeout_ms: timeoutMs,
+    });
     const proc = running.proc;
     if (proc.killed) {
         return;
@@ -213,12 +237,14 @@ async function stopOpenClawChrome(running, timeoutMs = 2500) {
             break;
         }
         if (!(await isChromeReachable(cdpUrlForPort(running.cdpPort), 200))) {
+            log.info("chrome stopped gracefully", { pid: running.pid, cdp_port: running.cdpPort });
             return;
         }
         await new Promise((r) => setTimeout(r, 100));
     }
     try {
         proc.kill("SIGKILL");
+        log.warn("chrome force-killed", { pid: running.pid, cdp_port: running.cdpPort });
     }
     catch {
         // ignore

@@ -15,6 +15,9 @@ import {
 } from "./agent.shared.js";
 import { jsonError, toBoolean, toNumber, toStringArray, toStringOrEmpty } from "./utils.js";
 import { getPwAiModule } from "../pw-ai-module.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
+
+const log = createSubsystemLogger("browser-act");
 
 export function registerBrowserAgentActRoutes(
   app: BrowserRouteRegistrar,
@@ -41,6 +44,11 @@ export function registerBrowserAgentActRoutes(
       const cdpUrl = profileCtx.profile.cdpUrl;
       const pw = await getPwAiModule();
       const evaluateEnabled = ctx.state().resolved.evaluateEnabled;
+      log.info("act request", {
+        kind,
+        target_id: tab.targetId,
+        profile: profileCtx.profile.name,
+      });
 
       switch (kind) {
         case "click": {
@@ -339,6 +347,7 @@ export function registerBrowserAgentActRoutes(
         }
       }
     } catch (err) {
+      log.exception("act route failed", err, { kind: kindRaw, target_id: targetId });
       handleRouteError(ctx, res, err);
     }
   });
