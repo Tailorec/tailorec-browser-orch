@@ -10,6 +10,9 @@ import { chromium } from "playwright-core";
 import { formatErrorMessage } from "../infra/errors.js";
 import { getHeadersWithAuth } from "./cdp.helpers.js";
 import { getChromeWebSocketUrl } from "./chrome.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("pw-session");
 
 export type BrowserConsoleMessage = {
   type: string;
@@ -211,6 +214,13 @@ export function ensurePageState(page: Page): PageState {
       if (state.console.length > MAX_CONSOLE_MESSAGES) {
         state.console.shift();
       }
+      if (entry.type === "error" || entry.type === "warning") {
+        log.debug("page console event", {
+          type: entry.type,
+          text: entry.text,
+          page_url: page.url(),
+        });
+      }
     });
     page.on("pageerror", (err: Error) => {
       state.errors.push({
@@ -222,6 +232,11 @@ export function ensurePageState(page: Page): PageState {
       if (state.errors.length > MAX_PAGE_ERRORS) {
         state.errors.shift();
       }
+      log.warn("page runtime error", {
+        name: err?.name ? String(err.name) : undefined,
+        message: err?.message ? String(err.message) : String(err),
+        page_url: page.url(),
+      });
     });
     page.on("request", (req: Request) => {
       state.nextRequestId += 1;
@@ -276,10 +291,17 @@ export function ensurePageState(page: Page): PageState {
       }
       rec.failureText = req.failure()?.errorText;
       rec.ok = false;
+      log.warn("network request failed", {
+        method: rec.method,
+        url: rec.url,
+        failure: rec.failureText,
+        page_url: page.url(),
+      });
     });
     page.on("close", () => {
       pageStates.delete(page);
       observedPages.delete(page);
+      log.debug("page closed and state cleared", { page_url: page.url() });
     });
   }
 
@@ -318,9 +340,11 @@ function observeBrowser(browser: Browser) {
 async function connectBrowser(cdpUrl: string): Promise<ConnectedBrowser> {
   const normalized = normalizeCdpUrl(cdpUrl);
   if (cached?.cdpUrl === normalized) {
+    log.debug("reusing cached cdp browser connection", { cdp_url: normalized });
     return cached;
   }
   if (connecting) {
+    log.debug("awaiting in-flight cdp connection", { cdp_url: normalized });
     return await connecting;
   }
 
@@ -329,6 +353,7 @@ async function connectBrowser(cdpUrl: string): Promise<ConnectedBrowser> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const timeout = 5000 + attempt * 2000;
+        log.info("connecting over CDP", { cdp_url: normalized, attempt: attempt + 1, timeout_ms: timeout });
         const wsUrl = await getChromeWebSocketUrl(normalized, timeout).catch(() => null);
         const endpoint = wsUrl ?? normalized;
         const headers = getHeadersWithAuth(endpoint);
@@ -340,10 +365,17 @@ async function connectBrowser(cdpUrl: string): Promise<ConnectedBrowser> {
           if (cached?.browser === browser) {
             cached = null;
           }
+          log.warn("cdp browser disconnected", { cdp_url: normalized });
         });
+        log.info("cdp connect succeeded", { cdp_url: normalized, endpoint });
         return connected;
       } catch (err) {
         lastErr = err;
+        log.warn("cdp connect attempt failed", {
+          cdp_url: normalized,
+          attempt: attempt + 1,
+          error: String(err),
+        });
         const delay = 250 + attempt * 250;
         await new Promise((r) => setTimeout(r, delay));
       }
@@ -439,6 +471,7 @@ export async function getPageForTargetId(opts: {
   cdpUrl: string;
   targetId?: string;
 }): Promise<Page> {
+  const started = Date.now();
   const { browser } = await connectBrowser(opts.cdpUrl);
   const pages = await getAllPages(browser);
   if (!pages.length) {
@@ -446,6 +479,7 @@ export async function getPageForTargetId(opts: {
   }
   const first = pages[0];
   if (!opts.targetId) {
+    log.debug("resolved default page target", { cdp_url: opts.cdpUrl, duration_ms: Date.now() - started });
     return first;
   }
   const found = await findPageByTargetId(browser, opts.targetId, opts.cdpUrl);
@@ -454,10 +488,16 @@ export async function getPageForTargetId(opts: {
     // which prevents us from resolving a page's targetId via newCDPSession(). If Playwright
     // only exposes a single Page, use it as a best-effort fallback.
     if (pages.length === 1) {
+      log.warn("target lookup fallback to single page", { target_id: opts.targetId, cdp_url: opts.cdpUrl });
       return first;
     }
     throw new Error("tab not found");
   }
+  log.debug("resolved page target", {
+    target_id: opts.targetId,
+    cdp_url: opts.cdpUrl,
+    duration_ms: Date.now() - started,
+  });
   return found;
 }
 
@@ -506,6 +546,7 @@ export async function closePlaywrightBrowserConnection(): Promise<void> {
   if (!cur) {
     return;
   }
+  log.info("closing playwright browser connection", { cdp_url: cur.cdpUrl });
   await cur.browser.close().catch(() => {});
 }
 
@@ -521,6 +562,7 @@ export async function listPagesViaPlaywright(opts: { cdpUrl: string }): Promise<
     type: string;
   }>
 > {
+  const started = Date.now();
   const { browser } = await connectBrowser(opts.cdpUrl);
   const pages = await getAllPages(browser);
   const results: Array<{
@@ -541,6 +583,7 @@ export async function listPagesViaPlaywright(opts: { cdpUrl: string }): Promise<
       });
     }
   }
+  log.debug("listed pages", { cdp_url: opts.cdpUrl, page_count: results.length, duration_ms: Date.now() - started });
   return results;
 }
 
@@ -555,6 +598,7 @@ export async function createPageViaPlaywright(opts: { cdpUrl: string; url: strin
   url: string;
   type: string;
 }> {
+  const started = Date.now();
   const { browser } = await connectBrowser(opts.cdpUrl);
   const context = browser.contexts()[0] ?? (await browser.newContext());
   ensureContextState(context);
@@ -576,12 +620,19 @@ export async function createPageViaPlaywright(opts: { cdpUrl: string; url: strin
     throw new Error("Failed to get targetId for new page");
   }
 
-  return {
+  const created = {
     targetId: tid,
     title: await page.title().catch(() => ""),
     url: page.url(),
     type: "page",
   };
+  log.info("created page via playwright", {
+    cdp_url: opts.cdpUrl,
+    target_id: created.targetId,
+    url: created.url,
+    duration_ms: Date.now() - started,
+  });
+  return created;
 }
 
 /**
@@ -592,12 +643,18 @@ export async function closePageByTargetIdViaPlaywright(opts: {
   cdpUrl: string;
   targetId: string;
 }): Promise<void> {
+  const started = Date.now();
   const { browser } = await connectBrowser(opts.cdpUrl);
   const page = await findPageByTargetId(browser, opts.targetId, opts.cdpUrl);
   if (!page) {
     throw new Error("tab not found");
   }
   await page.close();
+  log.info("closed page via playwright", {
+    cdp_url: opts.cdpUrl,
+    target_id: opts.targetId,
+    duration_ms: Date.now() - started,
+  });
 }
 
 /**
@@ -608,6 +665,7 @@ export async function focusPageByTargetIdViaPlaywright(opts: {
   cdpUrl: string;
   targetId: string;
 }): Promise<void> {
+  const started = Date.now();
   const { browser } = await connectBrowser(opts.cdpUrl);
   const page = await findPageByTargetId(browser, opts.targetId, opts.cdpUrl);
   if (!page) {
@@ -615,10 +673,20 @@ export async function focusPageByTargetIdViaPlaywright(opts: {
   }
   try {
     await page.bringToFront();
+    log.debug("focused page via bringToFront", {
+      cdp_url: opts.cdpUrl,
+      target_id: opts.targetId,
+      duration_ms: Date.now() - started,
+    });
   } catch (err) {
     const session = await page.context().newCDPSession(page);
     try {
       await session.send("Page.bringToFront");
+      log.debug("focused page via cdp session", {
+        cdp_url: opts.cdpUrl,
+        target_id: opts.targetId,
+        duration_ms: Date.now() - started,
+      });
       return;
     } catch {
       throw err;

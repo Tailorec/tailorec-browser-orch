@@ -4,16 +4,27 @@ exports.getPageErrorsViaPlaywright = getPageErrorsViaPlaywright;
 exports.getNetworkRequestsViaPlaywright = getNetworkRequestsViaPlaywright;
 exports.getConsoleMessagesViaPlaywright = getConsoleMessagesViaPlaywright;
 const pw_session_js_1 = require("./pw-session.js");
+const subsystem_js_1 = require("../logging/subsystem.js");
+const log = (0, subsystem_js_1.createSubsystemLogger)("pw-activity");
 async function getPageErrorsViaPlaywright(opts) {
+    const started = Date.now();
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     const errors = [...state.errors];
     if (opts.clear) {
         state.errors = [];
     }
+    log.debug("retrieved page errors", {
+        cdp_url: opts.cdpUrl,
+        target_id: opts.targetId,
+        clear: Boolean(opts.clear),
+        count: errors.length,
+        duration_ms: Date.now() - started,
+    });
     return { errors };
 }
 async function getNetworkRequestsViaPlaywright(opts) {
+    const started = Date.now();
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     const raw = [...state.requests];
@@ -23,6 +34,14 @@ async function getNetworkRequestsViaPlaywright(opts) {
         state.requests = [];
         state.requestIds = new WeakMap();
     }
+    log.debug("retrieved network requests", {
+        cdp_url: opts.cdpUrl,
+        target_id: opts.targetId,
+        clear: Boolean(opts.clear),
+        filter: filter || undefined,
+        count: requests.length,
+        duration_ms: Date.now() - started,
+    });
     return { requests };
 }
 function consolePriority(level) {
@@ -41,11 +60,28 @@ function consolePriority(level) {
     }
 }
 async function getConsoleMessagesViaPlaywright(opts) {
+    const started = Date.now();
     const page = await (0, pw_session_js_1.getPageForTargetId)(opts);
     const state = (0, pw_session_js_1.ensurePageState)(page);
     if (!opts.level) {
-        return [...state.console];
+        const all = [...state.console];
+        log.debug("retrieved console messages", {
+            cdp_url: opts.cdpUrl,
+            target_id: opts.targetId,
+            level: opts.level,
+            count: all.length,
+            duration_ms: Date.now() - started,
+        });
+        return all;
     }
     const min = consolePriority(opts.level);
-    return state.console.filter((msg) => consolePriority(msg.type) >= min);
+    const filtered = state.console.filter((msg) => consolePriority(msg.type) >= min);
+    log.debug("retrieved console messages", {
+        cdp_url: opts.cdpUrl,
+        target_id: opts.targetId,
+        level: opts.level,
+        count: filtered.length,
+        duration_ms: Date.now() - started,
+    });
+    return filtered;
 }

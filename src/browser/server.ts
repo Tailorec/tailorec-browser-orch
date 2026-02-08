@@ -2,7 +2,11 @@ import type { Server } from "node:http";
 import express from "express";
 import type { BrowserRouteRegistrar } from "./routes/types.js";
 import { loadConfig } from "./config.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import {
+  createSubsystemLogger,
+  getOrCreateCorrelationIdFromHeaders,
+  withCorrelationId,
+} from "../logging/subsystem.js";
 import { resolveBrowserConfig } from "./config.js";
 import { registerBrowserRoutes } from "./routes/index.js";
 import { type BrowserServerState, createBrowserRouteContext } from "./server-context.js";
@@ -24,6 +28,34 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
 
   const app = express();
   app.use(express.json({ limit: "50mb" })); // Increased limit for snapshots
+  app.use((req, res, next) => {
+    const correlationId = getOrCreateCorrelationIdFromHeaders(req.headers);
+    const headerName = (process.env.CORRELATION_ID_HEADER || "x-correlation-id").toLowerCase();
+    const start = Date.now();
+    res.setHeader(headerName, correlationId);
+    withCorrelationId(correlationId, () => {
+      logServer.info("request started", {
+        method: req.method,
+        path: req.path,
+        query: req.query,
+        body:
+          req.body && typeof req.body === "object"
+            ? req.body
+            : req.body === undefined
+              ? undefined
+              : String(req.body),
+      });
+      res.on("finish", () => {
+        logServer.info("request completed", {
+          method: req.method,
+          path: req.path,
+          status_code: res.statusCode,
+          duration_ms: Date.now() - start,
+        });
+      });
+      next();
+    });
+  });
 
   const ctx = createBrowserRouteContext({
     getState: () => state,

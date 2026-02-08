@@ -20,6 +20,9 @@ import {
   DEFAULT_OPENCLAW_BROWSER_COLOR,
   DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME,
 } from "./constants.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("chrome");
 
 function exists(filePath: string) {
   try {
@@ -101,6 +104,14 @@ export async function launchOpenClawChrome(
   resolved: ResolvedBrowserConfig,
   profile: ResolvedBrowserProfile,
 ): Promise<RunningChrome> {
+  const started = Date.now();
+  log.info("launch chrome requested", {
+    profile: profile.name,
+    cdp_url: profile.cdpUrl,
+    cdp_port: profile.cdpPort,
+    driver: profile.driver,
+    headless: resolved.headless,
+  });
   if (!profile.cdpIsLoopback) {
     throw new Error(`Profile "${profile.name}" is remote; cannot launch local Chrome.`);
   }
@@ -173,6 +184,7 @@ export async function launchOpenClawChrome(
   // If the profile doesn't exist yet, bootstrap it once so Chrome creates defaults.
   // Then decorate (if needed) before the "real" run.
   if (needsBootstrap) {
+    log.debug("bootstrapping chrome profile", { profile: profile.name, user_data_dir: userDataDir });
     const bootstrap = spawnOnce();
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
@@ -201,15 +213,16 @@ export async function launchOpenClawChrome(
         name: profile.name,
         color: profile.color,
       });
+      log.debug("profile decoration applied", { profile: profile.name, color: profile.color });
     } catch (err) {
-      // ignore log
+      log.exception("profile decoration failed", err, { profile: profile.name });
     }
   }
 
   try {
     ensureProfileCleanExit(userDataDir);
   } catch (err) {
-    // ignore log
+    log.warn("profile clean-exit preparation failed", { profile: profile.name, error: String(err) });
   }
 
   const proc = spawnOnce();
@@ -235,7 +248,7 @@ export async function launchOpenClawChrome(
 
   const pid = proc.pid ?? -1;
 
-  return {
+  const running = {
     pid,
     exe,
     userDataDir,
@@ -243,9 +256,21 @@ export async function launchOpenClawChrome(
     startedAt,
     proc,
   };
+  log.info("chrome launch succeeded", {
+    profile: profile.name,
+    pid,
+    executable: exe.path,
+    duration_ms: Date.now() - started,
+  });
+  return running;
 }
 
 export async function stopOpenClawChrome(running: RunningChrome, timeoutMs = 2500) {
+  log.info("stop chrome requested", {
+    pid: running.pid,
+    cdp_port: running.cdpPort,
+    timeout_ms: timeoutMs,
+  });
   const proc = running.proc;
   if (proc.killed) {
     return;
@@ -262,6 +287,7 @@ export async function stopOpenClawChrome(running: RunningChrome, timeoutMs = 250
       break;
     }
     if (!(await isChromeReachable(cdpUrlForPort(running.cdpPort), 200))) {
+      log.info("chrome stopped gracefully", { pid: running.pid, cdp_port: running.cdpPort });
       return;
     }
     await new Promise((r) => setTimeout(r, 100));
@@ -269,6 +295,7 @@ export async function stopOpenClawChrome(running: RunningChrome, timeoutMs = 250
 
   try {
     proc.kill("SIGKILL");
+    log.warn("chrome force-killed", { pid: running.pid, cdp_port: running.cdpPort });
   } catch {
     // ignore
   }

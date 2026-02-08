@@ -3,6 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const server_js_1 = require("./browser/server.js");
 const subsystem_js_1 = require("./logging/subsystem.js");
 const log = (0, subsystem_js_1.createSubsystemLogger)("main");
+process.on("uncaughtException", (err) => {
+    log.exception("Uncaught exception", err);
+    process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+    log.exception("Unhandled promise rejection", reason);
+    process.exit(1);
+});
 async function main() {
     try {
         log.info("Starting Tailorec Browser Service...");
@@ -16,7 +24,7 @@ async function main() {
         }
     }
     catch (err) {
-        log.error(`Fatal error: ${err}`);
+        log.exception("Fatal error during service startup", err);
         process.exit(1);
     }
 }
