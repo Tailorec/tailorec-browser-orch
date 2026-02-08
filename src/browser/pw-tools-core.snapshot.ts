@@ -42,6 +42,7 @@ export async function snapshotAiViaPlaywright(opts: {
   targetId?: string;
   timeoutMs?: number;
   maxChars?: number;
+  options?: RoleSnapshotOptions;
 }): Promise<{ snapshot: string; truncated?: boolean; refs: RoleRefMap }> {
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
@@ -70,7 +71,7 @@ export async function snapshotAiViaPlaywright(opts: {
     truncated = true;
   }
 
-  const built = buildRoleSnapshotFromAiSnapshot(snapshot);
+  const built = buildRoleSnapshotFromAiSnapshot(snapshot, opts.options);
   storeRoleRefsForTarget({
     page,
     cdpUrl: opts.cdpUrl,

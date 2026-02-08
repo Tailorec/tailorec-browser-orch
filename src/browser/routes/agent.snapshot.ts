@@ -2,7 +2,7 @@ import type { BrowserRouteContext } from "../server-context.js";
 import type { BrowserRouteRegistrar } from "./types.js";
 import { resolveProfileContext } from "./agent.shared.js";
 import { getPwAiModule } from "../pw-ai-module.js";
-import { jsonError, toStringOrEmpty, toNumber, toBoolean } from "./utils.js";
+import { jsonError, toStringOrEmpty, toNumber } from "./utils.js";
 
 export function registerBrowserAgentSnapshotRoutes(app: BrowserRouteRegistrar, ctx: BrowserRouteContext) {
   app.post("/snapshot", async (req, res) => {
@@ -21,12 +21,20 @@ export function registerBrowserAgentSnapshotRoutes(app: BrowserRouteRegistrar, c
       // We accept snapshot options in body
       const timeoutMs = toNumber(body.timeoutMs);
       const maxChars = toNumber(body.maxChars);
-      
+      const interactiveOnly = body.interactiveOnly === true;
+      const compact = body.compact === true;
+      const maxDepth = toNumber(body.maxDepth);
+
       const result = await pw.snapshotAiViaPlaywright({
         cdpUrl,
         targetId: tab.targetId,
         timeoutMs,
-        maxChars
+        maxChars,
+        options: {
+          interactive: interactiveOnly,
+          compact,
+          maxDepth: maxDepth ?? undefined,
+        },
       });
       
       res.json({ ok: true, targetId: tab.targetId, url: tab.url, ...result });

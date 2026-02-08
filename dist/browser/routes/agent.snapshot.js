@@ -19,11 +19,19 @@ function registerBrowserAgentSnapshotRoutes(app, ctx) {
             // We accept snapshot options in body
             const timeoutMs = (0, utils_js_1.toNumber)(body.timeoutMs);
             const maxChars = (0, utils_js_1.toNumber)(body.maxChars);
+            const interactiveOnly = body.interactiveOnly === true;
+            const compact = body.compact === true;
+            const maxDepth = (0, utils_js_1.toNumber)(body.maxDepth);
             const result = await pw.snapshotAiViaPlaywright({
                 cdpUrl,
                 targetId: tab.targetId,
                 timeoutMs,
-                maxChars
+                maxChars,
+                options: {
+                    interactive: interactiveOnly,
+                    compact,
+                    maxDepth: maxDepth ?? undefined,
+                },
             });
             res.json({ ok: true, targetId: tab.targetId, url: tab.url, ...result });
         }
