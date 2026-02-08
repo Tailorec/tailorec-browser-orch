@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { extractCorrelationIdFromHeaders, generateCorrelationId, getCorrelationId, runWithCorrelationId } from "./correlation.js";
+import "dotenv/config";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 type LogFormat = "json" | "console";
@@ -78,12 +79,12 @@ class AsyncLogQueue {
 }
 
 const queue = new AsyncLogQueue();
-const currentLevel = parseLevel(process.env.LOG_LEVEL);
-const format: LogFormat = process.env.LOG_FORMAT === "console" ? "console" : "json";
-const logToFile = process.env.LOG_TO_FILE === "true";
-const logFilePath = process.env.LOG_FILE_PATH || "logs/app.log";
-const logMaxBytes = Number(process.env.LOG_MAX_BYTES || 10 * 1024 * 1024);
-const logBackupCount = Number(process.env.LOG_BACKUP_COUNT || 5);
+let currentLevel: LogLevel = "info";
+let format: LogFormat = "json";
+let logToFile = false;
+let logFilePath = "logs/app.log";
+let logMaxBytes = 10 * 1024 * 1024;
+let logBackupCount = 5;
 let initialized = false;
 
 function parseLevel(levelRaw: string | undefined): LogLevel {
@@ -95,6 +96,7 @@ function parseLevel(levelRaw: string | undefined): LogLevel {
 }
 
 function shouldLog(level: LogLevel): boolean {
+  if (!initialized) setupLogging();
   return levelWeights[level] >= levelWeights[currentLevel];
 }
 
@@ -187,6 +189,15 @@ function setupLogging(): void {
     return;
   }
   initialized = true;
+
+  // Initialize from environment
+  currentLevel = parseLevel(process.env.LOG_LEVEL);
+  format = process.env.LOG_FORMAT === "console" ? "console" : "json";
+  logToFile = process.env.LOG_TO_FILE === "true";
+  if (process.env.LOG_FILE_PATH) logFilePath = process.env.LOG_FILE_PATH;
+  if (process.env.LOG_MAX_BYTES) logMaxBytes = Number(process.env.LOG_MAX_BYTES);
+  if (process.env.LOG_BACKUP_COUNT) logBackupCount = Number(process.env.LOG_BACKUP_COUNT);
+
   const logger = createSubsystemLogger("logging");
   logger.info("logging initialized", {
     log_level: currentLevel,

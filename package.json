@@ -9,11 +9,12 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
+    "dotenv": "^17.2.4",
     "express": "^4.18.2",
-    "playwright-core": "^1.40.0",
     "playwright": "^1.40.0",
-    "ws": "^8.16.0",
+    "playwright-core": "^1.40.0",
     "tslog": "^4.9.2",
+    "ws": "^8.16.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
