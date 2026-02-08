@@ -65,7 +65,7 @@ async function snapshotAiViaPlaywright(opts) {
         snapshot = `${snapshot.slice(0, limit)}\n\n[...TRUNCATED - page too large]`;
         truncated = true;
     }
-    const built = (0, pw_role_snapshot_js_1.buildRoleSnapshotFromAiSnapshot)(snapshot);
+    const built = (0, pw_role_snapshot_js_1.buildRoleSnapshotFromAiSnapshot)(snapshot, opts.options);
     (0, pw_session_js_1.storeRoleRefsForTarget)({
         page,
         cdpUrl: opts.cdpUrl,
