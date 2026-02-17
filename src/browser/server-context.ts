@@ -179,6 +179,15 @@ export function createBrowserRouteContext(opts: {
       if (isConnectionRefusedError(err)) {
         return { status: 503, message: "Browser CDP unavailable. Retry in a few seconds." };
       }
+      if (
+        msg.includes("not found or not visible") ||
+        msg.includes("Run a new snapshot to see current page elements")
+      ) {
+        return {
+          status: 409,
+          message: "Reference became stale after page update. Take a new snapshot and retry.",
+        };
+      }
       if (msg.includes("Timeout") || msg.includes("TimeoutError")) {
         return { status: 408, message: "Browser action timed out" };
       }

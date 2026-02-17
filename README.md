@@ -23,8 +23,8 @@ graph TD
 
 The interaction model follows a **Perceive-Act** loop:
 
-1.  **Perceive**: The agent requests a snapshot. The service returns a simplified, accessibility-focused text representation of the page, where interactive elements are assigned unique numeric IDs (Refs).
-2.  **Act**: The agent sends a command referencing those IDs (e.g., `click(ref=12)`).
+1.  **Perceive**: The agent requests a snapshot. The service returns a simplified, accessibility-focused text representation of the page, where interactive elements are assigned stable ref IDs (e.g., `e12`).
+2.  **Act**: The agent sends a command referencing those IDs (e.g., `click(ref=e12)`).
 
 ```mermaid
 sequenceDiagram
@@ -40,8 +40,8 @@ sequenceDiagram
     Service-->>Agent: JSON { snapshot: "...", refs: {...} }
 
     Note over Agent, Page: Action Phase
-    Agent->>Agent: Decide to Click "Login" (ID: 12)
-    Agent->>Service: POST /act { kind: "click", ref: "12" }
+    Agent->>Agent: Decide to Click "Login" (Ref: e12)
+    Agent->>Service: POST /act { kind: "click", ref: "e12" }
     Service->>Page: Locate Element #12 & Click
     Page-->>Service: Click Success
     Service-->>Agent: JSON { ok: true }
@@ -75,7 +75,7 @@ npm run build
 npm start
 ```
 
-The service typically listens on port **3000** (or as configured).
+The service typically listens on port **4000** (or as configured).
 
 ## 🔄 Service State Machine
 
@@ -130,10 +130,10 @@ Generates a text-based representation of the current page state for the AI to an
 ```json
 {
   "ok": true,
-  "snapshot": "Button 'Submit' [12]\nInput 'Search' [45]...",
+  "snapshot": "- button \"Submit\" [ref=e12]\n- textbox \"Search\" [ref=e45]...",
   "refs": {
-    "12": { "role": "button", "name": "Submit" },
-    "45": { "role": "textbox", "name": "Search" }
+    "e12": { "role": "button", "name": "Submit" },
+    "e45": { "role": "textbox", "name": "Search" }
   }
 }
 ```
@@ -161,7 +161,7 @@ Executes interactions on the page. All actions require a `kind` field.
 ```json
 {
   "kind": "click",
-  "ref": "12",
+  "ref": "e12",
   "timeoutMs": 2000
 }
 ```
@@ -170,7 +170,7 @@ Executes interactions on the page. All actions require a `kind` field.
 ```json
 {
   "kind": "type",
-  "ref": "45",
+  "ref": "e45",
   "text": "Hello World",
   "submit": true
 }
@@ -182,6 +182,68 @@ Executes interactions on the page. All actions require a `kind` field.
 -   **`POST /hooks/dialog`**: Handle JavaScript alerts/prompts.
 -   **`POST /download`**: Trigger and wait for a file download.
 -   **`POST /wait/download`**: Wait for a download initiated by a previous action.
+-   **`POST /highlight`**: Highlight an element by `ref` for debugging.
+
+### 5. Visual Preview (Screenshots)
+
+Use these endpoints to provide user-visible previews of browser actions.
+
+#### `POST /screenshot`
+Capture a screenshot and return it as base64.
+
+**Body:**
+```json
+{
+  "targetId": "optional-page-id",
+  "type": "png",
+  "fullPage": false,
+  "ref": "e12"
+}
+```
+
+- `type`: `png` (default) or `jpeg`
+- `ref` or `element` can be provided for element screenshots
+- `fullPage` is supported only for full-page screenshots (not element screenshots)
+
+**Response:**
+```json
+{
+  "ok": true,
+  "targetId": "...",
+  "url": "https://...",
+  "mimeType": "image/png",
+  "imageBase64": "iVBORw0KGgo..."
+}
+```
+
+#### `POST /screenshot/labeled`
+Capture a screenshot with visible ref labels overlaid for debugging.
+
+**Body:**
+```json
+{
+  "targetId": "optional-page-id",
+  "type": "png",
+  "maxLabels": 120,
+  "refs": {
+    "e1": { "role": "button", "name": "Apply" },
+    "e2": { "role": "textbox", "name": "Email" }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "targetId": "...",
+  "url": "https://...",
+  "mimeType": "image/png",
+  "labels": 36,
+  "skipped": 8,
+  "imageBase64": "iVBORw0KGgo..."
+}
+```
 
 ## 📂 Project Structure
 
