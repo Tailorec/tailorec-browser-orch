@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { BrowserFormField } from "../client-actions-core.js";
 import type { BrowserRouteContext } from "../server-context.js";
 import type { BrowserRouteRegistrar } from "./types.js";
@@ -28,6 +32,40 @@ function parseScreenshotType(value: unknown): "png" | "jpeg" {
     return "jpeg";
   }
   throw new Error("type must be png|jpeg");
+}
+
+async function stageUploadFromUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`file_download_failed:${response.status}`);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const pathname = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return "/upload.bin";
+    }
+  })();
+  const ext = path.extname(pathname) || ".bin";
+  const tempPath = path.join(os.tmpdir(), `openclaw-browser-upload-${randomUUID()}${ext}`);
+  await fs.writeFile(tempPath, bytes);
+  return tempPath;
+}
+
+async function resolveUploadPaths(paths: string[]): Promise<{ resolved: string[]; staged: string[] }> {
+  const resolved: string[] = [];
+  const staged: string[] = [];
+  for (const entry of paths) {
+    if (/^https?:\/\//i.test(entry)) {
+      const tempPath = await stageUploadFromUrl(entry);
+      resolved.push(tempPath);
+      staged.push(tempPath);
+    } else {
+      resolved.push(entry);
+    }
+  }
+  return { resolved, staged };
 }
 
 export function registerBrowserAgentActRoutes(
@@ -411,7 +449,10 @@ export function registerBrowserAgentActRoutes(
     if (!paths.length) {
       return jsonError(res, 400, "paths are required");
     }
+    let stagedPaths: string[] = [];
     try {
+      const { resolved: resolvedPaths, staged } = await resolveUploadPaths(paths);
+      stagedPaths = staged;
       const tab = await profileCtx.ensureTabAvailable(targetId);
       const pw = await getPwAiModule();
       if (inputRef || element) {
@@ -423,13 +464,13 @@ export function registerBrowserAgentActRoutes(
           targetId: tab.targetId,
           inputRef,
           element,
-          paths,
+          paths: resolvedPaths,
         });
       } else {
         await pw.armFileUploadViaPlaywright({
           cdpUrl: profileCtx.profile.cdpUrl,
           targetId: tab.targetId,
-          paths,
+          paths: resolvedPaths,
           timeoutMs: timeoutMs ?? undefined,
         });
         if (ref) {
@@ -443,6 +484,8 @@ export function registerBrowserAgentActRoutes(
       res.json({ ok: true });
     } catch (err) {
       handleRouteError(ctx, res, err);
+    } finally {
+      await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
     }
   });
 
