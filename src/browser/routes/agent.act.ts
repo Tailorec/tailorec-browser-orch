@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { BrowserFormField } from "../client-actions-core.js";
 import type { BrowserRouteContext } from "../server-context.js";
 import type { BrowserRouteRegistrar } from "./types.js";
@@ -18,6 +22,51 @@ import { getPwAiModule } from "../pw-ai-module.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 
 const log = createSubsystemLogger("browser-act");
+
+function parseScreenshotType(value: unknown): "png" | "jpeg" {
+  const raw = toStringOrEmpty(value).toLowerCase();
+  if (!raw || raw === "png") {
+    return "png";
+  }
+  if (raw === "jpeg" || raw === "jpg") {
+    return "jpeg";
+  }
+  throw new Error("type must be png|jpeg");
+}
+
+async function stageUploadFromUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`file_download_failed:${response.status}`);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const pathname = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return "/upload.bin";
+    }
+  })();
+  const ext = path.extname(pathname) || ".bin";
+  const tempPath = path.join(os.tmpdir(), `openclaw-browser-upload-${randomUUID()}${ext}`);
+  await fs.writeFile(tempPath, bytes);
+  return tempPath;
+}
+
+async function resolveUploadPaths(paths: string[]): Promise<{ resolved: string[]; staged: string[] }> {
+  const resolved: string[] = [];
+  const staged: string[] = [];
+  for (const entry of paths) {
+    if (/^https?:\/\//i.test(entry)) {
+      const tempPath = await stageUploadFromUrl(entry);
+      resolved.push(tempPath);
+      staged.push(tempPath);
+    } else {
+      resolved.push(entry);
+    }
+  }
+  return { resolved, staged };
+}
 
 export function registerBrowserAgentActRoutes(
   app: BrowserRouteRegistrar,
@@ -347,6 +396,39 @@ export function registerBrowserAgentActRoutes(
         }
       }
     } catch (err) {
+      const body = readBody(req);
+      const loadStateRaw = toStringOrEmpty(body.loadState);
+      const timeoutMs = toNumber(body.timeoutMs);
+      const errMsg = err instanceof Error ? err.message : String(err);
+
+      // Rich timeout response for observability/debugging.
+      if (errMsg.includes("waitForLoadState") && errMsg.includes("Timeout")) {
+        const loadStateHint =
+          loadStateRaw === "networkidle"
+            ? "networkidle can hang on pages with long-polling/analytics; prefer load or domcontentloaded"
+            : "increase timeoutMs or use a less strict wait condition";
+        log.warn("act wait timed out", {
+          kind: kindRaw,
+          target_id: targetId,
+          load_state: loadStateRaw || undefined,
+          timeout_ms: timeoutMs,
+          hint: loadStateHint,
+        });
+        return res.status(408).json({
+          ok: false,
+          error: "Browser wait action timed out",
+          code: "WAIT_LOAD_STATE_TIMEOUT",
+          details: {
+            kind: kindRaw,
+            targetId: targetId || null,
+            loadState: loadStateRaw || null,
+            timeoutMs: timeoutMs ?? null,
+            hint: loadStateHint,
+            raw: errMsg.slice(0, 1000),
+          },
+        });
+      }
+
       log.exception("act route failed", err, { kind: kindRaw, target_id: targetId });
       handleRouteError(ctx, res, err);
     }
@@ -367,7 +449,10 @@ export function registerBrowserAgentActRoutes(
     if (!paths.length) {
       return jsonError(res, 400, "paths are required");
     }
+    let stagedPaths: string[] = [];
     try {
+      const { resolved: resolvedPaths, staged } = await resolveUploadPaths(paths);
+      stagedPaths = staged;
       const tab = await profileCtx.ensureTabAvailable(targetId);
       const pw = await getPwAiModule();
       if (inputRef || element) {
@@ -379,13 +464,13 @@ export function registerBrowserAgentActRoutes(
           targetId: tab.targetId,
           inputRef,
           element,
-          paths,
+          paths: resolvedPaths,
         });
       } else {
         await pw.armFileUploadViaPlaywright({
           cdpUrl: profileCtx.profile.cdpUrl,
           targetId: tab.targetId,
-          paths,
+          paths: resolvedPaths,
           timeoutMs: timeoutMs ?? undefined,
         });
         if (ref) {
@@ -399,6 +484,8 @@ export function registerBrowserAgentActRoutes(
       res.json({ ok: true });
     } catch (err) {
       handleRouteError(ctx, res, err);
+    } finally {
+      await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
     }
   });
 
@@ -482,6 +569,124 @@ export function registerBrowserAgentActRoutes(
         timeoutMs: timeoutMs ?? undefined,
       });
       res.json({ ok: true, targetId: tab.targetId, download: result });
+    } catch (err) {
+      handleRouteError(ctx, res, err);
+    }
+  });
+
+  app.post("/screenshot", async (req, res) => {
+    const profileCtx = resolveProfileContext(req, res, ctx);
+    if (!profileCtx) {
+      return;
+    }
+    const body = readBody(req);
+    const targetId = toStringOrEmpty(body.targetId) || undefined;
+    let type: "png" | "jpeg";
+    try {
+      type = parseScreenshotType(body.type);
+    } catch (err) {
+      return jsonError(res, 400, err);
+    }
+    const ref = toStringOrEmpty(body.ref) || undefined;
+    const element = toStringOrEmpty(body.element) || undefined;
+    const fullPage = toBoolean(body.fullPage);
+
+    if (ref && element) {
+      return jsonError(res, 400, "ref and element are mutually exclusive");
+    }
+    if ((ref || element) && fullPage) {
+      return jsonError(res, 400, "fullPage is only allowed for full-page screenshots");
+    }
+
+    try {
+      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const pw = await getPwAiModule();
+      const result = await pw.takeScreenshotViaPlaywright({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        ref,
+        element,
+        fullPage: fullPage === true,
+        type,
+      });
+      res.json({
+        ok: true,
+        targetId: tab.targetId,
+        url: tab.url,
+        mimeType: type === "jpeg" ? "image/jpeg" : "image/png",
+        imageBase64: result.buffer.toString("base64"),
+      });
+    } catch (err) {
+      handleRouteError(ctx, res, err);
+    }
+  });
+
+  app.post("/screenshot/labeled", async (req, res) => {
+    const profileCtx = resolveProfileContext(req, res, ctx);
+    if (!profileCtx) {
+      return;
+    }
+    const body = readBody(req);
+    const targetId = toStringOrEmpty(body.targetId) || undefined;
+    let type: "png" | "jpeg";
+    try {
+      type = parseScreenshotType(body.type);
+    } catch (err) {
+      return jsonError(res, 400, err);
+    }
+
+    const rawRefs =
+      body.refs && typeof body.refs === "object" && !Array.isArray(body.refs)
+        ? (body.refs as Record<string, unknown>)
+        : null;
+    if (!rawRefs) {
+      return jsonError(res, 400, "refs object is required");
+    }
+
+    const refs: Record<string, { role: string; name?: string; nth?: number }> = {};
+    for (const [ref, val] of Object.entries(rawRefs)) {
+      if (!val || typeof val !== "object" || Array.isArray(val)) {
+        continue;
+      }
+      const rec = val as Record<string, unknown>;
+      const role = toStringOrEmpty(rec.role);
+      if (!role) {
+        continue;
+      }
+      const name = toStringOrEmpty(rec.name) || undefined;
+      const nth = toNumber(rec.nth);
+      refs[ref] = {
+        role,
+        ...(name ? { name } : {}),
+        ...(typeof nth === "number" ? { nth } : {}),
+      };
+    }
+
+    if (!Object.keys(refs).length) {
+      return jsonError(res, 400, "refs must include at least one valid {role,name?,nth?} entry");
+    }
+
+    const maxLabels = toNumber(body.maxLabels);
+
+    try {
+      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const pw = await getPwAiModule();
+      const result = await pw.screenshotWithLabelsViaPlaywright({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        refs,
+        maxLabels,
+        type,
+      });
+      res.json({
+        ok: true,
+        targetId: tab.targetId,
+        url: tab.url,
+        mimeType: type === "jpeg" ? "image/jpeg" : "image/png",
+        imageBase64: result.buffer.toString("base64"),
+        labels: result.labels,
+        skipped: result.skipped,
+      });
     } catch (err) {
       handleRouteError(ctx, res, err);
     }
