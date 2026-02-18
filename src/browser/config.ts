@@ -4,6 +4,11 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 
 const log = createSubsystemLogger("browser-config");
 
+export interface BrowserViewport {
+  width: number;
+  height: number;
+}
+
 export interface BrowserConfig {
   enabled: boolean;
   controlPort: number;
@@ -11,6 +16,7 @@ export interface BrowserConfig {
   noSandbox?: boolean;
   profiles: Record<string, BrowserProfileConfig>;
   evaluateEnabled: boolean; // Security flag
+  viewport: BrowserViewport;
 }
 
 export interface BrowserProfileConfig {
@@ -38,6 +44,7 @@ const DEFAULT_CONFIG: BrowserConfig = {
   controlPort: 4000,
   headless: false, // Default to visible for debugging, can override via env
   evaluateEnabled: true,
+  viewport: { width: 1280, height: 720 },
   profiles: {
     default: {
       cdpPort: 9222,
@@ -55,6 +62,32 @@ function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean 
   return fallback;
 }
 
+function parseViewportEnv(value: string | undefined, fallback: BrowserViewport): BrowserViewport {
+  if (!value) {
+    return fallback;
+  }
+
+  const match = value.trim().match(/^(\d+)x(\d+)$/i);
+  if (!match) {
+    return fallback;
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return fallback;
+  }
+
+  return {
+    width: Math.floor(width),
+    height: Math.floor(height),
+  };
+}
+
+export function getConfiguredViewport(): BrowserViewport {
+  return parseViewportEnv(process.env.BROWSER_VIEWPORT, DEFAULT_CONFIG.viewport);
+}
+
 export function loadConfig(): { browser: BrowserConfig } {
   // In a real app, load from file/env.
   // Prefer BROWSER_HEADLESS; keep HEADLESS for backward compatibility.
@@ -63,17 +96,20 @@ export function loadConfig(): { browser: BrowserConfig } {
     DEFAULT_CONFIG.headless,
   );
   const controlPort = Number(process.env.PORT) || 4000;
+  const viewport = getConfiguredViewport();
   const loaded = {
     browser: {
       ...DEFAULT_CONFIG,
       controlPort,
-      headless
+      headless,
+      viewport,
     }
   };
   log.info("browser config loaded", {
     control_port: loaded.browser.controlPort,
     headless: loaded.browser.headless,
     evaluate_enabled: loaded.browser.evaluateEnabled,
+    viewport: `${loaded.browser.viewport.width}x${loaded.browser.viewport.height}`,
     profile_count: Object.keys(loaded.browser.profiles).length,
   });
   return loaded;
@@ -83,6 +119,7 @@ export function resolveBrowserConfig(config: BrowserConfig, rootConfig: any): Re
   log.debug("browser config resolved", {
     enabled: config.enabled,
     control_port: config.controlPort,
+    viewport: `${config.viewport.width}x${config.viewport.height}`,
     profile_count: Object.keys(config.profiles).length,
   });
   return config;

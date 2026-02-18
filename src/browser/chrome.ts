@@ -111,6 +111,7 @@ export async function launchOpenClawChrome(
     cdp_port: profile.cdpPort,
     driver: profile.driver,
     headless: resolved.headless,
+    viewport: `${resolved.viewport.width}x${resolved.viewport.height}`,
   });
   if (!profile.cdpIsLoopback) {
     throw new Error(`Profile "${profile.name}" is remote; cannot launch local Chrome.`);
@@ -147,6 +148,7 @@ export async function launchOpenClawChrome(
       "--disable-session-crashed-bubble",
       "--hide-crash-restore-bubble",
       "--password-store=basic",
+      `--window-size=${resolved.viewport.width},${resolved.viewport.height}`,
     ];
 
     if (resolved.headless) {

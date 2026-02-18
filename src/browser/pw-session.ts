@@ -11,6 +11,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { getHeadersWithAuth } from "./cdp.helpers.js";
 import { getChromeWebSocketUrl } from "./chrome.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { getConfiguredViewport } from "./config.js";
 
 const log = createSubsystemLogger("pw-session");
 
@@ -605,6 +606,14 @@ export async function createPageViaPlaywright(opts: { cdpUrl: string; url: strin
 
   const page = await context.newPage();
   ensurePageState(page);
+
+  const viewport = getConfiguredViewport();
+  await page
+    .setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    })
+    .catch(() => {});
 
   // Navigate to the URL
   const targetUrl = opts.url.trim() || "about:blank";

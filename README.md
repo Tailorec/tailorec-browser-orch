@@ -265,6 +265,7 @@ src/
 Configuration is loaded via `src/browser/config.ts`. You can control:
 -   **Port**: `PORT` (default `4000`)
 -   **Headless**: `BROWSER_HEADLESS=true|false` (preferred, legacy `HEADLESS` also supported)
+-   **Viewport**: `BROWSER_VIEWPORT=WIDTHxHEIGHT` (default `1280x720`, e.g. `1280x720`)
 -   **Evaluate Enabled**: Security toggle to allow/disallow arbitrary JS execution.
 
 Example:
@@ -272,4 +273,5 @@ Example:
 ```bash
 PORT=4000
 BROWSER_HEADLESS=true
+BROWSER_VIEWPORT=1280x720
 ```
