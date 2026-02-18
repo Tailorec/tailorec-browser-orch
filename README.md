@@ -263,6 +263,13 @@ src/
 ## 🛠 Configuration
 
 Configuration is loaded via `src/browser/config.ts`. You can control:
--   **Port**: Default port for the HTTP server.
--   **Headless**: Run browser in headless mode or visible.
+-   **Port**: `PORT` (default `4000`)
+-   **Headless**: `BROWSER_HEADLESS=true|false` (preferred, legacy `HEADLESS` also supported)
 -   **Evaluate Enabled**: Security toggle to allow/disallow arbitrary JS execution.
+
+Example:
+
+```bash
+PORT=4000
+BROWSER_HEADLESS=true
+```

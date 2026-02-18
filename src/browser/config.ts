@@ -47,9 +47,21 @@ const DEFAULT_CONFIG: BrowserConfig = {
   }
 };
 
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
 export function loadConfig(): { browser: BrowserConfig } {
   // In a real app, load from file/env.
-  const headless = process.env.HEADLESS === "true";
+  // Prefer BROWSER_HEADLESS; keep HEADLESS for backward compatibility.
+  const headless = parseBooleanEnv(
+    process.env.BROWSER_HEADLESS ?? process.env.HEADLESS,
+    DEFAULT_CONFIG.headless,
+  );
   const controlPort = Number(process.env.PORT) || 4000;
   const loaded = {
     browser: {
