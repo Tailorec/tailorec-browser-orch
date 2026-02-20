@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
+
 import path from "node:path";
 import type { BrowserFormField } from "../client-actions-core.js";
 import type { BrowserRouteContext, ProfileContext } from "../server-context.js";
@@ -48,7 +48,9 @@ export async function stageUploadFromUrl(url: string): Promise<string> {
     }
   })();
   const ext = path.extname(pathname) || ".bin";
-  const tempPath = path.join(os.tmpdir(), `openclaw-browser-upload-${randomUUID()}${ext}`);
+  const uploadDir = path.resolve(process.cwd(), "upload-resume");
+  await fs.mkdir(uploadDir, { recursive: true });
+  const tempPath = path.join(uploadDir, `openclaw-browser-upload-${randomUUID()}${ext}`);
   await fs.writeFile(tempPath, bytes);
   return tempPath;
 }
@@ -77,8 +79,9 @@ export async function executeFileChooserUpload(args: {
   element?: string;
   paths: string[];
   timeoutMs?: number;
+  keepStagedFiles?: boolean;
 }): Promise<void> {
-  const { profileCtx, getPwModule, targetId, ref, inputRef, element, paths, timeoutMs } = args;
+  const { profileCtx, getPwModule, targetId, ref, inputRef, element, paths, timeoutMs, keepStagedFiles } = args;
 
   let stagedPaths: string[] = [];
   try {
@@ -119,6 +122,12 @@ export async function executeFileChooserUpload(args: {
       });
     }
   } finally {
+    if (keepStagedFiles) {
+      log.info("keeping staged upload files for debugging", {
+        staged_paths: stagedPaths,
+      });
+      return;
+    }
     await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
   }
 }
@@ -518,6 +527,7 @@ export function registerBrowserAgentActRoutes(
         element,
         paths,
         timeoutMs: timeoutMs ?? undefined,
+        keepStagedFiles: process.env.BROWSER_KEEP_STAGED_UPLOADS === "true",
       });
       res.json({ ok: true });
     } catch (err) {
