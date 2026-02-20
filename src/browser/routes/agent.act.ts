@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserFormField } from "../client-actions-core.js";
-import type { BrowserRouteContext } from "../server-context.js";
+import type { BrowserRouteContext, ProfileContext } from "../server-context.js";
 import type { BrowserRouteRegistrar } from "./types.js";
 import {
   type ActKind,
@@ -34,7 +34,7 @@ function parseScreenshotType(value: unknown): "png" | "jpeg" {
   throw new Error("type must be png|jpeg");
 }
 
-async function stageUploadFromUrl(url: string): Promise<string> {
+export async function stageUploadFromUrl(url: string): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`file_download_failed:${response.status}`);
@@ -53,7 +53,7 @@ async function stageUploadFromUrl(url: string): Promise<string> {
   return tempPath;
 }
 
-async function resolveUploadPaths(paths: string[]): Promise<{ resolved: string[]; staged: string[] }> {
+export async function resolveUploadPaths(paths: string[]): Promise<{ resolved: string[]; staged: string[] }> {
   const resolved: string[] = [];
   const staged: string[] = [];
   for (const entry of paths) {
@@ -66,6 +66,61 @@ async function resolveUploadPaths(paths: string[]): Promise<{ resolved: string[]
     }
   }
   return { resolved, staged };
+}
+
+export async function executeFileChooserUpload(args: {
+  profileCtx: ProfileContext;
+  getPwModule: () => Promise<Awaited<ReturnType<typeof getPwAiModule>>>;
+  targetId?: string;
+  ref?: string;
+  inputRef?: string;
+  element?: string;
+  paths: string[];
+  timeoutMs?: number;
+}): Promise<void> {
+  const { profileCtx, getPwModule, targetId, ref, inputRef, element, paths, timeoutMs } = args;
+
+  let stagedPaths: string[] = [];
+  try {
+    const { resolved: resolvedPaths, staged } = await resolveUploadPaths(paths);
+    stagedPaths = staged;
+
+    const tab = await profileCtx.ensureTabAvailable(targetId);
+    const pw = await getPwModule();
+    if (!pw) {
+      throw new Error("playwright_unavailable");
+    }
+
+    if (inputRef || element) {
+      if (ref) {
+        throw new Error("ref cannot be combined with inputRef/element");
+      }
+      await pw.setInputFilesViaPlaywright({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        inputRef,
+        element,
+        paths: resolvedPaths,
+      });
+      return;
+    }
+
+    await pw.armFileUploadViaPlaywright({
+      cdpUrl: profileCtx.profile.cdpUrl,
+      targetId: tab.targetId,
+      paths: resolvedPaths,
+      timeoutMs: timeoutMs ?? undefined,
+    });
+    if (ref) {
+      await pw.clickViaPlaywright({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        ref,
+      });
+    }
+  } finally {
+    await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
+  }
 }
 
 export function registerBrowserAgentActRoutes(
@@ -449,43 +504,24 @@ export function registerBrowserAgentActRoutes(
     if (!paths.length) {
       return jsonError(res, 400, "paths are required");
     }
-    let stagedPaths: string[] = [];
+    if ((inputRef || element) && ref) {
+      return jsonError(res, 400, "ref cannot be combined with inputRef/element");
+    }
+
     try {
-      const { resolved: resolvedPaths, staged } = await resolveUploadPaths(paths);
-      stagedPaths = staged;
-      const tab = await profileCtx.ensureTabAvailable(targetId);
-      const pw = await getPwAiModule();
-      if (inputRef || element) {
-        if (ref) {
-          return jsonError(res, 400, "ref cannot be combined with inputRef/element");
-        }
-        await pw.setInputFilesViaPlaywright({
-          cdpUrl: profileCtx.profile.cdpUrl,
-          targetId: tab.targetId,
-          inputRef,
-          element,
-          paths: resolvedPaths,
-        });
-      } else {
-        await pw.armFileUploadViaPlaywright({
-          cdpUrl: profileCtx.profile.cdpUrl,
-          targetId: tab.targetId,
-          paths: resolvedPaths,
-          timeoutMs: timeoutMs ?? undefined,
-        });
-        if (ref) {
-          await pw.clickViaPlaywright({
-            cdpUrl: profileCtx.profile.cdpUrl,
-            targetId: tab.targetId,
-            ref,
-          });
-        }
-      }
+      await executeFileChooserUpload({
+        profileCtx,
+        getPwModule: getPwAiModule,
+        targetId,
+        ref,
+        inputRef,
+        element,
+        paths,
+        timeoutMs: timeoutMs ?? undefined,
+      });
       res.json({ ok: true });
     } catch (err) {
       handleRouteError(ctx, res, err);
-    } finally {
-      await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
     }
   });
 
