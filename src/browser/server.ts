@@ -9,6 +9,7 @@ import {
 } from "../logging/subsystem.js";
 import { resolveBrowserConfig } from "./config.js";
 import { registerBrowserRoutes } from "./routes/index.js";
+import { installControlLiveWebSocketServer } from "./routes/control-live.js";
 import { type BrowserServerState, createBrowserRouteContext } from "./server-context.js";
 
 let state: BrowserServerState | null = null;
@@ -81,6 +82,8 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
     resolved,
     profiles: new Map(),
   };
+
+  installControlLiveWebSocketServer(server, ctx);
 
   logServer.info(`Browser control listening on http://127.0.0.1:${port}/`);
   return state;

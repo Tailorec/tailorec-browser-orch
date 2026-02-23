@@ -1,10 +1,55 @@
 import type { BrowserRouteContext } from "../server-context.js";
-import type { BrowserRouteRegistrar } from "./types.js";
+import type { BrowserRequest, BrowserResponse, BrowserRouteRegistrar } from "./types.js";
 import { resolveProfileContext, requirePwAi, readBody, handleRouteError } from "./agent.shared.js";
+import { verifyControlToken } from "./control-live.js";
 import { toStringOrEmpty } from "./utils.js";
 
+function requireControlToken(req: BrowserRequest, res: BrowserResponse) {
+  const token = toStringOrEmpty(req.query.token);
+  if (!token) {
+    res.status(401).json({ ok: false, error: "missing_control_token" });
+    return null;
+  }
+  try {
+    return verifyControlToken(token);
+  } catch (error) {
+    res.status(401).json({ ok: false, error: error instanceof Error ? error.message : "invalid_control_token" });
+    return null;
+  }
+}
+
 export function registerBrowserControlRoutes(app: BrowserRouteRegistrar, ctx: BrowserRouteContext) {
+  app.get("/control", async (req, res) => {
+    const claims = requireControlToken(req, res);
+    if (!claims) {
+      return;
+    }
+
+    const token = toStringOrEmpty(req.query.token);
+    const targetId = toStringOrEmpty(req.query.targetId);
+    const wsProtocol = req.protocol === "https" ? "wss" : "ws";
+    const host = req.get("host") || "127.0.0.1:4000";
+    const wsUrl = `${wsProtocol}://${host}/control/live?${new URLSearchParams({
+      ...(token ? { token } : {}),
+      ...(targetId ? { targetId } : {}),
+    }).toString()}`;
+
+    return res.json({
+      ok: true,
+      mode: "interactive",
+      ws_url: wsUrl,
+      frame_url: "/control/frame",
+      action_url: "/control/action",
+      status_url: "/control/status",
+      run_id: claims.run_id ?? null,
+      note: "Use ws_url for low-latency interactive control. /control/frame remains fallback preview.",
+    });
+  });
+
   app.get("/control/status", async (req, res) => {
+    if (!requireControlToken(req, res)) {
+      return;
+    }
     const profileCtx = resolveProfileContext(req, res, ctx);
     if (!profileCtx) {
       return;
@@ -36,6 +81,10 @@ export function registerBrowserControlRoutes(app: BrowserRouteRegistrar, ctx: Br
   });
 
   app.get("/control/frame", async (req, res) => {
+    if (!requireControlToken(req, res)) {
+      return;
+    }
+
     const profileCtx = resolveProfileContext(req, res, ctx);
     if (!profileCtx) {
       return;
@@ -65,6 +114,10 @@ export function registerBrowserControlRoutes(app: BrowserRouteRegistrar, ctx: Br
   });
 
   app.post("/control/action", async (req, res) => {
+    if (!requireControlToken(req, res)) {
+      return;
+    }
+
     const profileCtx = resolveProfileContext(req, res, ctx);
     if (!profileCtx) {
       return;

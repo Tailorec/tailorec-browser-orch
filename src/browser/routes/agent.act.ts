@@ -35,11 +35,43 @@ function parseScreenshotType(value: unknown): "png" | "jpeg" {
 }
 
 export async function stageUploadFromUrl(url: string): Promise<string> {
-  const response = await fetch(url);
+  const timeoutMs = Math.max(
+    2_000,
+    Math.min(120_000, Number(process.env.BROWSER_UPLOAD_DOWNLOAD_TIMEOUT_MS || 45_000)),
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`file_download_failed:${reason}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
   if (!response.ok) {
     throw new Error(`file_download_failed:${response.status}`);
   }
+
+  const maxBytes = Math.max(
+    256 * 1024,
+    Math.min(50 * 1024 * 1024, Number(process.env.BROWSER_UPLOAD_MAX_BYTES || 15 * 1024 * 1024)),
+  );
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(`file_download_too_large:${contentLength}`);
+  }
+
   const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > maxBytes) {
+    throw new Error(`file_download_too_large:${bytes.length}`);
+  }
   const pathname = (() => {
     try {
       return new URL(url).pathname;
