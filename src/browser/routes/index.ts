@@ -7,7 +7,7 @@ import { registerBrowserControlRoutes } from "./control.js";
 
 export function registerBrowserRoutes(app: BrowserRouteRegistrar, ctx: BrowserRouteContext) {
   registerBrowserBasicRoutes(app, ctx);
-  registerBrowserControlRoutes(app, ctx);
+  registerBrowserControlRoutes(app);
   // registerBrowserTabRoutes(app, ctx);
   registerBrowserAgentRoutes(app, ctx);
 }
