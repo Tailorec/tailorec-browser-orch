@@ -336,6 +336,70 @@ Add `close_dropdown` action kind that calls `closeDropdownViaPlaywright`.
 - **Race condition**: The observer may miss options that appear before observation starts. Mitigation: inject observer BEFORE clicking, not after.
 - **Memory**: `window.__skyvernIncrementalNodes` should be capped at 500 entries to prevent memory leaks on pages with heavy DOM churn.
 
+## Job Application Specific Dropdown Patterns
+
+These are the **exact dropdown types** encountered on Greenhouse, Lever, Ashby, SmartRecruiters, and BambooHR:
+
+### Greenhouse Dropdowns
+- **Country / State / City**: Cascading — selecting country loads states, selecting state loads cities. Rendered as `<div class="select2-container">` wrapping a hidden `<select>`. Click opens a `<div class="select2-results">` with `<li role="option">` items. Often has a search input inside the dropdown.
+- **How did you hear about us**: Custom select with `role="listbox"`.
+- **Work authorization / Visa sponsorship**: Usually native `<select>` but sometimes radio buttons.
+- **Department / Team**: Custom searchable select with typeahead filtering.
+
+### Lever Dropdowns
+- **Location preference**: Custom combobox with autocomplete. Type to filter, click to select.
+- **Pronouns / Gender / Race / Veteran / Disability**: Native `<select>` elements inside EEO section. Standard options.
+- **Resume source**: Dropdown for "How did you find this job" — usually native `<select>`.
+
+### Ashby Dropdowns
+- All custom React components. Every select is a `<div>` with `role="combobox"` → opens a `<div role="listbox">` overlay.
+- Options are `<div role="option">` items.
+- Has search/filter built into most dropdowns.
+
+### SmartRecruiters Dropdowns
+- Mix of native `<select>` and custom. EEO questions are native.
+- Location is a Google Places autocomplete — type text, wait for API response, click suggestion.
+
+### Common Patterns to Handle
+
+| Dropdown Type | Trigger | Options Container | Option Element | Selection Confirmation |
+|---|---|---|---|---|
+| Native `<select>` | N/A (use selectOption) | Browser-native | `<option>` | Value attribute set |
+| Select2 (Greenhouse) | Click `.select2-container` | `.select2-results` | `li.select2-result` | `.select2-chosen` text changes |
+| React Listbox (Ashby) | Click `[role=combobox]` | `[role=listbox]` | `[role=option]` | `aria-selected="true"` |
+| Typeahead/Autocomplete | Type text into input | Dynamic `<ul>` or `<div>` | `<li>` or `[role=option]` | Input value changes |
+| Cascading (Country→State) | Select parent first | Child dropdown reloads | Same as parent type | New options loaded |
+
+### Cascading Dropdown Handling
+
+**Critical for job apps** — Country/State/City is on nearly every application form.
+
+Add to `../open-agent/skills/job-application-execution.md`:
+
+```markdown
+## Cascading dropdown protocol (Country → State → City)
+1. Fill/select the parent dropdown (Country) first.
+2. Wait 1-2 seconds for the child dropdown (State) to reload options.
+3. Take a fresh snapshot — the State dropdown now has new options.
+4. Fill/select the child dropdown (State).
+5. If there's a City dropdown, repeat the wait-snapshot-select cycle.
+6. NEVER try to fill a child dropdown before its parent — the options won't match.
+```
+
+### EEO Dropdown Defaults
+
+Add to skill file — these dropdowns appear on 80%+ of applications:
+
+```markdown
+## EEO / Demographic dropdown defaults
+Always select the LEAST specific option unless user profile explicitly specifies:
+- Gender: "Decline to self-identify" or "Prefer not to say"
+- Race/Ethnicity: "Decline to self-identify" or "Two or more races" if no option to decline
+- Veteran Status: "I am not a protected veteran" or "Prefer not to answer"
+- Disability: "Prefer not to answer" or "I don't wish to answer"
+- These fields are voluntary. Selecting "decline" is always safe.
+```
+
 ## Skyvern Reference
 
 - `skyvern/webeye/scraper/scraper.py` → `IncrementalScrapePage` class (lines 650-837)

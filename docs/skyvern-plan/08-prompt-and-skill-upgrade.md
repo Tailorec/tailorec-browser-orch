@@ -350,6 +350,103 @@ Add to `createRuntimeTools`:
 
 ---
 
+## Job Application Skill Structure
+
+### Updated `../open-agent/skills/job-application-execution.md` Outline
+
+The skill file should be restructured with a clear execution protocol for job applications on Greenhouse, Lever, Ashby, SmartRecruiters, and BambooHR:
+
+```markdown
+# Job Application Execution Skill
+
+## Phase 1: Page Detection (ALWAYS first)
+1. Call `browser.page_identity` → get ATS platform, application state, form structure
+2. If `application.state !== "open"`:
+   - `already_applied` → report and exit
+   - `closed` → report failure and exit
+   - `login_required` → escalate to user
+   - `draft_exists` → click resume button, continue
+
+## Phase 2: ATS Strategy Selection
+- Read the `atsGuidance` from page_identity response
+- Greenhouse → multi-step wizard, upload resume first
+- Lever → single page, scroll and fill top-to-bottom
+- Ashby → single page, ALL custom React components, discover_dropdown everywhere
+- SmartRecruiters → skip LinkedIn import, multi-step
+- Generic → fill what you see, detect dropdowns on failure
+
+## Phase 3: Resume Upload (do this EARLY)
+1. `browser.detect_upload_widget` on resume field
+2. Follow widget-specific upload instructions
+3. `browser.verify_upload` to confirm
+4. Wait 3-5 seconds for resume parsing
+5. Snapshot to check pre-filled fields
+
+## Phase 4: Form Filling
+1. Take snapshot, check enriched metadata (required, inputType, currentValue)
+2. For each empty required field:
+   - Text inputs: `browser.act.fill` → verify with `fillAndVerify`
+   - Dropdowns: try `smart_select` first → fallback `discover_dropdown`
+   - Location fields: use `browser.fill_location`
+   - Phone fields: format based on placeholder, use pressSequentially for masked inputs
+   - Date fields: match placeholder format (MM/DD/YYYY, YYYY-MM-DD, etc.)
+3. Skip pre-filled fields that match profile data
+4. For custom dropdowns (Select2, React): ALWAYS use `discover_dropdown`
+
+## Phase 5: Screening Questions
+1. `runtime.classify_screening_questions` on all question texts
+2. For knockout questions: use safe defaults unless profile overrides
+3. For EEO: always "Decline to self-identify"
+4. For free-text: `runtime.build_answer_context` then generate quality answer
+
+## Phase 6: Repeating Sections (if present)
+1. `browser.detect_repeating_sections` to find work history / education sections
+2. `runtime.plan_repeating_entries` to map resume data to entries
+3. Click "Add another" as needed, fill each entry
+
+## Phase 7: Multi-Step Navigation (Greenhouse, SmartRecruiters)
+- After filling all visible fields, click "Next"
+- Snapshot new step, repeat Phase 4-6 for each step
+- Track step identity to avoid filling the same step twice
+
+## Phase 8: Pre-Submit Validation
+1. `runtime.validate_before_submit` → check all required fields are filled
+2. Fix any gaps reported
+3. Only proceed when `readyToSubmit: true`
+
+## Phase 9: Submit and Confirm
+1. Note current URL
+2. Click submit button
+3. Wait 3-5 seconds
+4. `browser.check_submit_confirmation` with pre-submit URL
+5. Report result with confirmation details
+```
+
+### Field-to-Profile Mapping Table
+
+Include this in the skill for the LLM to reference:
+
+```markdown
+## Profile field mapping
+| Form Field | Profile Source | Notes |
+|---|---|---|
+| First Name | `user_profile.first_name` | |
+| Last Name | `user_profile.last_name` | |
+| Email | `user_profile.email` | |
+| Phone | `resume.phone` or `user_profile.phone` | Format per ATS |
+| Location / City | `user_profile.location` | Use `browser.fill_location` |
+| LinkedIn URL | `user_profile.linkedin_url` | Full URL with https:// |
+| Website / Portfolio | `user_profile.website` | Optional |
+| Current Company | `resume.experience[0].company` | Most recent |
+| Current Title | `resume.experience[0].title` | Most recent |
+| Years of Experience | `resume.total_experience_years` | Round UP |
+| Desired Salary | `user_profile.salary_expectation` | Leave blank if optional |
+| Start Date | `user_profile.availability` | Default "Immediately" |
+| Work Authorization | `user_profile.work_authorization` | Default "Yes" |
+| Visa Sponsorship | `user_profile.requires_sponsorship` | Default "No" |
+| EEO Gender/Race/Veteran/Disability | — | ALWAYS "Decline to self-identify" |
+```
+
 ## Skyvern Reference
 
 - `skyvern/forge/prompts/skyvern/extract-action.j2` — full action extraction prompt with structured JSON output

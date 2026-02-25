@@ -445,6 +445,112 @@ For each step in the wizard:
 5. **Confirmation page**: Submit a test application. Verify `pageType === "confirmation"`.
 6. **Checkpoint persistence**: Verify checkpoints are stored in run transcript.
 
+## ATS-Specific Multi-Step Patterns
+
+### Greenhouse (most common — ~35% of tech jobs)
+
+**Structure**: 3-6 step wizard, varies by employer configuration.
+
+| Step | Typical Title | Fields |
+|---|---|---|
+| 1 | "Resume / Cover Letter" | Resume upload, Cover letter upload (optional), LinkedIn URL |
+| 2 | "Personal Information" | First name, Last name, Email, Phone, Location, Pronouns |
+| 3 | "Custom Questions" | Employer-configured screening questions (0-20 fields) |
+| 4 | "EEOC" | Gender, Race, Veteran, Disability (all voluntary) |
+| 5 | "Review" | Summary of all entered data with edit links |
+
+**Navigation**: "Next" / "Back" buttons at bottom. Progress bar at top with step labels.
+**Step detection**: Look for `<div class="section-header">` or `<h2>` with step title.
+**Submit button text**: "Submit Application" (on review page only).
+**Key quirk**: Resume upload is usually step 1 — upload FIRST, then personal info fills from resume parse.
+
+### Lever (second most common — ~20% of tech jobs)
+
+**Structure**: Single-page long form (NOT a wizard). All sections visible at once.
+
+| Section | Fields |
+|---|---|
+| Header | Name (single field), Email, Phone, Location |
+| Resume | Resume upload (drag-and-drop zone, NOT native file input) |
+| Links | LinkedIn, Portfolio, Website, GitHub |
+| Additional Info | Cover letter (optional textarea), "Additional information" textarea |
+| EEOC | Gender, Race, Veteran, Disability |
+
+**Navigation**: NO Next/Back buttons. Single "Submit application" button at bottom.
+**Key quirk**: All fields on one page — fill top-to-bottom, then submit. No step tracking needed.
+**File upload**: Custom drag-and-drop zone with class `drop-zone` or `file-upload-area`. Click it to trigger native file chooser. NOT `<input type="file">` visible in DOM — it's hidden.
+
+### Ashby (growing in tech)
+
+**Structure**: Single-page form, similar to Lever.
+
+| Section | Fields |
+|---|---|
+| Contact | First name, Last name, Email, Phone |
+| Resume | Upload button (custom React component) |
+| Links | LinkedIn, Portfolio |
+| Questions | Custom screening questions |
+| Demographics | Gender, Race, Veteran, Disability |
+
+**Navigation**: Single "Submit" button. No wizard.
+**Key quirk**: All dropdowns are custom React components. No native `<select>` elements at all.
+
+### SmartRecruiters
+
+**Structure**: 2-4 step wizard.
+
+| Step | Fields |
+|---|---|
+| 1 | First name, Last name, Email, Phone, Location |
+| 2 | Resume upload, Cover letter, LinkedIn |
+| 3 | Screening questions (if configured) |
+| 4 | Review & Submit |
+
+**Navigation**: "Next" / "Previous" buttons. Step indicator dots at top.
+**Key quirk**: May prompt "Import from LinkedIn" before starting — click "Skip" or "Continue without importing".
+
+### BambooHR
+
+**Structure**: Single-page form (simple).
+
+| Section | Fields |
+|---|---|
+| Personal | First name, Last name, Email, Phone, Address (full) |
+| Resume | File upload |
+| Questions | Custom questions (usually 0-5) |
+
+**Navigation**: Single "Submit" button.
+**Key quirk**: Address is often split into Street, City, State, ZIP — all required.
+
+### Step Detection Heuristics per ATS
+
+Add to `detectPageIdentityViaPlaywright`:
+
+```typescript
+// ATS detection heuristics (add to page.evaluate block)
+let atsDetected: string | null = null;
+const html = document.documentElement.innerHTML.slice(0, 5000);
+const url = window.location.href;
+
+if (url.includes("greenhouse.io") || url.includes("boards.greenhouse")) {
+  atsDetected = "greenhouse";
+} else if (url.includes("lever.co") || url.includes("jobs.lever")) {
+  atsDetected = "lever";
+} else if (url.includes("ashbyhq.com") || url.includes("jobs.ashby")) {
+  atsDetected = "ashby";
+} else if (url.includes("smartrecruiters.com") || url.includes("jobs.smartrecruiters")) {
+  atsDetected = "smartrecruiters";
+} else if (url.includes("bamboohr.com")) {
+  atsDetected = "bamboohr";
+} else if (url.includes("icims.com") || html.includes("iCIMS")) {
+  atsDetected = "icims";
+} else if (html.includes("greenhouse") && html.includes("application")) {
+  atsDetected = "greenhouse";  // embedded Greenhouse
+}
+
+// Return atsDetected in the identity result
+```
+
 ## Skyvern Reference
 
 - `skyvern/forge/agent.py` → `execute_step()` loop with step counting and max_steps

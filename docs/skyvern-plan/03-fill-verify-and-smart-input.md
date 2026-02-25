@@ -426,6 +426,112 @@ Add to **Execute phase**:
 4. **React controlled input**: Test React `<input value={state}>` where `.fill()` doesn't trigger `onChange`. Verify `pressSequentially` fallback catches it.
 5. **Pre-filled fields**: Test that already-filled fields with correct values are skipped.
 
+## Job Application Input Format Patterns
+
+### Phone Number Formats by ATS
+
+| ATS | Expected Format | Placeholder Example | How to handle |
+|---|---|---|---|
+| **Greenhouse** | Digits only (10 or 11 digits) | `(555) 555-5555` | Input mask auto-formats; send digits-only via `pressSequentially` |
+| **Lever** | Free text | `Phone number` | Any format works; prefer `+1 555-555-5555` |
+| **Ashby** | Free text or E.164 | `+15555555555` | Try E.164 first, fallback to readable |
+| **SmartRecruiters** | Usually free text | `Phone` | Any format |
+| **BambooHR** | Free text | `Phone Number` | Any format |
+
+**Implementation in `fillAndVerifyField`:**
+
+```typescript
+// Phone format strategy for job apps
+if (inputType === "tel") {
+  const placeholder = await locator.getAttribute("placeholder", { timeout: 1500 }).catch(() => "");
+  const digitsOnly = value.replace(/\D/g, "");
+
+  // Strategy 1: If placeholder has parentheses/dashes → input mask likely → digits only + sequential
+  if (placeholder && /[()-]/.test(placeholder)) {
+    try {
+      await locator.click({ timeout: 2000 });
+      await page.keyboard.type(digitsOnly, { delay: 50 });
+      result.strategy = "pressSequentially";
+      result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+      // Masked inputs will auto-format; just verify digits match
+      if (result.actualValue.replace(/\D/g, "") === digitsOnly) {
+        result.matched = true;
+        return result;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Strategy 2: Try fill with original value
+  // Strategy 3: Try digits only
+  // (existing logic from plan 03)
+}
+```
+
+### Date Format Patterns
+
+| ATS | Date Field Type | Expected Format | Notes |
+|---|---|---|---|
+| **Greenhouse** | `<input type="date">` | `YYYY-MM-DD` (ISO via fill) | Playwright handles conversion |
+| **Greenhouse** | Custom date picker | `MM/DD/YYYY` text input | Must type, not fill |
+| **Lever** | Usually `<input type="text">` | `MM/YYYY` or `YYYY` | Start/end dates for experience |
+| **Ashby** | Custom React date picker | Click month/year selectors | Not a text input — click-based |
+| **SmartRecruiters** | `<input type="date">` | `YYYY-MM-DD` (ISO via fill) | Standard |
+
+**Implementation for date detection:**
+
+```typescript
+// In fillAndVerifyField, date format handling for job apps
+if (inputType === "date" || (placeholder && /MM|DD|YYYY|mm\/dd/i.test(placeholder))) {
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) {
+    if (inputType === "date") {
+      // Native date input: always use ISO format
+      const iso = parsed.toISOString().split("T")[0];
+      await locator.fill(iso, { timeout });
+    } else if (placeholder) {
+      // Text input with date format hint
+      let formatted = value;
+      if (/MM\/DD\/YYYY/i.test(placeholder)) {
+        formatted = `${String(parsed.getMonth() + 1).padStart(2, "0")}/${String(parsed.getDate()).padStart(2, "0")}/${parsed.getFullYear()}`;
+      } else if (/MM\/YYYY/i.test(placeholder)) {
+        formatted = `${String(parsed.getMonth() + 1).padStart(2, "0")}/${parsed.getFullYear()}`;
+      } else if (/YYYY-MM-DD/i.test(placeholder)) {
+        formatted = parsed.toISOString().split("T")[0];
+      } else if (/DD\.MM\.YYYY/i.test(placeholder)) {
+        formatted = `${String(parsed.getDate()).padStart(2, "0")}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${parsed.getFullYear()}`;
+      }
+      await locator.fill(formatted, { timeout });
+    }
+    result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+    result.matched = result.actualValue.length > 0;
+    if (result.matched) return result;
+  }
+}
+```
+
+### Resume Parse Pre-fill Conflict
+
+**Critical for job apps**: Many ATS (Greenhouse, SmartRecruiters) parse the uploaded resume and auto-fill fields. The agent must:
+
+1. **Upload resume FIRST** (before filling text fields)
+2. **Wait 3-5 seconds** for parsing to complete
+3. **Snapshot to see pre-filled values**
+4. **Only fill fields that are empty or have incorrect values**
+
+Add to skill file:
+
+```markdown
+## Resume parse pre-fill awareness
+- After uploading resume, wait 3-5 seconds, then take a fresh snapshot.
+- Check which fields were auto-filled by the resume parser.
+- For pre-filled fields:
+  - If the pre-filled value matches profile data → leave it (skip fill)
+  - If the pre-filled value is wrong → overwrite with correct value
+  - If the pre-filled value is close but not exact → prefer profile data
+- Common pre-filled fields: First name, Last name, Email, Phone, LinkedIn URL, Current company, Current title
+- Pre-fill sometimes puts data in WRONG fields (e.g., LinkedIn URL in "Website" field). Verify field labels match.
+```
+
 ## Skyvern Reference
 
 - `handler.py:handle_input_text_action` (lines 540-1140) — full input handler with all strategies
