@@ -1,5 +1,8 @@
 import { type Page } from "playwright-core";
 import { ensurePageState, refLocator, restoreRoleRefsForTarget } from "./pw-session.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("pw-dom-observer");
 
 /**
  * Incremental element detected by the MutationObserver.
@@ -231,4 +234,158 @@ export async function snapshotDeltaViaPlaywright(opts: {
   }
 
   return delta as DomDelta;
+}
+
+// ─── Lightweight Dropdown Observer (Plan 01) ──────────────────────────
+
+/**
+ * Lightweight snapshot of newly-discovered elements after a DOM mutation.
+ * Used by discoverDropdownOptionsViaPlaywright.
+ */
+export type IncrementalSnapshot = {
+  newElements: IncrementalElement[];
+  removedCount: number;
+  observationDurationMs: number;
+};
+
+/**
+ * Start a lightweight DOM observer focused on capturing new elements
+ * after triggering a dropdown. Simpler than the full delta observer —
+ * only tracks added nodes (no removed/modified).
+ *
+ * Mirrors Skyvern's startGlobalIncrementalObserver (domUtils.js line 2778)
+ * but scoped to childList only for dropdown discovery.
+ */
+export async function startDomObserver(page: Page, anchorSelector?: string): Promise<void> {
+  log.debug("starting DOM observer", { anchorSelector });
+  await page.evaluate((selector: string | undefined) => {
+    const anchor = selector ? document.querySelector(selector) : document.body;
+    if (!anchor) return;
+
+    (window as any).__skyvernIncrementalNodes = [];
+    (window as any).__skyvernStartTime = Date.now();
+
+    if ((window as any).__skyvernObserver) {
+      (window as any).__skyvernObserver.disconnect();
+    }
+
+    (window as any).__skyvernObserver = new MutationObserver((mutations: MutationRecord[]) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          const el = node as HTMLElement;
+
+          // Walk the subtree of the added node
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
+          let current: Element | null = el;
+          while (current) {
+            const rect = current.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            if (isVisible) {
+              const styles = window.getComputedStyle(current);
+              (window as any).__skyvernIncrementalNodes.push({
+                tagName: current.tagName.toLowerCase(),
+                role: current.getAttribute("role"),
+                text: (current.textContent || "").trim().slice(0, 200),
+                ariaLabel: current.getAttribute("aria-label"),
+                ariaSelected: current.getAttribute("aria-selected"),
+                dataValue: current.getAttribute("data-value") || current.getAttribute("value"),
+                className: current.className?.toString?.()?.slice(0, 100) || "",
+                rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                isInteractable:
+                  current.tagName === "BUTTON" ||
+                  current.tagName === "A" ||
+                  current.tagName === "INPUT" ||
+                  current.tagName === "OPTION" ||
+                  current.getAttribute("role") === "option" ||
+                  current.getAttribute("role") === "menuitem" ||
+                  current.getAttribute("role") === "listitem" ||
+                  current.getAttribute("tabindex") !== null ||
+                  (current as any).onclick !== null ||
+                  styles.cursor === "pointer",
+              });
+            }
+            current = walker.nextNode() as Element | null;
+          }
+        }
+      }
+    });
+
+    (window as any).__skyvernObserver.observe(anchor, { childList: true, subtree: true });
+  }, anchorSelector);
+}
+
+/**
+ * Stop the lightweight observer and return discovered elements with assigned refs.
+ */
+export async function stopDomObserver(page: Page): Promise<IncrementalSnapshot> {
+  log.debug("stopping DOM observer");
+  const result = await page.evaluate(() => {
+    if ((window as any).__skyvernObserver) {
+      (window as any).__skyvernObserver.disconnect();
+      delete (window as any).__skyvernObserver;
+    }
+
+    const nodes = (window as any).__skyvernIncrementalNodes || [];
+    const startTime = (window as any).__skyvernStartTime || Date.now();
+    const duration = Date.now() - startTime;
+
+    delete (window as any).__skyvernIncrementalNodes;
+    delete (window as any).__skyvernStartTime;
+
+    return { nodes, observationDurationMs: duration };
+  });
+
+  const newElements: IncrementalElement[] = [];
+  for (let i = 0; i < result.nodes.length; i++) {
+    const node = result.nodes[i];
+    newElements.push({
+      ref: `d${i + 1}`,
+      tagName: node.tagName,
+      role: node.role,
+      text: node.text,
+      className: node.className || "",
+      ariaInvalid: null,
+      isError: false,
+      ariaLabel: node.ariaLabel,
+      ariaSelected: node.ariaSelected,
+      dataValue: node.dataValue,
+      isInteractable: node.isInteractable,
+      rect: node.rect,
+    });
+  }
+
+  return {
+    newElements,
+    removedCount: 0,
+    observationDurationMs: result.observationDurationMs,
+  };
+}
+
+/**
+ * Injects aria-ref attributes into discovered elements so refLocator() can find them.
+ * Uses elementFromPoint + text matching to re-identify nodes.
+ */
+export async function injectIncrementalRefs(page: Page, elements: IncrementalElement[]): Promise<void> {
+  await page.evaluate((els) => {
+    for (const el of els) {
+      if (!el.rect) continue;
+      const centerX = el.rect.x + el.rect.width / 2;
+      const centerY = el.rect.y + el.rect.height / 2;
+      const elementAtPoint = document.elementFromPoint(centerX, centerY);
+      if (elementAtPoint) {
+        let target: Element | null = elementAtPoint;
+        while (target && target !== document.body) {
+          if (
+            target.tagName.toLowerCase() === el.tagName &&
+            (target.textContent || "").trim().slice(0, 200) === el.text
+          ) {
+            target.setAttribute("aria-ref", el.ref);
+            break;
+          }
+          target = target.parentElement;
+        }
+      }
+    }
+  }, elements);
 }

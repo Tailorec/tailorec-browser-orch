@@ -538,6 +538,11 @@ export function refLocator(page: Page, ref: string) {
     return info.nth !== undefined ? locator.nth(info.nth) : locator;
   }
 
+  // Dynamic refs injected by dropdown discovery (d1, d2, ...)
+  if (normalized.startsWith("d")) {
+    return page.locator(`[aria-ref="${normalized}"]`);
+  }
+
   return page.locator(`aria-ref=${normalized}`);
 }
 
