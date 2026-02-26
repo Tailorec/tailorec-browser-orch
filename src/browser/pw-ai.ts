@@ -34,6 +34,8 @@ export {
   typeViaPlaywright,
   waitForDownloadViaPlaywright,
   waitForViaPlaywright,
+  discoverDropdownOptionsViaPlaywright,
+  closeDropdownViaPlaywright,
 } from "./pw-tools-core.js";
 
 // Export snapshot functions explicitly if not in pw-tools-core.js index

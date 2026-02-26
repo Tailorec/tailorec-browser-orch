@@ -487,6 +487,34 @@ export function registerBrowserAgentActRoutes(
           await pw.closePageViaPlaywright({ cdpUrl, targetId: tab.targetId });
           return res.json({ ok: true, targetId: tab.targetId });
         }
+        case "discover_dropdown": {
+          const ref = toStringOrEmpty(body.ref);
+          if (!ref) {
+            return jsonError(res, 400, "ref is required");
+          }
+          const searchText = toStringOrEmpty(body.searchText) || undefined;
+          const timeoutMs = toNumber(body.timeoutMs);
+          const result = await pw.discoverDropdownOptionsViaPlaywright({
+            cdpUrl,
+            targetId: tab.targetId,
+            ref,
+            searchText,
+            timeoutMs: timeoutMs ?? undefined,
+          });
+          return res.json({ ok: true, targetId: tab.targetId, ...result });
+        }
+        case "close_dropdown": {
+          const ref = toStringOrEmpty(body.ref);
+          if (!ref) {
+            return jsonError(res, 400, "ref is required");
+          }
+          await pw.closeDropdownViaPlaywright({
+            cdpUrl,
+            targetId: tab.targetId,
+            ref,
+          });
+          return res.json({ ok: true, targetId: tab.targetId });
+        }
         default: {
           return jsonError(res, 400, "unsupported kind");
         }

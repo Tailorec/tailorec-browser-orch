@@ -538,6 +538,10 @@ export function refLocator(page: Page, ref: string) {
     return info.nth !== undefined ? locator.nth(info.nth) : locator;
   }
 
+  if (normalized.startsWith("d")) {
+    return page.locator(`[aria-ref="${normalized}"]`);
+  }
+
   return page.locator(`aria-ref=${normalized}`);
 }
 

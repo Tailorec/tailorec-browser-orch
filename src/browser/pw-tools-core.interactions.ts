@@ -6,6 +6,12 @@ import {
   restoreRoleRefsForTarget,
 } from "./pw-session.js";
 import { normalizeTimeoutMs, requireRef, toAIFriendlyError } from "./pw-tools-core.shared.js";
+import {
+  type IncrementalElement,
+  injectIncrementalRefs,
+  startDomObserver,
+  stopDomObserver,
+} from "./pw-tools-core.dom-observer.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 
 const log = createSubsystemLogger("pw-actions");
@@ -611,5 +617,106 @@ export async function setInputFilesViaPlaywright(opts: {
     }
   } catch {
     // Best-effort for sites that don't react to setInputFiles alone.
+  }
+}
+
+export async function discoverDropdownOptionsViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  ref: string;
+  searchText?: string;
+  timeoutMs?: number;
+}): Promise<{
+  options: IncrementalElement[];
+  dropdownOpen: boolean;
+  triggerMethod: "click" | "arrowdown" | "typeahead" | "none";
+}> {
+  const started = Date.now();
+  log.debug("action discoverDropdownOptions started", actionMeta(opts, { ref: opts.ref }));
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+  const ref = requireRef(opts.ref);
+  const locator = refLocator(page, ref);
+
+  let triggerMethod: "click" | "arrowdown" | "typeahead" | "none" = "none";
+  let options: IncrementalElement[] = [];
+
+  try {
+    await locator.scrollIntoViewIfNeeded({ timeout: 5000 });
+
+    // 1. Try Click
+    triggerMethod = "click";
+    await startDomObserver(page);
+    await locator.click({ timeout: 5000 });
+    await page.waitForTimeout(500); // Wait for animation
+    let incremental = await stopDomObserver(page);
+    options = incremental.newElements;
+
+    // 2. Try ArrowDown if no new elements
+    if (options.length === 0) {
+      triggerMethod = "arrowdown";
+      await startDomObserver(page);
+      await page.keyboard.press("ArrowDown");
+      await page.waitForTimeout(500);
+      incremental = await stopDomObserver(page);
+      options = incremental.newElements;
+    }
+
+    // 3. Try Typing if still no new elements and searchText provided
+    if (options.length === 0 && opts.searchText) {
+      triggerMethod = "typeahead";
+      await startDomObserver(page);
+      await locator.type(opts.searchText, { delay: 50 });
+      await page.waitForTimeout(500);
+      incremental = await stopDomObserver(page);
+      options = incremental.newElements;
+    }
+
+    // Filter and assign refs
+    options = options.filter((o) => o.isInteractable || o.text.length > 0);
+
+    if (options.length > 0) {
+      await injectIncrementalRefs(page, options);
+    }
+
+    log.info("action discoverDropdownOptions succeeded", actionMeta(opts, {
+      ref,
+      options_count: options.length,
+      trigger_method: triggerMethod,
+      duration_ms: Date.now() - started,
+    }));
+
+    return {
+      options,
+      dropdownOpen: options.length > 0,
+      triggerMethod,
+    };
+  } catch (err) {
+    log.exception("action discoverDropdownOptions failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
+    throw toAIFriendlyError(err, ref);
+  }
+}
+
+export async function closeDropdownViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  ref: string;
+}): Promise<void> {
+  const started = Date.now();
+  log.debug("action closeDropdown started", actionMeta(opts, { ref: opts.ref }));
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+  const ref = requireRef(opts.ref);
+  const locator = refLocator(page, ref);
+
+  try {
+    await page.keyboard.press("Escape");
+    await locator.blur().catch(() => {});
+    log.info("action closeDropdown succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
+  } catch (err) {
+    log.exception("action closeDropdown failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
+    throw toAIFriendlyError(err, ref);
   }
 }
