@@ -51,4 +51,36 @@ export function registerBrowserAgentSnapshotRoutes(app: BrowserRouteRegistrar, c
       jsonError(res, 500, String(err));
     }
   });
+
+  app.post("/snapshot/delta", async (req, res) => {
+    const profileCtx = resolveProfileContext(req, res, ctx);
+    if (!profileCtx) return;
+
+    const body = req.body || {};
+    const targetId = toStringOrEmpty(body.targetId) || undefined;
+    const action = toStringOrEmpty(body.action);
+    const anchorRef = toStringOrEmpty(body.anchorRef) || undefined;
+
+    if (action !== "start" && action !== "stop") {
+      return jsonError(res, 400, "action must be 'start' or 'stop'");
+    }
+
+    try {
+      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const cdpUrl = profileCtx.profile.cdpUrl;
+      const pw = await getPwAiModule();
+
+      const result = await pw.snapshotDeltaViaPlaywright({
+        cdpUrl,
+        targetId: tab.targetId,
+        action: action as "start" | "stop",
+        anchorRef,
+      });
+
+      return res.json({ ok: true, targetId: tab.targetId, ...result });
+    } catch (err) {
+      log.exception("snapshot delta route failed", err, { target_id: targetId });
+      jsonError(res, 500, String(err));
+    }
+  });
 }

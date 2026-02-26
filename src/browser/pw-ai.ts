@@ -41,6 +41,7 @@ export {
   snapshotAriaViaPlaywright,
   snapshotAiViaPlaywright,
   snapshotRoleViaPlaywright,
+  snapshotDeltaViaPlaywright,
   navigateViaPlaywright,
   resizeViewportViaPlaywright,
   closePageViaPlaywright,

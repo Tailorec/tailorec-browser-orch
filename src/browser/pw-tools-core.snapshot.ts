@@ -9,12 +9,25 @@ import {
 import {
   ensurePageState,
   getPageForTargetId,
+  restoreRoleRefsForTarget,
   storeRoleRefsForTarget,
   type WithSnapshotForAI,
 } from "./pw-session.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { type DomDelta, snapshotDeltaViaPlaywright as snapshotDelta } from "./pw-tools-core.dom-observer.js";
 
 const log = createSubsystemLogger("pw-snapshot");
+
+export async function snapshotDeltaViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  action: "start" | "stop";
+  anchorRef?: string;
+}): Promise<DomDelta | { observing: true }> {
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  return snapshotDelta({ ...opts, page });
+}
 
 export async function snapshotAriaViaPlaywright(opts: {
   cdpUrl: string;
