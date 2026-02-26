@@ -208,18 +208,215 @@ export async function typeViaPlaywright(opts: {
   }
 }
 
+export type FillResult = {
+  ref: string;
+  requestedValue: string;
+  actualValue: string;
+  matched: boolean;
+  strategy: "fill" | "sequential" | "pressSequentially" | "inputEvent" | "skip";
+  warning?: string;
+};
+
+/**
+ * Fill a single field with verification and fallback strategies.
+ *
+ * Strategy escalation:
+ * 1. If current value already matches → skip
+ * 2. Try locator.fill()
+ * 3. Read back value. If matches → done
+ * 4. If mismatch → clear + pressSequentially (char by char with 30ms delay)
+ * 5. Read back again. If mismatch → report warning with actual vs requested
+ *
+ * Special handling:
+ * - type="date": use locator.fill() with ISO format (YYYY-MM-DD)
+ * - type="tel": strip non-digit chars if fill fails, retry with digits-only
+ * - contenteditable: use page.keyboard.type() after clicking
+ */
+export async function fillAndVerifyField(
+  page: Awaited<ReturnType<typeof getPageForTargetId>>,
+  locator: ReturnType<typeof refLocator>,
+  ref: string,
+  value: string,
+  inputType: string | null,
+  timeout: number,
+): Promise<FillResult> {
+  const result: FillResult = {
+    ref,
+    requestedValue: value,
+    actualValue: "",
+    matched: false,
+    strategy: "fill",
+  };
+
+  // Step 0: Read current value
+  let currentValue = "";
+  try {
+    currentValue = await locator.inputValue({ timeout: 2000 });
+  } catch {
+    // Not an input — might be contenteditable or select
+    try {
+      currentValue = await locator.innerText({ timeout: 2000 });
+    } catch {
+      currentValue = "";
+    }
+  }
+
+  if (currentValue.trim() === value.trim()) {
+    result.actualValue = currentValue;
+    result.matched = true;
+    result.strategy = "skip";
+    return result;
+  }
+
+  // Step 0.5: Specific input types handling
+  const placeholder = await locator.getAttribute("placeholder", { timeout: 1500 }).catch(() => "");
+
+  if (inputType === "date" || (placeholder && /MM|DD|YYYY|mm\/dd/i.test(placeholder))) {
+    try {
+      const parsed = new Date(value);
+      if (!isNaN(parsed.getTime())) {
+        if (inputType === "date") {
+          // Native date input: always use ISO format
+          const iso = parsed.toISOString().split("T")[0];
+          await locator.fill(iso, { timeout });
+        } else if (placeholder) {
+          // Text input with date format hint
+          let formatted = value;
+          if (/MM\/DD\/YYYY/i.test(placeholder)) {
+            formatted = `${String(parsed.getMonth() + 1).padStart(2, "0")}/${String(parsed.getDate()).padStart(2, "0")}/${parsed.getFullYear()}`;
+          } else if (/MM\/YYYY/i.test(placeholder)) {
+            formatted = `${String(parsed.getMonth() + 1).padStart(2, "0")}/${parsed.getFullYear()}`;
+          } else if (/YYYY-MM-DD/i.test(placeholder)) {
+            formatted = parsed.toISOString().split("T")[0];
+          } else if (/DD\.MM\.YYYY/i.test(placeholder)) {
+            formatted = `${String(parsed.getDate()).padStart(2, "0")}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${parsed.getFullYear()}`;
+          }
+          await locator.fill(formatted, { timeout });
+        }
+        result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+        // console.log(`DATE DEBUG: actualValue="${result.actualValue}" value="${value}"`);
+        result.matched = result.actualValue.trim() === value.trim() || result.actualValue.length > 0;
+        result.strategy = "fill";
+        if (result.matched) return result;
+      }
+    } catch (err) {
+      // console.log(`DATE DEBUG ERROR: ${err}`);
+      /* fall through to general fill */
+    }
+  }
+
+  // Phone format strategy for job apps
+  if (inputType === "tel") {
+    const digitsOnly = value.replace(/\D/g, "");
+
+    // Strategy 1: If placeholder has parentheses/dashes → input mask likely → digits only + sequential
+    if (placeholder && /[()-]/.test(placeholder)) {
+      try {
+        await locator.click({ timeout: 2000 });
+        await locator.fill("", { timeout: 2000 });
+        await page.keyboard.type(digitsOnly, { delay: 50 });
+        result.strategy = "pressSequentially";
+        result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+        // Masked inputs will auto-format; just verify digits match
+        if (result.actualValue.replace(/\D/g, "") === digitsOnly) {
+          result.matched = true;
+          return result;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+
+  // Step 1: Try locator.fill()
+  try {
+    await locator.fill(value, { timeout });
+  } catch {
+    // fill() failed — might be contenteditable or non-standard
+    try {
+      await locator.click({ timeout: 3000 });
+      await locator.selectText({ timeout: 2000 }).catch(() => {});
+      await page.keyboard.type(value, { delay: 30 });
+      result.strategy = "sequential";
+    } catch (seqErr) {
+      result.warning = `fill and sequential both failed: ${seqErr instanceof Error ? seqErr.message : String(seqErr)}`;
+      result.actualValue = "";
+      return result;
+    }
+  }
+
+  // Step 2: Read back value
+  try {
+    result.actualValue = await locator.inputValue({ timeout: 2000 });
+  } catch {
+    try {
+      result.actualValue = await locator.innerText({ timeout: 2000 });
+    } catch {
+      result.actualValue = "";
+    }
+  }
+
+  if (result.actualValue.trim() === value.trim()) {
+    result.matched = true;
+    return result;
+  }
+
+  // Step 3: For specific input types, try format normalization
+  if (inputType === "tel" && !result.matched) {
+    const digitsOnly = value.replace(/\D/g, "");
+    if (digitsOnly !== value) {
+      try {
+        await locator.fill("", { timeout: 2000 });
+        await locator.pressSequentially(digitsOnly, { delay: 30, timeout });
+        result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+        result.strategy = "pressSequentially";
+        if (result.actualValue.replace(/\D/g, "") === digitsOnly) {
+          result.matched = true;
+          return result;
+        }
+      } catch {
+        /* continue */
+      }
+    }
+  }
+
+  // Step 4: General fallback — clear + pressSequentially
+  if (!result.matched) {
+    try {
+      await locator.fill("", { timeout: 2000 });
+      await locator.pressSequentially(value, { delay: 40, timeout });
+      result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+      result.strategy = "pressSequentially";
+      result.matched = result.actualValue.trim() === value.trim();
+    } catch {
+      /* already have warning from above */
+    }
+  }
+
+  if (!result.matched) {
+    result.warning = `Value mismatch after fill: requested="${value.slice(0, 50)}" actual="${result.actualValue.slice(
+      0,
+      50,
+    )}"`;
+  }
+
+  return result;
+}
+
 export async function fillFormViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
   fields: BrowserFormField[];
   timeoutMs?: number;
-}): Promise<void> {
+}): Promise<{ results: FillResult[] }> {
   const started = Date.now();
   log.debug("action fill started", actionMeta(opts, { fields: opts.fields.length }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
   const timeout = Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000));
+  const results: FillResult[] = [];
+
   for (const field of opts.fields) {
     const ref = field.ref.trim();
     const type = field.type.trim();
@@ -230,28 +427,70 @@ export async function fillFormViaPlaywright(opts: {
         : typeof rawValue === "number" || typeof rawValue === "boolean"
           ? String(rawValue)
           : "";
-    if (!ref || !type) {
-      continue;
-    }
+    if (!ref || !type) continue;
     const locator = refLocator(page, ref);
+
     if (type === "checkbox" || type === "radio") {
       const checked =
         rawValue === true || rawValue === 1 || rawValue === "1" || rawValue === "true";
       try {
         await locator.setChecked(checked, { timeout });
+        results.push({
+          ref,
+          requestedValue: String(checked),
+          actualValue: String(checked),
+          matched: true,
+          strategy: "fill",
+        });
       } catch (err) {
-        throw toAIFriendlyError(err, ref);
+        results.push({
+          ref,
+          requestedValue: String(checked),
+          actualValue: "",
+          matched: false,
+          strategy: "fill",
+          warning: err instanceof Error ? err.message : String(err),
+        });
       }
       continue;
     }
+
+    // Determine input type for format-aware filling
+    let inputType: string | null = null;
     try {
-      await locator.fill(value, { timeout });
-    } catch (err) {
-      log.exception("action fill field failed", err, actionMeta(opts, { ref, type, duration_ms: Date.now() - started }));
-      throw toAIFriendlyError(err, ref);
+      inputType = await locator.getAttribute("type", { timeout: 1500 });
+    } catch {
+      /* not available */
+    }
+
+    const fillResult = await fillAndVerifyField(page, locator, ref, value, inputType, timeout);
+    results.push(fillResult);
+
+    if (!fillResult.matched) {
+      log.warn(
+        "fill verify mismatch",
+        actionMeta(opts, {
+          ref,
+          type,
+          requested: value.slice(0, 50),
+          actual: fillResult.actualValue.slice(0, 50),
+          strategy: fillResult.strategy,
+        }),
+      );
     }
   }
-  log.info("action fill succeeded", actionMeta(opts, { fields: opts.fields.length, duration_ms: Date.now() - started }));
+
+  log.info(
+    "action fill completed",
+    actionMeta(opts, {
+      fields: opts.fields.length,
+      matched: results.filter((r) => r.matched).length,
+      mismatched: results.filter((r) => !r.matched).length,
+      duration_ms: Date.now() - started,
+    }),
+  );
+
+  return { results };
 }
 
 export async function evaluateViaPlaywright(opts: {

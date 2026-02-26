@@ -364,13 +364,26 @@ export function registerBrowserAgentActRoutes(
             return jsonError(res, 400, "fields are required");
           }
           const timeoutMs = toNumber(body.timeoutMs);
-          await pw.fillFormViaPlaywright({
+          const fillResponse = await pw.fillFormViaPlaywright({
             cdpUrl,
             targetId: tab.targetId,
             fields,
             timeoutMs: timeoutMs ?? undefined,
           });
-          return res.json({ ok: true, targetId: tab.targetId });
+          return res.json({
+            ok: true,
+            targetId: tab.targetId,
+            results: fillResponse.results,
+            allMatched: fillResponse.results.every((r) => r.matched),
+            mismatched: fillResponse.results
+              .filter((r) => !r.matched)
+              .map((r) => ({
+                ref: r.ref,
+                requested: r.requestedValue,
+                actual: r.actualValue,
+                warning: r.warning,
+              })),
+          });
         }
         case "resize": {
           const width = toNumber(body.width);
