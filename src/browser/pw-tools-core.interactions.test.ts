@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { discoverDropdownOptionsViaPlaywright } from "./pw-tools-core.interactions.js";
+import { discoverDropdownOptionsViaPlaywright, fillAndVerifyField } from "./pw-tools-core.interactions.js";
 import { createPageViaPlaywright, closePlaywrightBrowserConnection } from "./pw-session.js";
 
 test("discoverDropdownOptionsViaPlaywright finds options with real browser", async () => {
@@ -72,6 +72,7 @@ test("discoverDropdownOptionsViaPlaywright finds options with real browser", asy
 
         // Verify that we can click the discovered option using the ref
         const optionRef = options[0].ref;
+        assert.ok(optionRef, "Discovered option should include a ref");
         const { clickViaPlaywright } = await import("./pw-tools-core.interactions.js");
         await clickViaPlaywright({
             cdpUrl,
@@ -85,10 +86,6 @@ test("discoverDropdownOptionsViaPlaywright finds options with real browser", asy
         await browser.close();
     }
 });
-import assert from "node:assert/strict";
-import test from "node:test";
-import { fillAndVerifyField } from "./pw-tools-core.interactions.js";
-
 // Mocking helper
 function createMockLocator(initialValue: string) {
   let currentValue = initialValue;

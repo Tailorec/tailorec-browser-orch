@@ -380,7 +380,9 @@ export async function injectIncrementalRefs(page: Page, elements: IncrementalEle
             target.tagName.toLowerCase() === el.tagName &&
             (target.textContent || "").trim().slice(0, 200) === el.text
           ) {
-            target.setAttribute("aria-ref", el.ref);
+            if (el.ref) {
+              target.setAttribute("aria-ref", el.ref);
+            }
             break;
           }
           target = target.parentElement;
