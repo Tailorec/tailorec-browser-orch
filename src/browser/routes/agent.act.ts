@@ -196,6 +196,27 @@ export function registerBrowserAgentActRoutes(
       });
 
       switch (kind) {
+        case "query_state": {
+          const ref = toStringOrEmpty(body.ref);
+          const refs = Array.isArray(body.refs) ? body.refs.map(String).filter(Boolean) : [];
+
+          if (refs.length > 0) {
+            const result = await pw.queryElementStatesViaPlaywright({
+              cdpUrl,
+              targetId: tab.targetId,
+              refs,
+            });
+            return res.json({ ok: true, targetId: tab.targetId, ...result });
+          }
+
+          if (!ref) return jsonError(res, 400, "ref or refs is required");
+          const state = await pw.queryElementStateViaPlaywright({
+            cdpUrl,
+            targetId: tab.targetId,
+            ref,
+          });
+          return res.json({ ok: true, targetId: tab.targetId, state });
+        }
         case "click": {
           const ref = toStringOrEmpty(body.ref);
           if (!ref) {
@@ -256,8 +277,8 @@ export function registerBrowserAgentActRoutes(
           if (timeoutMs) {
             typeRequest.timeoutMs = timeoutMs;
           }
-          await pw.typeViaPlaywright(typeRequest);
-          return res.json({ ok: true, targetId: tab.targetId });
+          const result = await pw.typeViaPlaywright(typeRequest);
+          return res.json({ ok: true, targetId: tab.targetId, ...result });
         }
         case "press": {
           const key = toStringOrEmpty(body.key);
@@ -364,13 +385,26 @@ export function registerBrowserAgentActRoutes(
             return jsonError(res, 400, "fields are required");
           }
           const timeoutMs = toNumber(body.timeoutMs);
-          await pw.fillFormViaPlaywright({
+          const fillResponse = await pw.fillFormViaPlaywright({
             cdpUrl,
             targetId: tab.targetId,
             fields,
             timeoutMs: timeoutMs ?? undefined,
           });
-          return res.json({ ok: true, targetId: tab.targetId });
+          return res.json({
+            ok: true,
+            targetId: tab.targetId,
+            results: fillResponse.results,
+            allMatched: fillResponse.results.every((r) => r.matched),
+            mismatched: fillResponse.results
+              .filter((r) => !r.matched)
+              .map((r) => ({
+                ref: r.ref,
+                requested: r.requestedValue,
+                actual: r.actualValue,
+                warning: r.warning,
+              })),
+          });
         }
         case "resize": {
           const width = toNumber(body.width);

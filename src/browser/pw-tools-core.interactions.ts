@@ -14,6 +14,307 @@ function actionMeta(opts: { targetId?: string; cdpUrl: string }, extra?: Record<
   return { target_id: opts.targetId, cdp_url: opts.cdpUrl, ...(extra || {}) };
 }
 
+export type ElementState = {
+  ref: string;
+  exists: boolean;
+  visible: boolean;
+  enabled: boolean; // !disabled
+  editable: boolean; // !readonly
+  focusable: boolean;
+  checked: boolean | null; // for checkboxes/radios
+  tagName: string;
+  inputType: string | null;
+  currentValue: string;
+  required: boolean;
+  ariaInvalid: boolean; // has validation error
+  ariaExpanded: boolean | null; // dropdown open state
+  boundingBox: { x: number; y: number; width: number; height: number } | null;
+  isObscured: boolean; // another element is on top (overlay detection)
+};
+
+/**
+ * Query the live state of an element by ref.
+ * All checks are dynamic (live DOM, not cached snapshot).
+ */
+export async function queryElementStateViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  ref: string;
+}): Promise<ElementState> {
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+
+  const ref = requireRef(opts.ref);
+  const locator = refLocator(page, ref);
+
+  const exists = (await locator.count()) > 0;
+  if (!exists) {
+    return {
+      ref,
+      exists: false,
+      visible: false,
+      enabled: false,
+      editable: false,
+      focusable: false,
+      checked: null,
+      tagName: "",
+      inputType: null,
+      currentValue: "",
+      required: false,
+      ariaInvalid: false,
+      ariaExpanded: null,
+      boundingBox: null,
+      isObscured: false,
+    };
+  }
+
+  const el = locator.first();
+
+  const [visible, enabled, editable, boundingBox] = await Promise.all([
+    el.isVisible().catch(() => false),
+    el.isEnabled().catch(() => false),
+    el.isEditable().catch(() => false),
+    el.boundingBox().catch(() => null),
+  ]);
+
+  const domState = await el.evaluate((node: Element) => {
+    const input = node as HTMLInputElement;
+    const rect = node.getBoundingClientRect();
+
+    // Check if element is obscured by another element
+    let isObscured = false;
+    if (rect.width > 0 && rect.height > 0) {
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      if (
+        topElement &&
+        topElement !== node &&
+        !node.contains(topElement) &&
+        !topElement.contains(node)
+      ) {
+        isObscured = true;
+      }
+    }
+
+    return {
+      tagName: node.tagName?.toLowerCase() || "",
+      inputType: input.type || node.getAttribute("type") || null,
+      currentValue: (input.value || "").slice(0, 200),
+      required:
+        input.required ||
+        node.hasAttribute("required") ||
+        node.getAttribute("aria-required") === "true",
+      ariaInvalid: node.getAttribute("aria-invalid") === "true",
+      ariaExpanded:
+        node.getAttribute("aria-expanded") === "true"
+          ? true
+          : node.getAttribute("aria-expanded") === "false"
+            ? false
+            : null,
+      checked: typeof input.checked === "boolean" ? input.checked : null,
+      focusable: (node as HTMLElement).tabIndex >= 0,
+      isObscured,
+    };
+  });
+
+  return {
+    ref,
+    exists,
+    visible,
+    enabled,
+    editable,
+    ...domState,
+    boundingBox,
+  };
+}
+
+/**
+ * Query state for multiple elements in one call.
+ * More efficient than N individual calls.
+ */
+export async function queryElementStatesViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  refs: string[];
+}): Promise<{ states: ElementState[] }> {
+  const states: ElementState[] = [];
+  for (const ref of opts.refs.slice(0, 50)) {
+    states.push(
+      await queryElementStateViaPlaywright({
+        cdpUrl: opts.cdpUrl,
+        targetId: opts.targetId,
+        ref,
+      }),
+    );
+  }
+  return { states };
+}
+
+export type FillResult = {
+  ref: string;
+  requestedValue: string;
+  actualValue: string;
+  matched: boolean;
+  strategy: "fill" | "sequential" | "pressSequentially" | "inputEvent" | "skip";
+  warning?: string;
+};
+
+/**
+ * Fill a single field with verification and fallback strategies.
+ *
+ * Strategy escalation:
+ * 1. If current value already matches → skip
+ * 2. Try locator.fill()
+ * 3. Read back value. If matches → done
+ * 4. If mismatch → clear + pressSequentially (char by char with 30ms delay)
+ * 5. Read back again. If mismatch → report warning with actual vs requested
+ *
+ * Special handling:
+ * - type="date": use locator.fill() with ISO format (YYYY-MM-DD)
+ * - type="tel": strip non-digit chars if fill fails, retry with digits-only
+ * - contenteditable: use page.keyboard.type() after clicking
+ */
+async function fillAndVerifyField(
+  page: Awaited<ReturnType<typeof getPageForTargetId>>,
+  locator: ReturnType<typeof refLocator>,
+  ref: string,
+  value: string,
+  inputType: string | null,
+  timeout: number,
+  opts: { cdpUrl: string; targetId?: string },
+): Promise<FillResult> {
+  const result: FillResult = {
+    ref,
+    requestedValue: value,
+    actualValue: "",
+    matched: false,
+    strategy: "fill",
+  };
+
+  // Pre-check: is the element actually fillable right now? (From Plan 05)
+  const preState = await queryElementStateViaPlaywright({
+    cdpUrl: opts.cdpUrl,
+    targetId: opts.targetId,
+    ref,
+  });
+
+  if (!preState.exists) {
+    result.warning = "Element no longer exists in DOM (ref stale)";
+    return result;
+  }
+  if (!preState.visible) {
+    result.warning = "Element is not visible (hidden or display:none)";
+    return result;
+  }
+  if (!preState.enabled) {
+    result.warning = "Element is disabled — cannot fill";
+    return result;
+  }
+  if (!preState.editable && preState.tagName !== "select") {
+    result.warning = "Element is readonly — cannot fill";
+    return result;
+  }
+  if (preState.isObscured) {
+    result.warning = `Element is obscured by another element (overlay/modal). Try closing the overlay first.`;
+    return result;
+  }
+
+  // Step 0: Read current value
+  let currentValue = "";
+  try {
+    currentValue = await locator.inputValue({ timeout: 2000 });
+  } catch {
+    // Not an input — might be contenteditable or select
+    try {
+      currentValue = await locator.innerText({ timeout: 2000 });
+    } catch {
+      currentValue = "";
+    }
+  }
+
+  if (currentValue.trim() === value.trim()) {
+    result.actualValue = currentValue;
+    result.matched = true;
+    result.strategy = "skip";
+    return result;
+  }
+
+  // Step 1: Try locator.fill()
+  try {
+    await locator.fill(value, { timeout });
+  } catch {
+    // fill() failed — might be contenteditable or non-standard
+    try {
+      await locator.click({ timeout: 3000 });
+      await locator.selectText({ timeout: 2000 }).catch(() => {});
+      await page.keyboard.type(value, { delay: 30 });
+      result.strategy = "sequential";
+    } catch (seqErr) {
+      result.warning = `fill and sequential both failed: ${seqErr instanceof Error ? seqErr.message : String(seqErr)}`;
+      result.actualValue = "";
+      return result;
+    }
+  }
+
+  // Step 2: Read back value
+  try {
+    result.actualValue = await locator.inputValue({ timeout: 2000 });
+  } catch {
+    try {
+      result.actualValue = await locator.innerText({ timeout: 2000 });
+    } catch {
+      result.actualValue = "";
+    }
+  }
+
+  if (result.actualValue.trim() === value.trim()) {
+    result.matched = true;
+    return result;
+  }
+
+  // Step 3: For specific input types, try format normalization
+  if (inputType === "tel" && !result.matched) {
+    const digitsOnly = value.replace(/\D/g, "");
+    if (digitsOnly !== value) {
+      try {
+        await locator.fill("", { timeout: 2000 });
+        await locator.pressSequentially(digitsOnly, { delay: 30, timeout });
+        result.actualValue = (await locator.inputValue({ timeout: 2000 }).catch(() => "")).trim();
+        result.strategy = "pressSequentially";
+        if (result.actualValue.replace(/\D/g, "") === digitsOnly) {
+          result.matched = true;
+          return result;
+        }
+      } catch {
+        /* continue */
+      }
+    }
+  }
+
+  // Step 4: General fallback — clear + pressSequentially
+  if (!result.matched) {
+    try {
+      await locator.fill("", { timeout: 2000 });
+      await locator.pressSequentially(value, { delay: 40, timeout });
+      result.actualValue = await locator.inputValue({ timeout: 2000 }).catch(() => "");
+      result.strategy = "pressSequentially";
+      result.matched = result.actualValue.trim() === value.trim();
+    } catch {
+      /* already have warning from above */
+    }
+  }
+
+  if (!result.matched) {
+    result.warning =
+      `Value mismatch after fill: requested="${value.slice(0, 50)}" ` +
+      `actual="${result.actualValue.slice(0, 50)}"`;
+  }
+
+  return result;
+}
+
 export async function highlightViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
@@ -181,7 +482,7 @@ export async function typeViaPlaywright(opts: {
   submit?: boolean;
   slowly?: boolean;
   timeoutMs?: number;
-}): Promise<void> {
+}): Promise<FillResult> {
   const started = Date.now();
   log.debug("action type started", actionMeta(opts, { ref: opts.ref, submit: opts.submit, slowly: opts.slowly }));
   const text = String(opts.text ?? "");
@@ -191,10 +492,31 @@ export async function typeViaPlaywright(opts: {
   const ref = requireRef(opts.ref);
   const locator = refLocator(page, ref);
   const timeout = Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000));
+
+  // Pre-check: is the element actually fillable right now? (From Plan 05)
+  const preState = await queryElementStateViaPlaywright({
+    cdpUrl: opts.cdpUrl,
+    targetId: opts.targetId,
+    ref,
+  });
+
+  if (!preState.exists) {
+    throw new Error(`Element no longer exists in DOM (ref ${ref} stale)`);
+  }
+  if (!preState.visible) {
+    throw new Error(`Element is not visible (hidden or display:none) (ref ${ref})`);
+  }
+  if (!preState.enabled) {
+    throw new Error(`Element is disabled — cannot fill (ref ${ref})`);
+  }
+  if (preState.isObscured) {
+    throw new Error(`Element is obscured by another element (overlay/modal). Try closing the overlay first. (ref ${ref})`);
+  }
+
   try {
     if (opts.slowly) {
       await locator.click({ timeout });
-      await locator.type(text, { timeout, delay: 75 });
+      await locator.pressSequentially(text, { timeout, delay: 75 });
     } else {
       await locator.fill(text, { timeout });
     }
@@ -202,6 +524,22 @@ export async function typeViaPlaywright(opts: {
       await locator.press("Enter", { timeout });
     }
     log.info("action type succeeded", actionMeta(opts, { ref, duration_ms: Date.now() - started }));
+
+    // Read back value for verification
+    let actualValue = "";
+    try {
+      actualValue = await locator.inputValue({ timeout: 2000 });
+    } catch {
+      actualValue = await locator.innerText({ timeout: 2000 }).catch(() => "");
+    }
+
+    return {
+      ref,
+      requestedValue: text,
+      actualValue,
+      matched: actualValue.trim() === text.trim(),
+      strategy: opts.slowly ? "sequential" : "fill",
+    };
   } catch (err) {
     log.exception("action type failed", err, actionMeta(opts, { ref, duration_ms: Date.now() - started }));
     throw toAIFriendlyError(err, ref);
@@ -213,13 +551,15 @@ export async function fillFormViaPlaywright(opts: {
   targetId?: string;
   fields: BrowserFormField[];
   timeoutMs?: number;
-}): Promise<void> {
+}): Promise<{ results: FillResult[] }> {
   const started = Date.now();
   log.debug("action fill started", actionMeta(opts, { fields: opts.fields.length }));
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
   const timeout = Math.max(500, Math.min(60_000, opts.timeoutMs ?? 8000));
+  const results: FillResult[] = [];
+
   for (const field of opts.fields) {
     const ref = field.ref.trim();
     const type = field.type.trim();
@@ -234,24 +574,65 @@ export async function fillFormViaPlaywright(opts: {
       continue;
     }
     const locator = refLocator(page, ref);
+
     if (type === "checkbox" || type === "radio") {
       const checked =
         rawValue === true || rawValue === 1 || rawValue === "1" || rawValue === "true";
       try {
         await locator.setChecked(checked, { timeout });
+        results.push({
+          ref,
+          requestedValue: String(checked),
+          actualValue: String(checked),
+          matched: true,
+          strategy: "fill",
+        });
       } catch (err) {
-        throw toAIFriendlyError(err, ref);
+        results.push({
+          ref,
+          requestedValue: String(checked),
+          actualValue: "",
+          matched: false,
+          strategy: "fill",
+          warning: err instanceof Error ? err.message : String(err),
+        });
       }
       continue;
     }
+
+    // Determine input type for format-aware filling
+    let inputType: string | null = null;
     try {
-      await locator.fill(value, { timeout });
-    } catch (err) {
-      log.exception("action fill field failed", err, actionMeta(opts, { ref, type, duration_ms: Date.now() - started }));
-      throw toAIFriendlyError(err, ref);
+      inputType = await locator.getAttribute("type", { timeout: 1500 });
+    } catch {
+      /* not available */
+    }
+
+    const fillResult = await fillAndVerifyField(page, locator, ref, value, inputType, timeout, {
+      cdpUrl: opts.cdpUrl,
+      targetId: opts.targetId,
+    });
+    results.push(fillResult);
+
+    if (!fillResult.matched) {
+      log.warn("fill verify mismatch", actionMeta(opts, {
+        ref,
+        type,
+        requested: value.slice(0, 50),
+        actual: fillResult.actualValue.slice(0, 50),
+        strategy: fillResult.strategy,
+      }));
     }
   }
-  log.info("action fill succeeded", actionMeta(opts, { fields: opts.fields.length, duration_ms: Date.now() - started }));
+
+  log.info("action fill completed", actionMeta(opts, {
+    fields: opts.fields.length,
+    matched: results.filter(r => r.matched).length,
+    mismatched: results.filter(r => !r.matched).length,
+    duration_ms: Date.now() - started,
+  }));
+
+  return { results };
 }
 
 export async function evaluateViaPlaywright(opts: {

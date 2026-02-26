@@ -12,6 +12,7 @@ export const ACT_KINDS = [
   "type",
   "wait",
   "navigate",
+  "query_state",
 ] as const;
 
 export type ActKind = (typeof ACT_KINDS)[number];
