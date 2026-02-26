@@ -549,6 +549,34 @@ export function registerBrowserAgentActRoutes(
           });
           return res.json({ ok: true, targetId: tab.targetId });
         }
+        case "detect_blocker": {
+          const ref = toStringOrEmpty(body.ref);
+          if (!ref) {
+            return jsonError(res, 400, "ref is required");
+          }
+          const result = await pw.detectBlockingElementViaPlaywright({
+            cdpUrl,
+            targetId: tab.targetId,
+            ref,
+          });
+          return res.json({ ok: true, targetId: tab.targetId, ...result });
+        }
+        case "dismiss_blocker": {
+          const targetRef = toStringOrEmpty(body.targetRef);
+          if (!targetRef) {
+            return jsonError(res, 400, "targetRef is required");
+          }
+          const strategy = toStringOrEmpty(body.strategy) as any;
+          const closeButtonRef = toStringOrEmpty(body.closeButtonRef) || undefined;
+          const result = await pw.dismissBlockerViaPlaywright({
+            cdpUrl,
+            targetId: tab.targetId,
+            targetRef,
+            strategy: strategy || undefined,
+            closeButtonRef,
+          });
+          return res.json({ ok: true, targetId: tab.targetId, ...result });
+        }
         default: {
           return jsonError(res, 400, "unsupported kind");
         }

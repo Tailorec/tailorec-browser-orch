@@ -15,6 +15,8 @@ export const ACT_KINDS = [
   "discover_dropdown",
   "close_dropdown",
   "query_state",
+  "detect_blocker",
+  "dismiss_blocker",
 ] as const;
 
 export type ActKind = (typeof ACT_KINDS)[number];
