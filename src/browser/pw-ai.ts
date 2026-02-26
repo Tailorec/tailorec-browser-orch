@@ -26,6 +26,8 @@ export {
   highlightViaPlaywright,
   hoverViaPlaywright,
   pressKeyViaPlaywright,
+  queryElementStateViaPlaywright,
+  queryElementStatesViaPlaywright,
   scrollIntoViewViaPlaywright,
   selectOptionViaPlaywright,
   setInputFilesViaPlaywright,

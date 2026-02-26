@@ -196,6 +196,27 @@ export function registerBrowserAgentActRoutes(
       });
 
       switch (kind) {
+        case "query_state": {
+          const ref = toStringOrEmpty(body.ref);
+          const refs = Array.isArray(body.refs) ? body.refs.map(String).filter(Boolean) : [];
+
+          if (refs.length > 0) {
+            const result = await pw.queryElementStatesViaPlaywright({
+              cdpUrl,
+              targetId: tab.targetId,
+              refs,
+            });
+            return res.json({ ok: true, targetId: tab.targetId, ...result });
+          }
+
+          if (!ref) return jsonError(res, 400, "ref or refs is required");
+          const state = await pw.queryElementStateViaPlaywright({
+            cdpUrl,
+            targetId: tab.targetId,
+            ref,
+          });
+          return res.json({ ok: true, targetId: tab.targetId, state });
+        }
         case "click": {
           const ref = toStringOrEmpty(body.ref);
           if (!ref) {

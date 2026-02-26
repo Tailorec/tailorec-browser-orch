@@ -216,6 +216,163 @@ export async function typeViaPlaywright(opts: {
 
 // ─── Fill-and-Verify Pattern (Plan 03) ────────────────────────────────
 
+// ─── Dynamic Element State (Plan 05) ─────────────────────────────────
+
+/**
+ * Live element state — queried dynamically from the DOM, not cached.
+ *
+ * Mirrors Skyvern's SkyvernElement methods:
+ *   dom.py: is_disabled() line 246, is_readonly() line 288,
+ *           is_visible() line 328, is_editable() line 336,
+ *           find_blocking_element() line 496
+ */
+export type ElementState = {
+  ref: string;
+  exists: boolean;
+  visible: boolean;
+  enabled: boolean;
+  editable: boolean;
+  focusable: boolean;
+  checked: boolean | null;
+  tagName: string;
+  inputType: string | null;
+  currentValue: string;
+  required: boolean;
+  ariaInvalid: boolean;
+  ariaExpanded: boolean | null;
+  boundingBox: { x: number; y: number; width: number; height: number } | null;
+  isObscured: boolean;
+};
+
+/**
+ * Query the live state of an element by ref.
+ *
+ * Skyvern reference:
+ *   dom.py: is_disabled(dynamic=True) line 246
+ *   dom.py: is_readonly(dynamic=True) line 288
+ *   dom.py: is_visible() line 328
+ *   dom.py: find_blocking_element() line 496 (uses elementFromPoint for obscured check)
+ *   page.py: get_blocking_element_id() line 416
+ *   domUtils.js: getBlockElementUniqueID() line 640 (elementFromPoint center check)
+ */
+export async function queryElementStateViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  ref: string;
+}): Promise<ElementState> {
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+
+  const ref = requireRef(opts.ref);
+  const locator = refLocator(page, ref);
+
+  const exists = (await locator.count()) > 0;
+  if (!exists) {
+    return {
+      ref,
+      exists: false,
+      visible: false,
+      enabled: false,
+      editable: false,
+      focusable: false,
+      checked: null,
+      tagName: "",
+      inputType: null,
+      currentValue: "",
+      required: false,
+      ariaInvalid: false,
+      ariaExpanded: null,
+      boundingBox: null,
+      isObscured: false,
+    };
+  }
+
+  const el = locator.first();
+
+  const [visible, enabled, editable, boundingBox] = await Promise.all([
+    el.isVisible().catch(() => false),
+    el.isEnabled().catch(() => false),
+    el.isEditable().catch(() => false),
+    el.boundingBox().catch(() => null),
+  ]);
+
+  const domState = await el.evaluate((node: Element) => {
+    const input = node as HTMLInputElement;
+    const rect = node.getBoundingClientRect();
+
+    // Check if element is obscured by another element
+    // Mirrors Skyvern's getBlockElementUniqueID (domUtils.js line 640)
+    let isObscured = false;
+    if (rect.width > 0 && rect.height > 0) {
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      if (
+        topElement &&
+        topElement !== node &&
+        !node.contains(topElement) &&
+        !topElement.contains(node)
+      ) {
+        isObscured = true;
+      }
+    }
+
+    return {
+      tagName: node.tagName?.toLowerCase() || "",
+      inputType: input.type || node.getAttribute("type") || null,
+      currentValue: (input.value || "").slice(0, 200),
+      required:
+        input.required ||
+        node.hasAttribute("required") ||
+        node.getAttribute("aria-required") === "true",
+      ariaInvalid: node.getAttribute("aria-invalid") === "true",
+      ariaExpanded:
+        node.getAttribute("aria-expanded") === "true"
+          ? true
+          : node.getAttribute("aria-expanded") === "false"
+            ? false
+            : null,
+      checked: typeof input.checked === "boolean" ? input.checked : null,
+      focusable: (node as HTMLElement).tabIndex >= 0,
+      isObscured,
+    };
+  });
+
+  return {
+    ref,
+    exists,
+    visible,
+    enabled,
+    editable,
+    ...domState,
+    boundingBox,
+  };
+}
+
+/**
+ * Query state for multiple elements in one call.
+ */
+export async function queryElementStatesViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  refs: string[];
+}): Promise<{ states: ElementState[] }> {
+  const states: ElementState[] = [];
+  for (const ref of opts.refs.slice(0, 50)) {
+    states.push(
+      await queryElementStateViaPlaywright({
+        cdpUrl: opts.cdpUrl,
+        targetId: opts.targetId,
+        ref,
+      }),
+    );
+  }
+  return { states };
+}
+
+// ─── Fill-and-Verify Pattern (Plan 03) ────────────────────────────────
+
 export type FillResult = {
   ref: string;
   requestedValue: string;
