@@ -613,3 +613,193 @@ export async function setInputFilesViaPlaywright(opts: {
     // Best-effort for sites that don't react to setInputFiles alone.
   }
 }
+
+export type BlockingElementInfo = {
+  isBlocked: boolean;
+  blockerTagName?: string;
+  blockerRole?: string;
+  blockerText?: string;
+  blockerClassName?: string;
+  blockerZIndex?: number;
+  blockerRect?: { x: number; y: number; width: number; height: number };
+  dismissStrategy?: "click_close" | "press_escape" | "click_outside" | "scroll" | "unknown";
+  closeButtonText?: string;
+  closeButtonAriaLabel?: string;
+};
+
+/**
+ * Check if an element is blocked by an overlay/modal/popup.
+ */
+export async function detectBlockingElementViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  ref: string;
+}): Promise<BlockingElementInfo> {
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+
+  const ref = requireRef(opts.ref);
+  const locator = refLocator(page, ref);
+
+  const result = await locator.evaluate((target: Element) => {
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      return { isBlocked: false, reason: "target_not_visible" };
+    }
+
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+
+    if (!topElement) {
+      return { isBlocked: false };
+    }
+
+    // Check if topElement is the target or a descendant/ancestor
+    if (topElement === target || target.contains(topElement) || topElement.contains(target)) {
+      return { isBlocked: false };
+    }
+
+    // topElement is blocking the target
+    const blocker = topElement;
+
+    // Walk up to find the modal/overlay container
+    let container = blocker;
+    let depth = 0;
+    while (container.parentElement && depth < 10) {
+      const style = getComputedStyle(container);
+      const role = container.getAttribute("role");
+      if (
+        role === "dialog" ||
+        role === "alertdialog" ||
+        style.position === "fixed" ||
+        style.position === "absolute" ||
+        (style.zIndex && parseInt(style.zIndex) > 100)
+      ) {
+        break;
+      }
+      container = container.parentElement;
+      depth++;
+    }
+
+    // Look for close buttons in the blocking container
+    const closeSelectors = [
+      'button[aria-label*="close" i]',
+      'button[aria-label*="dismiss" i]',
+      'button[aria-label*="accept" i]',
+      'button[class*="close" i]',
+      'button[class*="dismiss" i]',
+      '[role="button"][aria-label*="close" i]',
+      'a[class*="close" i]',
+      'button:has(svg)', // icon-only close buttons
+    ];
+
+    let closeButton = null;
+    for (const selector of closeSelectors) {
+      const found = container.querySelector(selector);
+      if (found) {
+        const foundRect = found.getBoundingClientRect();
+        if (foundRect.width > 0 && foundRect.height > 0) {
+          closeButton = found;
+          break;
+        }
+      }
+    }
+
+    // Also look for "Accept", "OK", "Got it", "I agree" buttons
+    const acceptPatterns = /accept|ok|got it|i agree|i understand|continue|dismiss|close/i;
+    if (!closeButton) {
+      const buttons = container.querySelectorAll("button, a[role='button'], [role='button']");
+      for (const btn of buttons) {
+        if (acceptPatterns.test(btn.textContent || "")) {
+          const btnRect = btn.getBoundingClientRect();
+          if (btnRect.width > 0 && btnRect.height > 0) {
+            closeButton = btn;
+            break;
+          }
+        }
+      }
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const containerStyle = getComputedStyle(container);
+    const role = container.getAttribute("role");
+
+    let dismissStrategy = "unknown";
+    if (closeButton) {
+      dismissStrategy = "click_close";
+    } else if (role === "dialog" || role === "alertdialog") {
+      dismissStrategy = "press_escape";
+    } else if (containerStyle.position === "fixed") {
+      dismissStrategy = "press_escape";
+    }
+
+    return {
+      isBlocked: true,
+      blockerTagName: container.tagName.toLowerCase(),
+      blockerRole: role || undefined,
+      blockerText: (container.textContent || "").trim().slice(0, 200),
+      blockerClassName: (container.className?.toString?.() || "").slice(0, 100),
+      blockerZIndex: parseInt(containerStyle.zIndex) || undefined,
+      blockerRect: {
+        x: containerRect.x,
+        y: containerRect.y,
+        width: containerRect.width,
+        height: containerRect.height,
+      },
+      dismissStrategy,
+      closeButtonText: closeButton ? (closeButton.textContent || "").trim().slice(0, 50) : undefined,
+      closeButtonAriaLabel: closeButton?.getAttribute("aria-label") || undefined,
+    };
+  });
+
+  return result as BlockingElementInfo;
+}
+
+/**
+ * Attempt to dismiss a blocking overlay.
+ */
+export async function dismissBlockerViaPlaywright(opts: {
+  cdpUrl: string;
+  targetId?: string;
+  targetRef: string;
+  strategy?: "click_close" | "press_escape" | "click_outside";
+  closeButtonRef?: string;
+}): Promise<{ dismissed: boolean; strategy: string }> {
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+
+  const strategies = opts.strategy
+    ? [opts.strategy]
+    : (["click_close", "press_escape", "click_outside"] as const);
+
+  for (const strategy of strategies) {
+    try {
+      if (strategy === "click_close" && opts.closeButtonRef) {
+        await refLocator(page, opts.closeButtonRef).click({ timeout: 3000 });
+      } else if (strategy === "press_escape") {
+        await page.keyboard.press("Escape");
+      } else if (strategy === "click_outside") {
+        await page.mouse.click(1, 1);
+      }
+
+      await page.waitForTimeout(500);
+
+      const check = await detectBlockingElementViaPlaywright({
+        cdpUrl: opts.cdpUrl,
+        targetId: opts.targetId,
+        ref: opts.targetRef,
+      });
+
+      if (!check.isBlocked) {
+        return { dismissed: true, strategy };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return { dismissed: false, strategy: "all_failed" };
+}

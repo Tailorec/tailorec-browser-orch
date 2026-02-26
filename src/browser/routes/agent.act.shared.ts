@@ -12,6 +12,8 @@ export const ACT_KINDS = [
   "type",
   "wait",
   "navigate",
+  "detect_blocker",
+  "dismiss_blocker",
 ] as const;
 
 export type ActKind = (typeof ACT_KINDS)[number];
