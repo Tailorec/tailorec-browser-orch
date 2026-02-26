@@ -10,6 +10,8 @@ Each file covers one feature area and specifies exactly which codebase, file, an
 
 ## Index
 
+- Implementation status tracker: `IMPLEMENTATION-TRACKER.md`
+
 ### Infrastructure Plans (01–10) — Browser Engine Robustness
 
 | # | File | Feature | Primary Target | Job-App Specific? |
