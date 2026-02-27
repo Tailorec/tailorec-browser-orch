@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "snapshot": "<html><head><title>Test Page</title></head><body><h1>Welcome</h1><button>Click me</button><input type=\"text\" placeholder=\"Enter text\" /><a href=\"/link\">Link</a></body></html>",
+  "refs": [
+    { "ref": "d1", "role": "heading", "name": "Welcome" },
+    { "ref": "d2", "role": "button", "name": "Click me" },
+    { "ref": "d3", "role": "textbox", "name": "Enter text" },
+    { "ref": "d4", "role": "link", "name": "Link" }
+  ],
+  "durationMs": 150,
+  "targetId": "test-target-123"
+}

@@ -86,7 +86,7 @@ describe("infra: ports - ensurePortAvailable", () => {
 
 describe("infra: ws - rawDataToString", () => {
   it("should return string as-is", () => {
-    expect(rawDataToString("hello")).toBe("hello");
+    expect(rawDataToString("hello" as any)).toBe("hello");
   });
 
   it("should convert Buffer to string", () => {

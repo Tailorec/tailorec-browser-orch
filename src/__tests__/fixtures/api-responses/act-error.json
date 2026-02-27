@@ -1,0 +1,11 @@
+{
+  "success": false,
+  "error": "Element not found",
+  "message": "Failed to find element with ref 'd99'. The element may not exist or may not be visible.",
+  "code": "ELEMENT_NOT_FOUND",
+  "details": {
+    "ref": "d99",
+    "action": "click",
+    "timeoutMs": 8000
+  }
+}

@@ -23,3 +23,23 @@ export async function ensurePortAvailable(port: number): Promise<void> {
     // I'll make it a no-op for now to keep things simple, Chrome will fail to bind CDP if busy.
   }
 }
+
+/**
+ * Finds a free port starting from the given port.
+ */
+export async function findFreePort(startFrom: number = 0): Promise<number> {
+  if (startFrom > 0) {
+    if (await isPortAvailable(startFrom)) {
+      return startFrom;
+    }
+  }
+  // Try random port
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("listening", () => {
+      const port = (server.address() as any).port;
+      server.close(() => resolve(port));
+    });
+    server.listen(0);
+  });
+}
