@@ -30,3 +30,15 @@ build/
 # temporary upload resumes
 upload-resumes/
 upload-resume/
+
+# test coverage
+coverage/
+*.lcov
+
+# playwright
+playwright-report/
+test-results/
+playwright/.cache/
+
+# vitest
+*.snap
