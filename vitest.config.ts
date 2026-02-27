@@ -13,6 +13,13 @@ export default defineConfig({
         "src/**/*.test.ts",
         "src/**/__tests__/**",
         "dist/**",
+        // bootstrap / type-only / compatibility stubs (not production logic)
+        "src/server.ts",
+        "src/browser/client-actions-core.ts",
+        "src/browser/client-actions-types.ts",
+        "src/browser/routes/types.ts",
+        "src/browser/control-service.ts",
+        "src/browser/routes/dispatcher.ts",
       ],
     },
     projects: [
