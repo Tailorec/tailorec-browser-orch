@@ -1,5 +1,7 @@
 # Skyvern-Inspired Improvement Plan — Overview
 
+Alignment: inspired
+
 ## Purpose
 
 This folder contains detailed improvement plans for **open-agent** and **openclaw-browser** inspired by Skyvern's form-filling architecture, **focused on automating job applications** on simpler ATS platforms: Greenhouse, Lever, Ashby, SmartRecruiters, and BambooHR.
@@ -14,31 +16,31 @@ Each file covers one feature area and specifies exactly which codebase, file, an
 
 ### Infrastructure Plans (01–10) — Browser Engine Robustness
 
-| # | File | Feature | Primary Target | Job-App Specific? |
-|---|------|---------|---------------|-------------------|
-| 01 | `01-custom-dropdown-engine.md` | Custom dropdown / autocomplete handling via DOM mutation observation | openclaw-browser + open-agent | ✅ Updated with Greenhouse Select2, Lever, Ashby, EEO dropdown patterns |
-| 02 | `02-rich-snapshot-metadata.md` | Enrich snapshots with HTML attributes (required, type, placeholder, value, disabled, pattern) | openclaw-browser | ✅ Updated with field→profile mapping, `autocomplete`/`name` semantic hints, resume upload detection |
-| 03 | `03-fill-verify-and-smart-input.md` | Fill-then-verify, sequential typing fallback, format-aware input (phone, date, masked) | openclaw-browser + open-agent | ✅ Updated with ATS-specific phone/date formats, resume parse pre-fill awareness |
-| 04 | `04-incremental-snapshot-delta.md` | Incremental DOM change detection between actions | openclaw-browser + open-agent | Generic |
-| 05 | `05-dynamic-element-state.md` | Real-time disabled/readonly/visibility checks at interaction time | openclaw-browser | Generic |
-| 06 | `06-blocking-element-detection.md` | Detect and route around overlay/popup/modal blocking form elements | openclaw-browser + open-agent | Generic |
-| 07 | `07-screenshot-vision-tool.md` | Optional screenshot tool for visual debugging and error detection | openclaw-browser + open-agent | Generic |
-| 08 | `08-prompt-and-skill-upgrade.md` | System prompt and skill file improvements for structured form reasoning | open-agent | ✅ Updated with 9-phase execution protocol, field→profile mapping table, ATS-specific skill structure |
-| 09 | `09-select-option-improvements.md` | Native `<select>` and custom combobox/listbox robust selection | openclaw-browser + open-agent | Generic |
-| 10 | `10-multi-step-form-navigation.md` | Multi-page/multi-step form wizard handling with checkpoint validation | open-agent | ✅ Updated with per-ATS step structures, step detection heuristics, ATS URL detection |
+| # | File | Feature | Alignment | Primary Target | Job-App Specific? |
+|---|------|---------|-----------|---------------|-------------------|
+| 01 | `01-custom-dropdown-engine.md` | Custom dropdown / autocomplete handling via DOM mutation observation | `direct_port` | openclaw-browser + open-agent | ✅ |
+| 02 | `02-rich-snapshot-metadata.md` | Enrich snapshots with HTML attributes (required, type, placeholder, value, disabled, pattern) | `inspired` | openclaw-browser | ✅ |
+| 03 | `03-fill-verify-and-smart-input.md` | Fill-then-verify, sequential typing fallback, format-aware input (phone, date, masked) | `direct_port` | openclaw-browser + open-agent | ✅ |
+| 04 | `04-incremental-snapshot-delta.md` | Incremental DOM change detection between actions | `direct_port` | openclaw-browser + open-agent | Generic |
+| 05 | `05-dynamic-element-state.md` | Real-time disabled/readonly/visibility checks at interaction time | `direct_port` | openclaw-browser | Generic |
+| 06 | `06-blocking-element-detection.md` | Detect and route around overlay/popup/modal blocking form elements | `direct_port` | openclaw-browser + open-agent | Generic |
+| 07 | `07-screenshot-vision-tool.md` | Optional screenshot tool for visual debugging and error detection | `direct_port` | openclaw-browser + open-agent | Generic |
+| 08 | `08-prompt-and-skill-upgrade.md` | System prompt and skill file improvements for structured form reasoning | `inspired` | open-agent | ✅ |
+| 09 | `09-select-option-improvements.md` | Native `<select>` and custom combobox/listbox robust selection | `direct_port` | openclaw-browser + open-agent | Generic |
+| 10 | `10-multi-step-form-navigation.md` | Multi-page/multi-step form wizard handling with checkpoint validation | `inspired` | open-agent | ✅ |
 
 ### Job Application Plans (11–18) — Application-Specific Intelligence
 
-| # | File | Feature | Primary Target |
-|---|------|---------|---------------|
-| 11 | `11-resume-upload-intelligence.md` | Upload widget detection (native/hidden/dropzone/button), upload verification, resume parse pre-fill | openclaw-browser + open-agent |
-| 12 | `12-screening-question-intelligence.md` | Question classifier (work auth, visa, EEO, experience, salary), knockout question safety, answer guidance | open-agent |
-| 13 | `13-ats-platform-detection.md` | ATS detection (URL/HTML/CSS), platform-specific skill files (Greenhouse, Lever, Ashby), dynamic skill loading | openclaw-browser + open-agent |
-| 14 | `14-repeating-sections.md` | Work history / education "Add another" section detection, resume→entry mapping, fill coordination | openclaw-browser + open-agent |
-| 15 | `15-already-applied-detection.md` | Application state detection (already applied, draft, closed, login required), early exit / resume draft | openclaw-browser + open-agent |
-| 16 | `16-location-autocomplete.md` | Google Places / custom autocomplete handling, type→wait→select, split field detection, keyboard fallback | openclaw-browser + open-agent |
-| 17 | `17-confirmation-extraction.md` | Post-submit page analysis, success/error signal detection, confirmation ID extraction, validation error detection | openclaw-browser + open-agent |
-| 18 | `18-free-text-answer-quality.md` | Answer context builder (question categorization, resume excerpt extraction, job req matching), quality guidelines | open-agent |
+| # | File | Feature | Alignment | Primary Target |
+|---|------|---------|-----------|---------------|
+| 11 | `11-resume-upload-intelligence.md` | Upload widget detection (native/hidden/dropzone/button), upload verification, resume parse pre-fill | `inspired` | openclaw-browser + open-agent |
+| 12 | `12-screening-question-intelligence.md` | Question classifier (work auth, visa, EEO, experience, salary), knockout question safety, answer guidance | `inspired` | open-agent |
+| 13 | `13-ats-platform-detection.md` | ATS detection (URL/HTML/CSS), platform-specific skill files (Greenhouse, Lever, Ashby), dynamic skill loading | `inspired` | openclaw-browser + open-agent |
+| 14 | `14-repeating-sections.md` | Work history / education "Add another" section detection, resume→entry mapping, fill coordination | `inspired` | openclaw-browser + open-agent |
+| 15 | `15-already-applied-detection.md` | Application state detection (already applied, draft, closed, login required), early exit / resume draft | `inspired` | openclaw-browser + open-agent |
+| 16 | `16-location-autocomplete.md` | Google Places / custom autocomplete handling, type→wait→select, split field detection, keyboard fallback | `direct_port` | openclaw-browser + open-agent |
+| 17 | `17-confirmation-extraction.md` | Post-submit page analysis, success/error signal detection, confirmation ID extraction, validation error detection | `inspired` | openclaw-browser + open-agent |
+| 18 | `18-free-text-answer-quality.md` | Answer context builder (question categorization, resume excerpt extraction, job req matching), quality guidelines | `inspired` | open-agent |
 
 ## Architecture Reference
 

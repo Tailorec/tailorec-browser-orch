@@ -1,5 +1,7 @@
 # 07 — Screenshot Vision Tool
 
+Alignment: direct_port
+
 ## Problem
 
 Your agent perceives the page **only via accessibility tree text**. This misses visual cues:

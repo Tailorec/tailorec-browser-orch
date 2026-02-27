@@ -1,5 +1,7 @@
 # 06 — Blocking Element Detection
 
+Alignment: direct_port
+
 ## Problem
 
 Job application pages frequently show elements that **block** the form:

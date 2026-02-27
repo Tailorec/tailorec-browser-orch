@@ -1,5 +1,7 @@
 # 11 — Resume Upload Intelligence
 
+Alignment: inspired
+
 ## Problem
 
 Resume upload is the **#1 failure point** in automated job applications. It fails differently on every ATS.

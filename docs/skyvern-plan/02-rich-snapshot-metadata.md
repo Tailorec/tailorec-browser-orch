@@ -1,5 +1,7 @@
 # 02 — Rich Snapshot Metadata
 
+Alignment: inspired
+
 ## Problem
 
 Your current snapshot pipeline uses Playwright's accessibility tree (`_snapshotForAI` / `ariaSnapshot`), which produces lines like:
@@ -391,109 +393,6 @@ compactedRecord.alreadyFilledCount = filledFields.length;
 - **Enrichment cost**: Reading attributes for 120 refs takes ~100-200ms (30 parallel batches of 4). Acceptable for snapshot operations that take 1-3s total.
 - **Snapshot size increase**: Each annotated line adds ~40-80 chars. For 120 refs, that's ~5-10KB extra — well within the 70KB snapshot budget.
 - **Token cost**: The enriched metadata is highly information-dense. A few extra tokens per ref saves entire LLM round-trips that would otherwise be spent discovering field types.
-
-## Job Application Field Patterns
-
-These are the **specific fields** and their attribute patterns across Greenhouse, Lever, Ashby:
-
-### Required Fields by ATS
-
-| ATS | Always Required | Sometimes Required | Rarely Required |
-|---|---|---|---|
-| **Greenhouse** | First name, Last name, Email, Resume | Phone, LinkedIn, Cover letter, Location | Portfolio, Website, Salary |
-| **Lever** | Name (single field), Email, Resume | Phone, Location, LinkedIn, URLs | Cover letter |
-| **Ashby** | First name, Last name, Email, Resume | Phone, LinkedIn, Location | Custom questions vary |
-| **SmartRecruiters** | First name, Last name, Email | Phone, Resume (sometimes optional), Location | LinkedIn, Cover letter |
-| **BambooHR** | First name, Last name, Email | Phone, Resume | Address fields |
-
-### Field Name → `autocomplete` Attribute Mapping
-
-Many ATS set the `autocomplete` attribute. Your enriched snapshot should surface these:
-
-| `autocomplete` value | Profile source | Notes |
-|---|---|---|
-| `given-name` | `user_profile.first_name` | |
-| `family-name` | `user_profile.last_name` | |
-| `email` | `user_profile.email` or `resume.email` | |
-| `tel` | `resume.phone` | Format to match placeholder |
-| `address-line1` | `user_profile.address` | |
-| `address-level2` | City | |
-| `address-level1` | State/Province | |
-| `postal-code` | ZIP code | |
-| `country-name` | Country | |
-| `url` | `user_profile.linkedin_url` | |
-| `organization` | `resume.experience[0].company` | Current employer |
-| `job-title` | `resume.experience[0].title` | Current title |
-
-### `name` Attribute Semantic Hints
-
-When `autocomplete` isn't set, the `name` attribute often contains semantic hints:
-
-```
-name="candidate[first_name]"     → first name (Greenhouse pattern)
-name="candidate[last_name]"      → last name (Greenhouse)
-name="candidate[email]"          → email (Greenhouse)
-name="candidate[phone]"          → phone (Greenhouse)
-name="cards[phone][field_values][phone]" → phone (Greenhouse custom)
-name="resume"                    → resume upload
-name="cover_letter"              → cover letter upload
-name="linkedin_profile"          → LinkedIn URL
-name="eeo[gender]"               → EEO gender (Lever)
-name="eeo[race]"                 → EEO race (Lever)
-```
-
-Add this to `../open-agent/src/orchestrator/pi-runner.ts` in the `compactSnapshotForModel` function:
-
-```typescript
-// In compactSnapshotForModel, add a job-app field classification:
-const jobAppFieldHints = topRefs
-  .filter(r => {
-    const ref = refs[r.ref];
-    return ref?.fieldName || ref?.autocomplete;
-  })
-  .map(r => {
-    const ref = refs[r.ref];
-    const name = (ref?.fieldName ?? "").toLowerCase();
-    const auto = (ref?.autocomplete ?? "").toLowerCase();
-    let fieldType = "unknown";
-    if (auto.includes("given-name") || name.includes("first_name") || name.includes("first-name")) fieldType = "first_name";
-    else if (auto.includes("family-name") || name.includes("last_name") || name.includes("last-name")) fieldType = "last_name";
-    else if (auto === "email" || name.includes("email")) fieldType = "email";
-    else if (auto === "tel" || name.includes("phone") || name.includes("mobile")) fieldType = "phone";
-    else if (name.includes("resume") || name.includes("cv")) fieldType = "resume_upload";
-    else if (name.includes("cover_letter") || name.includes("cover-letter")) fieldType = "cover_letter_upload";
-    else if (name.includes("linkedin")) fieldType = "linkedin_url";
-    else if (name.includes("eeo") || name.includes("gender") || name.includes("race")) fieldType = "eeo_demographic";
-    return { ref: r.ref, fieldType, name: ref?.fieldName, autocomplete: ref?.autocomplete };
-  })
-  .filter(h => h.fieldType !== "unknown");
-
-return {
-  // ...existing fields...
-  jobAppFieldHints,  // NEW: pre-classified field types for the LLM
-};
-```
-
-### Resume Upload Field Detection
-
-Special enrichment for file inputs on job application forms:
-
-```typescript
-// In enrichRefsWithHtmlAttributes, add resume/cover-letter detection:
-if (attrs.type === "file" || attrs.tagName === "input" && attrs.accept) {
-  const name = (attrs.name || "").toLowerCase();
-  const label = (refData.name || "").toLowerCase();
-  const accept = (attrs.accept || "").toLowerCase();
-
-  if (name.includes("resume") || name.includes("cv") || label.includes("resume") || label.includes("cv")) {
-    refData.jobAppRole = "resume_upload";
-  } else if (name.includes("cover") || label.includes("cover letter")) {
-    refData.jobAppRole = "cover_letter_upload";
-  } else if (accept.includes(".pdf") || accept.includes(".doc")) {
-    refData.jobAppRole = "document_upload";  // generic doc upload
-  }
-}
-```
 
 ## Skyvern Reference
 

@@ -1,5 +1,7 @@
 # 04 — Incremental Snapshot Delta
 
+Alignment: direct_port
+
 ## Problem
 
 After every action (fill, click, select), the agent currently must take a **full snapshot** to see the updated page state. This is:

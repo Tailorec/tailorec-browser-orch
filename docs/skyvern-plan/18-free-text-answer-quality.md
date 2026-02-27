@@ -1,5 +1,7 @@
 # 18 — Free-Text Answer Quality
 
+Alignment: inspired
+
 ## Problem
 
 Job applications often include free-text questions that differentiate a strong application from a weak one:

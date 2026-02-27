@@ -1,5 +1,7 @@
 # 12 — Screening Question Intelligence
 
+Alignment: inspired
+
 ## Problem
 
 Job applications contain screening questions that are **strategically sensitive**. Wrong answers can auto-reject the candidate. The agent needs specific guidance for each question category — generic "fill everything" isn't enough.
@@ -368,7 +370,7 @@ Add to `createRuntimeTools`:
 - Criminal history → default "No"
 - Age verification → default "Yes"
 - Years of experience → MUST match or exceed job minimum
-- These defaults are safe 90%+ of the time. Only override with explicit profile data.
+- Use defaults only when profile data is unavailable and confidence is high; otherwise escalate for user confirmation.
 ```
 
 ---

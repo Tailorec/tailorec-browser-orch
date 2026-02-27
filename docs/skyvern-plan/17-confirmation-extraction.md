@@ -1,5 +1,7 @@
 # 17 — Confirmation Extraction
 
+Alignment: inspired
+
 ## Problem
 
 After submitting a job application, the agent needs to confirm it was actually submitted and extract any confirmation signals. Without this:

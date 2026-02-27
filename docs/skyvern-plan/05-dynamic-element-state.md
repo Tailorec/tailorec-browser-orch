@@ -1,5 +1,7 @@
 # 05 — Dynamic Element State Checks
 
+Alignment: direct_port
+
 ## Problem
 
 Your current flow snapshots the page once, then issues fill/click/select actions against the captured refs. But element state can **change between actions**:

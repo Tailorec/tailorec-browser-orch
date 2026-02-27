@@ -1,5 +1,7 @@
 # 14 — Repeating Sections (Work History / Education)
 
+Alignment: inspired
+
 ## Problem
 
 Many job applications have "Add another" repeating sections for:

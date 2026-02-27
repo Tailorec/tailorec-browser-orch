@@ -1,5 +1,7 @@
 # 16 — Location Autocomplete Handling
 
+Alignment: direct_port
+
 ## Problem
 
 Location fields in job applications are **the second most common failure point** after dropdowns. They use Google Places, Algolia, or custom autocomplete widgets that:

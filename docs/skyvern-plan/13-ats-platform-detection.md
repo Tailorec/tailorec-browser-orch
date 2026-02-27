@@ -1,5 +1,7 @@
 # 13 — ATS Platform Detection and Platform-Specific Skills
 
+Alignment: inspired
+
 ## Problem
 
 Each ATS (Greenhouse, Lever, Ashby, SmartRecruiters, BambooHR, iCIMS) has different UI patterns, form structures, and quirks. A generic "fill the form" approach fails because:

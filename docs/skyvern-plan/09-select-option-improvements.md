@@ -1,5 +1,7 @@
 # 09 — Select Option Improvements
 
+Alignment: direct_port
+
 ## Problem
 
 Your current `selectOptionViaPlaywright` (in `pw-tools-core.interactions.ts:133`) only handles native `<select>` elements:

@@ -1,43 +1,33 @@
 # Skyvern Plan Implementation Tracker
 
-This file tracks implementation status of plans from `docs/skyvern-plan/` for the **current repository (`openclaw-browser`)**.
+Tracker focused on what is needed for `openclaw-browser` and `open-agent` for job-application automation.
 
-## Summary
+Status legend:
+- `full` = implemented as planned
+- `partial` = implemented but missing major parts/integration
+- `none` = not implemented
 
-- **Total plans:** 18
-- **Implemented in this repo:** 5
-- **Pending in this repo:** 13
-
-Implemented plan numbers: **01, 03, 04, 05, 06**
-
----
-
-## Detailed Status
-
-| Plan | Title | Primary Target (from plan docs) | Status in `openclaw-browser` | Notes |
-|---|---|---|---|---|
-| 01 | Custom Dropdown Engine | openclaw-browser + open-agent | ✅ Implemented | `discover_dropdown`, `close_dropdown`, incremental option discovery |
-| 02 | Rich Snapshot Metadata | openclaw-browser | ⏳ Pending | Not fully implemented as described in plan |
-| 03 | Fill-Verify and Smart Input | openclaw-browser + open-agent | ✅ Implemented | Fill+verify, format-aware fallback strategies |
-| 04 | Incremental Snapshot Delta | openclaw-browser + open-agent | ✅ Implemented | `/snapshot/delta` and DOM mutation diff tracking |
-| 05 | Dynamic Element State | openclaw-browser | ✅ Implemented | `query_state` and live interactability checks |
-| 06 | Blocking Element Detection | openclaw-browser + open-agent | ✅ Implemented | `detect_blocker` / `dismiss_blocker` |
-| 07 | Screenshot Vision Tool | openclaw-browser + open-agent | ⏳ Pending | Plan-specific enhancements pending |
-| 08 | Prompt and Skill Upgrade | open-agent | ⏳ Pending (N/A here) | Primarily open-agent scope |
-| 09 | Select Option Improvements | openclaw-browser + open-agent | ⏳ Pending | Not implemented as a dedicated plan set |
-| 10 | Multi-Step Form Navigation | open-agent | ⏳ Pending (N/A here) | Primarily open-agent scope |
-| 11 | Resume Upload Intelligence | openclaw-browser + open-agent | ⏳ Pending | Not implemented yet |
-| 12 | Screening Question Intelligence | open-agent | ⏳ Pending (N/A here) | Primarily open-agent scope |
-| 13 | ATS Platform Detection | openclaw-browser + open-agent | ⏳ Pending | Not implemented yet |
-| 14 | Repeating Sections | openclaw-browser + open-agent | ⏳ Pending | Not implemented yet |
-| 15 | Already-Applied Detection | openclaw-browser + open-agent | ⏳ Pending | Not implemented yet |
-| 16 | Location Autocomplete | openclaw-browser + open-agent | ⏳ Pending | Not implemented yet |
-| 17 | Confirmation Extraction | openclaw-browser + open-agent | ⏳ Pending | Not implemented yet |
-| 18 | Free-Text Answer Quality | open-agent | ⏳ Pending (N/A here) | Primarily open-agent scope |
-
----
+| Name of plan | Alignment | Impl in openclaw-browser | Impl in open-agent | Improvements suggested | How it helps |
+|---|---|---|---|---|---|
+| 01 — Custom Dropdown Engine | `direct_port` | full | none | Integrate open-agent tool flow (`discover_dropdown` -> option selection -> close) | Fixes custom ATS dropdown failures (Greenhouse/Ashby/etc.) |
+| 02 — Rich Snapshot Metadata | `inspired` | none | none | Add Skyvern-like reserved attribute extraction and pass metadata into prompt context | Better field understanding (required/type/pattern/value), fewer wrong fills |
+| 03 — Fill-Verify and Smart Input | `direct_port` | full | none | Add open-agent retry policy based on `matched/strategy/warning` results | Prevents silent fill failures; improves masked/date/phone reliability |
+| 04 — Incremental Snapshot Delta | `direct_port` | full | none | Add delta-aware reasoning loop in open-agent after each action | Faster, cheaper perception; catches new errors/conditional fields quickly |
+| 05 — Dynamic Element State | `direct_port` | full | none | Add pre-action `query_state` checks in open-agent for risky fields | Avoids stale/hidden/disabled element actions |
+| 06 — Blocking Element Detection | `direct_port` | full | none | Add automatic blocker detection/dismiss orchestration in open-agent | Recovers from modals/cookie/chat overlays blocking form fields |
+| 07 — Screenshot Vision Tool | `direct_port` | partial | none | Wire screenshot/labeled screenshot usage in open-agent with model gating | Captures visual-only errors/signals not in DOM/a11y snapshot |
+| 08 — Prompt and Skill Upgrade | `inspired` | none | none | Adopt structured Skyvern-style action planning + confidence + action-history usage | Improves consistency and reduces repeated/unsafe actions |
+| 09 — Select Option Improvements | `direct_port` | none | none | Implement layered native/custom smart-select and integrate into open-agent tools | More reliable select handling across native/custom widgets |
+| 10 — Multi-Step Form Navigation | `inspired` | none | none | Add page-identity + step-progress tracking + resume checkpoints in open-agent | Reliable wizard progression (next/back/review/submit detection) |
+| 11 — Resume Upload Intelligence | `inspired` | none | none | Implement upload widget detection + upload verification + post-upload checks | Reduces #1 job-app failure: resume not actually uploaded |
+| 12 — Screening Question Intelligence | `inspired` | none | none | Add classifier + safe answer policy with user-escalation on uncertainty | Lowers knockout-risk answers and improves compliance |
+| 13 — ATS Platform Detection | `inspired` | none | none | Detect ATS and load platform-specific strategy/skills dynamically | Adapts behavior per ATS quirks (Greenhouse/Lever/Ashby) |
+| 14 — Repeating Sections | `inspired` | none | none | Detect repeating groups and map resume entries with stable per-entry refs | Handles work-history/education multi-entry forms correctly |
+| 15 — Already-Applied Detection | `inspired` | none | none | Add early-state detection (already_applied/draft/closed/login_required) | Avoids wasted runs and duplicate submissions |
+| 16 — Location Autocomplete | `direct_port` | none | none | Add type-wait-select flow with fallback for split location fields | Fixes common autocomplete clears/invalid location submissions |
+| 17 — Confirmation Extraction | `inspired` | none | none | Add post-submit confirmation parser with retry/error signals | Prevents false-success; captures confirmation proof/IDs |
+| 18 — Free-Text Answer Quality | `inspired` | none | none | Add answer-context builder (resume + JD + company) and quality constraints | Produces stronger, role-specific answers for text prompts |
 
 ## Notes
-
-- This tracker is repository-scoped. Some plans target `open-agent` and are marked pending here even if they may be implemented elsewhere.
-- If needed, we can later add a cross-repo tracker that combines `openclaw-browser` + `open-agent` status in one matrix.
+- Tracker intentionally excludes non-Skyvern-aligned custom additions.
+- For mixed plans, browser implementation alone is not enough; open-agent orchestration is required for end-to-end impact.

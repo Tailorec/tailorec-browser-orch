@@ -1,5 +1,7 @@
 # 15 — Already-Applied and Duplicate Detection
 
+Alignment: inspired
+
 ## Problem
 
 When the agent navigates to a job application URL, it may encounter:
