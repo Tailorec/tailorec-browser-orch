@@ -8,7 +8,13 @@
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "npm run test:legacy",
+    "test:legacy": "node --import tsx --test src/**/*.test.ts",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:contract": "vitest run --project contract",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "dotenv": "^17.2.4",
@@ -20,10 +26,15 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
+    "@types/supertest": "^7.2.0",
     "@types/ws": "^8.5.10",
+    "@vitest/coverage-v8": "^3.2.4",
+    "supertest": "^7.2.2",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^3.2.4"
   }
 }
