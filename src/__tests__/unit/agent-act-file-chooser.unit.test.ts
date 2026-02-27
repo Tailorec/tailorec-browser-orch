@@ -6,17 +6,10 @@ import {
   resolveUploadPaths,
   stageUploadFromUrl,
 } from "../../browser/routes/agent.act.js";
-
-function createProfileCtx(counter: { ensureTab: number }) {
-  return {
-    profile: { cdpUrl: "http://127.0.0.1:9222" },
-    ensureTabAvailable: async (_targetId?: string) => {
-      counter.ensureTab += 1;
-      return { targetId: "tab-1", url: "about:blank" };
-    },
-    stopRunningBrowser: async () => undefined,
-  };
-}
+import {
+  createProfileCtx,
+  createUploadActionCounters,
+} from "../helpers/upload-fixtures.js";
 
 let originalFetch: typeof globalThis.fetch;
 
@@ -31,13 +24,7 @@ afterEach(async () => {
 describe("unit: upload staging + file chooser", () => {
   it("fails fast when resume download returns 403", async () => {
     originalFetch = globalThis.fetch;
-
-    const counts = {
-      ensureTab: 0,
-      armUpload: 0,
-      click: 0,
-      setInputFiles: 0,
-    };
+    const counts = createUploadActionCounters();
 
     globalThis.fetch = (async () => new Response("forbidden", { status: 403 })) as typeof fetch;
 
@@ -104,13 +91,7 @@ describe("unit: upload staging + file chooser", () => {
 
   it("uses setInputFiles path when inputRef is provided", async () => {
     originalFetch = globalThis.fetch;
-
-    const counts = {
-      ensureTab: 0,
-      armUpload: 0,
-      click: 0,
-      setInputFiles: 0,
-    };
+    const counts = createUploadActionCounters();
 
     const profileCtx = createProfileCtx(counts);
     const pw = {
@@ -140,12 +121,7 @@ describe("unit: upload staging + file chooser", () => {
 
   it("downloads remote file, uploads it, and cleans staged temp file", async () => {
     originalFetch = globalThis.fetch;
-
-    const counts = {
-      ensureTab: 0,
-      armUpload: 0,
-      click: 0,
-    };
+    const counts = createUploadActionCounters();
 
     let stagedPathFromPw = "";
 

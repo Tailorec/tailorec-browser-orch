@@ -1,46 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type ElementState, type FillResult, fillAndVerifyField } from "../../browser/pw-tools-core.interactions.js";
-
-function createMockLocator(initialValue: string) {
-  let currentValue = initialValue;
-  const calls: string[] = [];
-  const attributes: Record<string, string> = {};
-
-  const locator = {
-    inputValue: async () => {
-      calls.push("inputValue");
-      return currentValue;
-    },
-    innerText: async () => {
-      calls.push("innerText");
-      return currentValue;
-    },
-    fill: async (val: string) => {
-      calls.push(`fill(${val})`);
-      currentValue = val;
-    },
-    pressSequentially: async (val: string) => {
-      calls.push(`pressSequentially(${val})`);
-      currentValue = val;
-    },
-    click: async () => {
-      calls.push("click");
-    },
-    getAttribute: async (name: string) => {
-      calls.push(`getAttribute(${name})`);
-      return attributes[name] || null;
-    },
-    selectText: async () => {
-      calls.push("selectText");
-    },
-    _setAttributes: (attrs: Record<string, string>) => {
-      Object.assign(attributes, attrs);
-    },
-    _getCalls: () => calls,
-  };
-
-  return locator;
-}
+import { createMockLocator } from "../helpers/pw-fill-fixtures.js";
 
 describe("unit: pw tools fill and state", () => {
   it("ElementState structure is correct", () => {

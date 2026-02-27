@@ -6,59 +6,7 @@ import {
   restoreRoleRefsForTarget,
   storeRoleRefsForTarget,
 } from "../../browser/pw-session.js";
-
-type Handler = (arg?: any) => void;
-
-function makeRoleLocator(role: string, opts?: { name?: string; exact?: boolean }, frame?: string) {
-  return {
-    kind: "role",
-    role,
-    opts,
-    frame,
-    nth(index: number) {
-      return { kind: "role-nth", role, opts, frame, index };
-    },
-  };
-}
-
-function createMockPage() {
-  const handlers = new Map<string, Handler[]>();
-
-  const page = {
-    _url: "https://example.test",
-    on(event: string, handler: Handler) {
-      const existing = handlers.get(event) ?? [];
-      existing.push(handler);
-      handlers.set(event, existing);
-    },
-    emit(event: string, payload?: any) {
-      for (const handler of handlers.get(event) ?? []) {
-        handler(payload);
-      }
-    },
-    url() {
-      return this._url;
-    },
-    locator(selector: string) {
-      return { kind: "locator", selector };
-    },
-    frameLocator(frame: string) {
-      return {
-        locator(selector: string) {
-          return { kind: "frame-locator", frame, selector };
-        },
-        getByRole(role: string, opts?: { name?: string; exact?: boolean }) {
-          return makeRoleLocator(role, opts, frame);
-        },
-      };
-    },
-    getByRole(role: string, opts?: { name?: string; exact?: boolean }) {
-      return makeRoleLocator(role, opts);
-    },
-  };
-
-  return page as any;
-}
+import { createMockPage } from "../helpers/pw-session-fixtures.js";
 
 describe("unit: pw-session", () => {
   it("restores role refs from target cache and resolves role ref locator", () => {
