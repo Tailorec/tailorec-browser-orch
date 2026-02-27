@@ -1,5 +1,14 @@
 import { defineConfig } from "vitest/config";
 
+const phase = Number(process.env.COVERAGE_PHASE || "1");
+
+const coverageThresholds =
+  phase >= 3
+    ? { lines: 70, statements: 70, functions: 70, branches: 70 }
+    : phase === 2
+      ? { lines: 50, statements: 50, functions: 65, branches: 70 }
+      : { lines: 35, statements: 35, functions: 60, branches: 65 };
+
 export default defineConfig({
   test: {
     passWithNoTests: true,
@@ -21,6 +30,7 @@ export default defineConfig({
         "src/browser/control-service.ts",
         "src/browser/routes/dispatcher.ts",
       ],
+      thresholds: coverageThresholds,
     },
     projects: [
       {

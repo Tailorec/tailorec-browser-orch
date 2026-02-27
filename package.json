@@ -13,7 +13,10 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:contract": "vitest run --project contract",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "COVERAGE_PHASE=1 vitest run --coverage",
+    "test:coverage:phase1": "COVERAGE_PHASE=1 vitest run --coverage",
+    "test:coverage:phase2": "COVERAGE_PHASE=2 vitest run --coverage",
+    "test:coverage:phase3": "COVERAGE_PHASE=3 vitest run --coverage",
     "test:e2e": "playwright test"
   },
   "dependencies": {
