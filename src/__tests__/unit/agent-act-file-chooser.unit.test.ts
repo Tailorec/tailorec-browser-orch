@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { executeFileChooserUpload } from "../../browser/routes/agent.act.js";
+import {
+  executeFileChooserUpload,
+  resolveUploadPaths,
+  stageUploadFromUrl,
+} from "../../browser/routes/agent.act.js";
 
 function createProfileCtx(counter: { ensureTab: number }) {
   return {
@@ -15,13 +20,15 @@ function createProfileCtx(counter: { ensureTab: number }) {
 
 let originalFetch: typeof globalThis.fetch;
 
-afterEach(() => {
+afterEach(async () => {
   if (originalFetch) {
     globalThis.fetch = originalFetch;
   }
+  delete process.env.BROWSER_UPLOAD_MAX_BYTES;
+  delete process.env.BROWSER_UPLOAD_DOWNLOAD_TIMEOUT_MS;
 });
 
-describe("unit: executeFileChooserUpload", () => {
+describe("unit: upload staging + file chooser", () => {
   it("fails fast when resume download returns 403", async () => {
     originalFetch = globalThis.fetch;
 
@@ -60,6 +67,75 @@ describe("unit: executeFileChooserUpload", () => {
     expect(counts.armUpload).toBe(0);
     expect(counts.click).toBe(0);
     expect(counts.setInputFiles).toBe(0);
+  });
+
+  it("rejects when content-length exceeds configured max bytes", async () => {
+    originalFetch = globalThis.fetch;
+    process.env.BROWSER_UPLOAD_MAX_BYTES = "262144";
+
+    globalThis.fetch =
+      (async () =>
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-length": "300000" },
+        })) as typeof fetch;
+
+    await expect(stageUploadFromUrl("https://files.example.com/large.pdf")).rejects.toThrow(
+      /file_download_too_large:300000/,
+    );
+  });
+
+  it("resolves mixed local+remote paths and stages remote file", async () => {
+    originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () =>
+      new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })) as typeof fetch;
+
+    const localPath = path.resolve("upload-resume", "already-local.txt");
+    const result = await resolveUploadPaths(["https://files.example.com/resume.pdf", localPath]);
+
+    expect(result.resolved).toHaveLength(2);
+    expect(result.staged).toHaveLength(1);
+    expect(result.resolved[1]).toBe(localPath);
+    expect(result.staged[0]?.endsWith(".pdf")).toBe(true);
+
+    await fs.unlink(result.staged[0] as string);
+  });
+
+  it("uses setInputFiles path when inputRef is provided", async () => {
+    originalFetch = globalThis.fetch;
+
+    const counts = {
+      ensureTab: 0,
+      armUpload: 0,
+      click: 0,
+      setInputFiles: 0,
+    };
+
+    const profileCtx = createProfileCtx(counts);
+    const pw = {
+      armFileUploadViaPlaywright: async () => {
+        counts.armUpload += 1;
+      },
+      clickViaPlaywright: async () => {
+        counts.click += 1;
+      },
+      setInputFilesViaPlaywright: async () => {
+        counts.setInputFiles += 1;
+      },
+    };
+
+    await executeFileChooserUpload({
+      profileCtx: profileCtx as never,
+      getPwModule: async () => pw as never,
+      inputRef: "e-file",
+      paths: ["/tmp/resume.pdf"],
+    });
+
+    expect(counts.ensureTab).toBe(1);
+    expect(counts.setInputFiles).toBe(1);
+    expect(counts.armUpload).toBe(0);
+    expect(counts.click).toBe(0);
   });
 
   it("downloads remote file, uploads it, and cleans staged temp file", async () => {
