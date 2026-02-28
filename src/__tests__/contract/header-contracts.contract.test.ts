@@ -1,19 +1,21 @@
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  startBrowserControlServerFromConfig,
-  stopBrowserControlServer,
-} from "../../browser/server.js";
+  createTestServer,
+  stopTestServer,
+  type TestServerState,
+} from "../helpers";
 
 /**
  * Contract Tests: Header Contracts
- * 
+ *
  * These tests validate the request and response header contracts.
  * Includes correlation ID propagation, content-type, and other headers.
- * 
+ *
  * Test Plan Reference: TEST_PLAN.md - Task C4
  */
 
+let serverState: TestServerState;
 let baseUrl = "";
 const correlationHeaderName = (process.env.CORRELATION_ID_HEADER || "x-correlation-id").toLowerCase();
 
@@ -21,15 +23,12 @@ beforeAll(async () => {
   process.env.PORT = "4014";
   process.env.BROWSER_HEADLESS = "true";
 
-  const state = await startBrowserControlServerFromConfig();
-  if (!state) {
-    throw new Error("failed to start browser control server");
-  }
-  baseUrl = `http://127.0.0.1:${state.port}`;
+  serverState = await createTestServer({ port: 4014, headless: true });
+  baseUrl = serverState.baseUrl;
 });
 
 afterAll(async () => {
-  await stopBrowserControlServer();
+  await stopTestServer(serverState);
 });
 
 describe("contract: Request headers", () => {
