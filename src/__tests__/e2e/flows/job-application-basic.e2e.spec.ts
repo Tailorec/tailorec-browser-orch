@@ -255,4 +255,46 @@ test.describe("E2E: Basic Job Application", () => {
     // Verify modal closed
     await expect(page.locator(".modal-content")).not.toBeVisible();
   });
+
+  test("form validation - submit empty form", async () => {
+    const testFormUrl = "https://demoqa.com/automation-practice-form";
+
+    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    // Try to submit without filling required fields
+    await page.locator("#submit").click();
+
+    // Wait briefly for validation to trigger
+    await page.waitForTimeout(500);
+
+    // Verify validation errors appear (browser default validation)
+    const firstNameInput = page.locator("#firstName");
+    await expect(firstNameInput).toBeVisible();
+
+    // Check that form was not submitted (no modal should appear)
+    const modal = page.locator(".modal-content");
+    await expect(modal).not.toBeVisible({ timeout: 2000 });
+  });
+
+  test("navigation - back and forward during application", async () => {
+    const testFormUrl = "https://demoqa.com/automation-practice-form";
+
+    // Navigate to form
+    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    // Fill some fields
+    await page.locator("#firstName").fill("Navigation");
+    await page.locator("#lastName").fill("Test");
+
+    // Navigate to another page
+    await page.goto("about:blank");
+    await expect(page).toHaveURL("about:blank");
+
+    // Go back to form
+    await page.goBack({ waitUntil: "domcontentloaded", timeout: 30000 });
+    await expect(page).toHaveURL(/demoqa\.com/);
+
+    // Verify page loaded
+    await expect(page.locator("#firstName")).toBeVisible({ timeout: 10000 });
+  });
 });

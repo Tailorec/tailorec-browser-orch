@@ -1,6 +1,7 @@
 {
   "name": "tailorec-browser-service",
   "version": "1.0.0",
+  "type": "module",
   "description": "Standalone browser control service ported from OpenClaw",
   "main": "dist/server.js",
   "scripts": {

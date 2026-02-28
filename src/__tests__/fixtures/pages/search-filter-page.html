@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search and Filter Test Page</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 50px auto; padding: 20px; }
+    .search-section { margin-bottom: 25px; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+    .search-section h2 { margin-top: 0; color: #333; }
+    .search-bar { display: flex; gap: 10px; margin-bottom: 20px; }
+    .search-bar input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+    .search-bar button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .filters { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px; }
+    .filter-group { display: flex; flex-direction: column; }
+    .filter-group label { margin-bottom: 5px; font-weight: bold; }
+    .filter-group select, .filter-group input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    .results { border: 1px solid #ddd; border-radius: 4px; }
+    .result-item { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    .result-item:last-child { border-bottom: none; }
+    .result-item:hover { background: #f8f9fa; }
+    .result-info { flex: 1; }
+    .result-actions { display: flex; gap: 10px; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .no-results { padding: 30px; text-align: center; color: #666; }
+    .sort-options { margin-bottom: 15px; }
+    .sort-options select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    .result-count { margin-bottom: 15px; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Search and Filter Test</h1>
+
+  <div class="search-section">
+    <h2>Product Search</h2>
+    
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search products...">
+      <button id="searchBtn" onclick="performSearch()">Search</button>
+      <button id="clearBtn" onclick="clearSearch()" style="background: #6c757d;">Clear</button>
+    </div>
+
+    <div class="filters">
+      <div class="filter-group">
+        <label for="categoryFilter">Category</label>
+        <select id="categoryFilter" onchange="applyFilters()">
+          <option value="">All Categories</option>
+          <option value="electronics">Electronics</option>
+          <option value="clothing">Clothing</option>
+          <option value="books">Books</option>
+          <option value="home">Home & Garden</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="priceMin">Min Price</label>
+        <input type="number" id="priceMin" placeholder="$0" min="0" onchange="applyFilters()">
+      </div>
+      <div class="filter-group">
+        <label for="priceMax">Max Price</label>
+        <input type="number" id="priceMax" placeholder="$1000" min="0" onchange="applyFilters()">
+      </div>
+      <div class="filter-group">
+        <label for="ratingFilter">Min Rating</label>
+        <select id="ratingFilter" onchange="applyFilters()">
+          <option value="">Any Rating</option>
+          <option value="4">4+ Stars</option>
+          <option value="3">3+ Stars</option>
+          <option value="2">2+ Stars</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sort-options">
+      <label for="sortOrder">Sort by: </label>
+      <select id="sortOrder" onchange="applyFilters()">
+        <option value="relevance">Relevance</option>
+        <option value="price-asc">Price: Low to High</option>
+        <option value="price-desc">Price: High to Low</option>
+        <option value="rating">Highest Rated</option>
+        <option value="name">Name: A-Z</option>
+      </select>
+    </div>
+
+    <div class="result-count" id="resultCount">Showing 0 results</div>
+
+    <div class="results" id="resultsContainer">
+      <div class="no-results">Enter a search term or apply filters to see results</div>
+    </div>
+  </div>
+
+  <script>
+    const products = [
+      { id: 1, name: "Wireless Headphones", category: "electronics", price: 79.99, rating: 4.5 },
+      { id: 2, name: "Cotton T-Shirt", category: "clothing", price: 19.99, rating: 4.0 },
+      { id: 3, name: "JavaScript Guide", category: "books", price: 39.99, rating: 4.8 },
+      { id: 4, name: "Garden Tools Set", category: "home", price: 49.99, rating: 3.5 },
+      { id: 5, name: "Smart Watch", category: "electronics", price: 199.99, rating: 4.2 },
+      { id: 6, name: "Running Shoes", category: "clothing", price: 89.99, rating: 4.6 },
+      { id: 7, name: "Python Programming", category: "books", price: 44.99, rating: 4.7 },
+      { id: 8, name: "Desk Lamp", category: "home", price: 29.99, rating: 3.8 },
+      { id: 9, name: "Bluetooth Speaker", category: "electronics", price: 59.99, rating: 4.1 },
+      { id: 10, name: "Winter Jacket", category: "clothing", price: 129.99, rating: 4.4 },
+      { id: 11, name: "Data Science Handbook", category: "books", price: 54.99, rating: 4.9 },
+      { id: 12, name: "Plant Pot Set", category: "home", price: 24.99, rating: 3.2 }
+    ];
+
+    let filteredProducts = [...products];
+
+    function performSearch() {
+      const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+      filteredProducts = products.filter(p => 
+        p.name.toLowerCase().includes(searchTerm) ||
+        p.category.toLowerCase().includes(searchTerm)
+      );
+      applyFilters();
+    }
+
+    function clearSearch() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('categoryFilter').value = '';
+      document.getElementById('priceMin').value = '';
+      document.getElementById('priceMax').value = '';
+      document.getElementById('ratingFilter').value = '';
+      document.getElementById('sortOrder').value = 'relevance';
+      filteredProducts = [...products];
+      renderResults();
+    }
+
+    function applyFilters() {
+      const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+      const category = document.getElementById('categoryFilter').value;
+      const priceMin = parseFloat(document.getElementById('priceMin').value) || 0;
+      const priceMax = parseFloat(document.getElementById('priceMax').value) || Infinity;
+      const minRating = parseFloat(document.getElementById('ratingFilter').value) || 0;
+      const sortOrder = document.getElementById('sortOrder').value;
+
+      filteredProducts = products.filter(p => {
+        const matchesSearch = p.name.toLowerCase().includes(searchTerm) ||
+                             p.category.toLowerCase().includes(searchTerm);
+        const matchesCategory = !category || p.category === category;
+        const matchesPrice = p.price >= priceMin && p.price <= priceMax;
+        const matchesRating = p.rating >= minRating;
+        return matchesSearch && matchesCategory && matchesPrice && matchesRating;
+      });
+
+      // Sort results
+      filteredProducts.sort((a, b) => {
+        switch(sortOrder) {
+          case 'price-asc': return a.price - b.price;
+          case 'price-desc': return b.price - a.price;
+          case 'rating': return b.rating - a.rating;
+          case 'name': return a.name.localeCompare(b.name);
+          default: return 0;
+        }
+      });
+
+      renderResults();
+    }
+
+    function renderResults() {
+      const container = document.getElementById('resultsContainer');
+      const countEl = document.getElementById('resultCount');
+      
+      countEl.textContent = `Showing ${filteredProducts.length} results`;
+
+      if (filteredProducts.length === 0) {
+        container.innerHTML = '<div class="no-results">No results found</div>';
+        return;
+      }
+
+      container.innerHTML = filteredProducts.map(p => `
+        <div class="result-item" data-id="${p.id}">
+          <div class="result-info">
+            <strong>${p.name}</strong>
+            <div style="color: #666; font-size: 14px;">
+              ${p.category} | $${p.price.toFixed(2)} | ★${p.rating.toFixed(1)}
+            </div>
+          </div>
+          <div class="result-actions">
+            <button class="btn-sm" onclick="viewProduct(${p.id})">View</button>
+            <button class="btn-sm" style="background: #28a745;" onclick="addToCart(${p.id})">Add to Cart</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function viewProduct(id) {
+      const product = products.find(p => p.id === id);
+      alert(`Viewing: ${product.name}\nPrice: $${product.price}\nRating: ${product.rating}`);
+    }
+
+    function addToCart(id) {
+      const product = products.find(p => p.id === id);
+      alert(`Added to cart: ${product.name}`);
+    }
+
+    // Initialize with all products
+    renderResults();
+  </script>
+</body>
+</html>

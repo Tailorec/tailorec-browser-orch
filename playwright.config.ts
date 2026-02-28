@@ -19,4 +19,6 @@ export default defineConfig({
   ],
   preserveOutput: "always",
   reporter: [["list"], ["html", { open: "never" }]],
+  // Support ESM/TypeScript
+  preserveOutputOnFailure: true,
 });
