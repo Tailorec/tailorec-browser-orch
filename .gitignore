@@ -42,3 +42,5 @@ playwright/.cache/
 
 # vitest
 *.snap
+
+TEST_PLAN.md
