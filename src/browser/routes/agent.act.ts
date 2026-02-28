@@ -158,9 +158,9 @@ export async function executeFileChooserUpload(args: {
       log.info("keeping staged upload files for debugging", {
         staged_paths: stagedPaths,
       });
-      return;
+    } else {
+      await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
     }
-    await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
   }
 }
 
