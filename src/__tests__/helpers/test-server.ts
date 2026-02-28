@@ -6,6 +6,7 @@ import { createBrowserRouteContext } from "../../browser/server-context.js";
 import { installControlLiveWebSocketServer } from "../../browser/routes/control-live.js";
 import { findFreePort } from "../../infra/ports.js";
 import type { BrowserServerState } from "../../browser/server-context.js";
+import { getOrCreateCorrelationIdFromHeaders, withCorrelationId } from "../../logging/subsystem.js";
 
 export interface TestServerOptions {
   port?: number;
@@ -32,6 +33,16 @@ export async function createTestServer(
 ): Promise<TestServerState> {
   const app = express();
   app.use(express.json({ limit: "50mb" }));
+
+  // Correlation ID middleware - adds correlation ID to all responses
+  app.use((req, res, next) => {
+    const correlationId = getOrCreateCorrelationIdFromHeaders(req.headers);
+    const headerName = (process.env.CORRELATION_ID_HEADER || "x-correlation-id").toLowerCase();
+    res.setHeader(headerName, correlationId);
+    withCorrelationId(correlationId, () => {
+      next();
+    });
+  });
 
   // Mock state for testing
   const mockState: BrowserServerState = {
