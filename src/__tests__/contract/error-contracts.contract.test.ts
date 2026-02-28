@@ -1,20 +1,21 @@
-import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  startBrowserControlServerFromConfig,
-  stopBrowserControlServer,
-} from "../../browser/server.js";
+  createTestServer,
+  stopTestServer,
+  type TestServerState,
+} from "../helpers";
 
 /**
  * Contract Tests: Error Contracts
- * 
+ *
  * These tests validate the structure and format of HTTP error responses.
  * Each HTTP status code should return a consistent error response structure.
- * 
+ *
  * Test Plan Reference: TEST_PLAN.md - Task C3
  */
 
+let serverState: TestServerState;
 let baseUrl = "";
 
 beforeAll(async () => {
@@ -22,15 +23,12 @@ beforeAll(async () => {
   process.env.BROWSER_HEADLESS = "true";
   process.env.BROWSER_EVALUATE_ENABLED = "false";
 
-  const state = await startBrowserControlServerFromConfig();
-  if (!state) {
-    throw new Error("failed to start browser control server");
-  }
-  baseUrl = `http://127.0.0.1:${state.port}`;
+  serverState = await createTestServer({ port: 4013, headless: true, evaluateEnabled: false });
+  baseUrl = serverState.baseUrl;
 });
 
 afterAll(async () => {
-  await stopBrowserControlServer();
+  await stopTestServer(serverState);
 });
 
 describe("contract: HTTP error response structure", () => {
