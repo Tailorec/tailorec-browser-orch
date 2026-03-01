@@ -163,6 +163,7 @@ test.describe("E2E: Shared Session", () => {
     }]);
 
     const page = await context.newPage();
+    await page.goto(`file://${pagesDir}/simple-form.html`, { waitUntil: "domcontentloaded" });
     await page.evaluate(() => localStorage.setItem('tempKey', 'tempValue'));
 
     await context.close();

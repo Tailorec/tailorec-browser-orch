@@ -73,41 +73,54 @@ test.describe("E2E: Iframe Handling", () => {
   });
 
   test("access iframe content", async () => {
+    const iframeHtml = `<html><body><h1 id='iframeContent'>Iframe Content</h1></body></html>`;
+    const dataUrl = `data:text/html;base64,${Buffer.from(iframeHtml).toString('base64')}`;
+    
     await page.setContent(`
       <html>
         <body>
-          <iframe id="testFrame" srcdoc="<html><body><h1 id='iframeContent'>Iframe Content</h1></body></html>"></iframe>
+          <iframe id="testFrame" src="${dataUrl}"></iframe>
         </body>
       </html>
     `);
 
     // Wait for iframe to load
     const frame = page.frameLocator("#testFrame");
-    await expect(frame.locator("#iframeContent")).toBeVisible();
+    await expect(frame.locator("#iframeContent")).toBeVisible({ timeout: 5000 });
   });
 
   test("act within iframe", async () => {
+    const iframeHtml = `<html><body><button id='iframeBtn' onclick='this.textContent="Clicked"'>Click Me</button></body></html>`;
+    const dataUrl = `data:text/html;base64,${Buffer.from(iframeHtml).toString('base64')}`;
+
     await page.setContent(`
       <html>
         <body>
-          <iframe id="testFrame" srcdoc="<html><body><button id='iframeBtn' onclick='this.textContent=\\'Clicked\\''>Click Me</button></body></html>"></iframe>
+          <iframe id="testFrame" src="${dataUrl}"></iframe>
         </body>
       </html>
     `);
 
     // Click button inside iframe
     const frame = page.frameLocator("#testFrame");
-    await frame.locator("#iframeBtn").click();
+    const btn = frame.locator("#iframeBtn");
+    await btn.waitFor({ state: "visible", timeout: 5000 });
+    await btn.click();
 
     // Verify action
-    await expect(frame.locator("#iframeBtn")).toHaveText("Clicked");
+    await expect(btn).toHaveText("Clicked", { timeout: 5000 });
   });
 
   test("nested iframes", async () => {
+    const innerHtml = `<html><body><div id='nestedContent'>Nested</div></body></html>`;
+    const innerDataUrl = `data:text/html;base64,${Buffer.from(innerHtml).toString('base64')}`;
+    const outerHtml = `<html><body><iframe id='innerFrame' src='${innerDataUrl}'></iframe></body></html>`;
+    const outerDataUrl = `data:text/html;base64,${Buffer.from(outerHtml).toString('base64')}`;
+
     await page.setContent(`
       <html>
         <body>
-          <iframe id="outerFrame" srcdoc="<html><body><iframe id='innerFrame' srcdoc='<html><body><div id=\\'nestedContent\\'>Nested</div></body></html>'></iframe></body></html>"></iframe>
+          <iframe id="outerFrame" src="${outerDataUrl}"></iframe>
         </body>
       </html>
     `);
@@ -115,9 +128,10 @@ test.describe("E2E: Iframe Handling", () => {
     // Access nested iframe
     const outerFrame = page.frameLocator("#outerFrame");
     const innerFrame = outerFrame.frameLocator("#innerFrame");
-
+    const nested = innerFrame.locator("#nestedContent");
+    
     // Verify nested content
-    await expect(innerFrame.locator("#nestedContent")).toBeVisible();
+    await expect(nested).toBeVisible({ timeout: 10000 });
   });
 
   test("iframe timeout handling", async () => {

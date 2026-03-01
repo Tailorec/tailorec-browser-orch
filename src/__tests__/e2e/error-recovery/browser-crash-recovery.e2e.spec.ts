@@ -134,10 +134,14 @@ test.describe("E2E: Browser Crash Recovery", () => {
 
     // Try invalid navigation
     try {
-      await page.goto("http://invalid.invalid", { timeout: 1000 });
+      await page.goto("http://invalid.invalid", { timeout: 2000 });
     } catch {
       // Expected to fail
     }
+
+    // Wait for the error page to settle
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForTimeout(1000);
 
     // Verify page still functional
     await page.goto(`file://${pagesDir}/simple-form.html`, { waitUntil: "domcontentloaded" });

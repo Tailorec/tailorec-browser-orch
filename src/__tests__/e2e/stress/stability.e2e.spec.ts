@@ -99,8 +99,8 @@ test.describe("E2E: Stability", () => {
       await page.goto(urls[i % urls.length], { waitUntil: "domcontentloaded" });
     }
 
-    // Should end on last URL
-    await expect(page).toHaveURL(/auth-page\.html$/);
+    // Should end on last URL (9 % 3 = 0)
+    await expect(page).toHaveURL(/simple-form\.html$/);
   });
 
   test("error recovery stability", async () => {

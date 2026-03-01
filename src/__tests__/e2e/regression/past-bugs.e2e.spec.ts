@@ -174,6 +174,7 @@ test.describe("E2E: Past Bugs Regression", () => {
 
     await page.locator("#name").fill("Test");
     await page.locator("#email").fill("test@example.com");
+    await page.locator("#message").fill("Test message content");
 
     // Click submit
     await page.locator("#submitBtn").click();

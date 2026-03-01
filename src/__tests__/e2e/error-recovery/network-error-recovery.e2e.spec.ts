@@ -154,10 +154,12 @@ test.describe("E2E: Network Error Recovery", () => {
   test("persistent failure handling", async () => {
     let failCount = 0;
 
-    await page.route("**/*", () => {
+    await page.route("**/*", (route) => {
       failCount++;
       if (failCount < 5) {
-        page.abort();
+        route.abort();
+      } else {
+        route.continue();
       }
     });
 
@@ -178,10 +180,11 @@ test.describe("E2E: Network Error Recovery", () => {
     // Set offline mode
     await page.context().setOffline(true);
 
-    // Try to navigate (should fail)
+    // Try to navigate (should fail for network URLs)
     let error: Error | null = null;
     try {
-      await page.goto(`file://${pagesDir}/simple-form.html`, { waitUntil: "domcontentloaded", timeout: 2000 });
+      // Use an HTTP URL instead of file:// to ensure offline mode is respected
+      await page.goto(`${baseUrl}/status`, { waitUntil: "domcontentloaded", timeout: 2000 });
     } catch (e) {
       error = e as Error;
     }
@@ -191,7 +194,8 @@ test.describe("E2E: Network Error Recovery", () => {
     await page.context().setOffline(false);
 
     // Verify recovery
-    await page.goto(`file://${pagesDir}/simple-form.html`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("h1")).toBeVisible();
+    await page.goto(`${baseUrl}/status`, { waitUntil: "domcontentloaded" });
+    const body = page.locator("body");
+    await expect(body).toBeVisible();
   });
 });

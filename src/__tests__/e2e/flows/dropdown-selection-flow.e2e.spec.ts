@@ -106,7 +106,7 @@ test.describe("E2E: Dropdown Selection Flow", () => {
     await multiSelect.selectOption(["multi1", "multi3", "multi5"]);
 
     // Verify selections
-    const selectedOptions = await multiSelect.evaluateAll(
+    const selectedOptions = await multiSelect.locator("option").evaluateAll(
       (options) => Array.from(options).filter((o) => (o as HTMLOptionElement).selected).map((o) => o.value)
     );
     expect(selectedOptions).toEqual(["multi1", "multi3", "multi5"]);

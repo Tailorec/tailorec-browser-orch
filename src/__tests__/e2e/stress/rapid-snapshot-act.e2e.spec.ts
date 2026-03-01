@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { test, expect, request, type Browser, type Page } from "@playwright/test";
+import { test, expect, request, type Browser, type Page, type BrowserContext } from "@playwright/test";
 import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
@@ -118,7 +118,7 @@ test.describe("E2E: Stress Tests", () => {
     const screenshots: Promise<Buffer>[] = [];
     for (let i = 0; i < 5; i++) {
       screenshots.push(page.screenshot());
-      await page.evaluate(() => window.scrollTo(0, (i + 1) * 200));
+      await page.evaluate((val) => window.scrollTo(0, val), (i + 1) * 200);
     }
 
     const results = await Promise.all(screenshots);
@@ -146,20 +146,20 @@ test.describe("E2E: Stress Tests", () => {
   test("memory leak detection", async () => {
     await page.goto(`file://${pagesDir}/simple-form.html`, { waitUntil: "domcontentloaded" });
 
-    // Get initial memory (if available)
-    const initialMetrics = await page.metrics().catch(() => null);
+    // Get initial memory (if available) - standard PW doesn't have page.metrics()
+    const initialMetrics: any = await (page as any).metrics?.().catch(() => null);
 
     // Perform many operations
     for (let i = 0; i < 20; i++) {
-      await page.evaluate(() => {
+      await page.evaluate((val) => {
         const div = document.createElement('div');
-        div.textContent = 'Test ' + i;
+        div.textContent = 'Test ' + val;
         document.body.appendChild(div);
-      });
+      }, i);
     }
 
     // Get final memory
-    const finalMetrics = await page.metrics().catch(() => null);
+    const finalMetrics: any = await (page as any).metrics?.().catch(() => null);
 
     // Page should still be functional
     await expect(page.locator("h1")).toBeVisible();

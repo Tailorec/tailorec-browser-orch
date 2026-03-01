@@ -194,10 +194,14 @@ test.describe("E2E: Session Recovery", () => {
 
     // Cause an error
     try {
-      await page.goto("http://invalid.invalid", { timeout: 1000 });
+      await page.goto("http://invalid.invalid", { timeout: 2000 });
     } catch {
       // Expected
     }
+
+    // Wait for the error page to settle
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForTimeout(1000);
 
     // Recover by navigating to valid page
     await page.goto(`file://${pagesDir}/simple-form.html`, { waitUntil: "domcontentloaded" });

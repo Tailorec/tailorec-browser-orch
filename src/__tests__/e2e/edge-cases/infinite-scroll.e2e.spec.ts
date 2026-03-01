@@ -76,13 +76,13 @@ test.describe("E2E: Infinite Scroll", () => {
     await page.setContent(`
       <html>
         <body>
-          <div id="content">
+          <div id="content" style="min-height: 2000px;">
             ${Array.from({ length: 20 }, (_, i) => `<div class="item">Item ${i + 1}</div>`).join('')}
           </div>
           <script>
             let count = 20;
             window.addEventListener('scroll', () => {
-              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
+              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
                 for (let i = 0; i < 10; i++) {
                   const div = document.createElement('div');
                   div.className = 'item';
@@ -92,14 +92,14 @@ test.describe("E2E: Infinite Scroll", () => {
               }
             });
           </script>
-          <style>.item { padding: 10px; height: 50px; }</style>
+          <style>.item { padding: 10px; height: 100px; border-bottom: 1px solid #ccc; }</style>
         </body>
       </html>
     `);
 
     // Scroll to trigger load
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     // Verify more items loaded
     const itemCount = await page.locator(".item").count();
@@ -110,7 +110,7 @@ test.describe("E2E: Infinite Scroll", () => {
     await page.setContent(`
       <html>
         <body>
-          <div id="content"></div>
+          <div id="content" style="min-height: 3000px;"></div>
           <script>
             let count = 0;
             function loadMore() {
@@ -123,20 +123,20 @@ test.describe("E2E: Infinite Scroll", () => {
             }
             loadMore();
             window.addEventListener('scroll', () => {
-              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
+              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
                 loadMore();
               }
             });
           </script>
-          <style>.item { padding: 10px; height: 50px; }</style>
+          <style>.item { padding: 10px; height: 100px; border-bottom: 1px solid #ccc; }</style>
         </body>
       </html>
     `);
 
     // Scroll multiple times
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500);
     }
 
     // Verify many items loaded
@@ -148,15 +148,15 @@ test.describe("E2E: Infinite Scroll", () => {
     await page.setContent(`
       <html>
         <body>
-          <div id="content">
+          <div id="content" style="min-height: 2000px;">
             ${Array.from({ length: 20 }, (_, i) => `<div class="item">Item ${i + 1}</div>`).join('')}
           </div>
-          <button id="stopBtn" onclick="stopped = true">Stop Loading</button>
+          <button id="stopBtn" onclick="window.stopped = true">Stop Loading</button>
           <script>
             let count = 20;
-            let stopped = false;
+            window.stopped = false;
             window.addEventListener('scroll', () => {
-              if (!stopped && window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
+              if (!window.stopped && window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
                 for (let i = 0; i < 10; i++) {
                   const div = document.createElement('div');
                   div.className = 'item';
@@ -166,7 +166,7 @@ test.describe("E2E: Infinite Scroll", () => {
               }
             });
           </script>
-          <style>.item { padding: 10px; height: 50px; }</style>
+          <style>.item { padding: 10px; height: 100px; border-bottom: 1px solid #ccc; }</style>
         </body>
       </html>
     `);
@@ -177,7 +177,7 @@ test.describe("E2E: Infinite Scroll", () => {
     // Scroll - should not load more
     const initialCount = await page.locator(".item").count();
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     const finalCount = await page.locator(".item").count();
     expect(finalCount).toBe(initialCount);
@@ -187,46 +187,49 @@ test.describe("E2E: Infinite Scroll", () => {
     await page.setContent(`
       <html>
         <body>
-          <div id="content"></div>
+          <div id="content" style="min-height: 3000px;"></div>
           <script>
             let count = 0;
             function loadMore() {
-              for (let i = 0; i < 5; i++) {
+              for (let i = 0; i < 10; i++) {
                 const div = document.createElement('div');
                 div.className = 'item';
-                div.innerHTML = '<button class="actionBtn" onclick="this.textContent=\'Clicked\'">Item ' + (++count) + '</button>';
+                div.innerHTML = '<button class="actionBtn" onclick="this.textContent=\\'Clicked\\'">Item ' + (++count) + '</button>';
                 document.getElementById('content').appendChild(div);
               }
             }
             loadMore();
             window.addEventListener('scroll', () => {
-              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
+              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
                 loadMore();
               }
             });
           </script>
-          <style>.item { padding: 10px; height: 60px; }</style>
+          <style>.item { padding: 10px; height: 100px; border-bottom: 1px solid #ccc; }</style>
         </body>
       </html>
     `);
 
     // Scroll to load more
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(300);
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(800);
+    }
 
     // Click a button in loaded content
     const buttons = page.locator(".actionBtn");
-    await buttons.nth(5).click();
+    await buttons.nth(15).waitFor({ state: "visible" });
+    await buttons.nth(15).click();
 
     // Verify action completed
-    await expect(buttons.nth(5)).toHaveText("Clicked");
+    await expect(buttons.nth(15)).toHaveText("Clicked");
   });
 
   test("memory cleanup after infinite scroll", async () => {
     await page.setContent(`
       <html>
         <body>
-          <div id="content"></div>
+          <div id="content" style="min-height: 3000px;"></div>
           <script>
             let count = 0;
             function loadMore() {
@@ -239,12 +242,12 @@ test.describe("E2E: Infinite Scroll", () => {
             }
             loadMore();
             window.addEventListener('scroll', () => {
-              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
+              if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
                 loadMore();
               }
             });
           </script>
-          <style>.item { padding: 10px; height: 50px; }</style>
+          <style>.item { padding: 10px; height: 100px; border-bottom: 1px solid #ccc; }</style>
         </body>
       </html>
     `);
@@ -252,7 +255,7 @@ test.describe("E2E: Infinite Scroll", () => {
     // Scroll multiple times
     for (let i = 0; i < 5; i++) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(500);
     }
 
     // Verify page still responsive

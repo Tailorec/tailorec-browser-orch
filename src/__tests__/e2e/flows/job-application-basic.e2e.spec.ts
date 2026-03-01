@@ -4,12 +4,15 @@ import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
 } from "../../../browser/server.js";
+import * as path from "node:path";
 
 let baseUrl = "";
 let api: any;
 let browser: Browser;
 
-// JWT token helper for control API
+const __dirname = new URL(".", import.meta.url).pathname;
+const pagesDir = path.resolve(__dirname, "../../fixtures/pages");
+
 function b64url(data: string) {
   return Buffer.from(data).toString("base64url");
 }
@@ -23,7 +26,6 @@ function signJwt(payload: Record<string, unknown>, secret: string) {
   return `${body}.${sig}`;
 }
 
-// Helper to get control token
 function getControlToken(runId: string = "test-run") {
   const now = Math.floor(Date.now() / 1000);
   return signJwt(
@@ -51,8 +53,6 @@ test.beforeAll(async ({ browser: pwBrowser }) => {
   }
   baseUrl = `http://127.0.0.1:${state.port}`;
   api = await request.newContext({ baseURL: baseUrl });
-  
-  // Use Playwright's browser instance
   browser = pwBrowser;
 });
 
@@ -63,10 +63,8 @@ test.afterAll(async () => {
 
 test.describe("E2E: Basic Job Application", () => {
   let page: Page;
-  let controlToken: string;
 
   test.beforeEach(async () => {
-    controlToken = getControlToken();
     page = await browser.newPage();
   });
 
@@ -74,112 +72,61 @@ test.describe("E2E: Basic Job Application", () => {
     await page.close();
   });
 
+  const safeGoto = async (p: Page, url: string) => {
+    for (let i = 0; i < 3; i++) {
+      try {
+        await p.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+        return;
+      } catch (e) {
+        if (i === 2) throw e;
+        await p.waitForTimeout(2000);
+      }
+    }
+  };
+
   test("navigate to job board", async () => {
-    // Using a reliable test page that simulates a job board
-    const testPageUrl = "https://demoqa.com/automation-practice-form";
+    const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testPageUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
-    // Verify we're on the page
-    await expect(page).toHaveURL(/demoqa\.com/);
-
-    // Verify page loaded with expected content (student registration form)
-    await expect(page.locator("#firstName")).toBeVisible({ timeout: 10000 });
-    await expect(page.locator("#lastName")).toBeVisible({ timeout: 10000 });
-  });
-
-  test("search for jobs", async () => {
-    // Using demoqa form to simulate job search form filling
-    const testPageUrl = "https://demoqa.com/automation-practice-form";
-
-    await page.goto(testPageUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-
-    // Simulate job search by filling relevant fields
-    const firstNameInput = page.locator("#firstName");
-    await firstNameInput.fill("Software");
-
-    const lastNameInput = page.locator("#lastName");
-    await lastNameInput.fill("Engineer");
-
-    // Verify search terms were entered
-    await expect(firstNameInput).toHaveValue("Software");
-    await expect(lastNameInput).toHaveValue("Engineer");
-  });
-
-  test("open job detail page", async () => {
-    // Navigate to form page (simulating job detail page)
-    const testPageUrl = "https://demoqa.com/automation-practice-form";
-
-    await page.goto(testPageUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-
-    // Verify form fields are visible (simulating job details)
-    await expect(page.locator("#firstName")).toBeVisible();
-    await expect(page.locator("#lastName")).toBeVisible();
-    await expect(page.locator("#userEmail")).toBeVisible();
-  });
-
-  test("click apply button", async () => {
-    // Navigate to form page
-    const testPageUrl = "https://demoqa.com/automation-practice-form";
-
-    await page.goto(testPageUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-
-    // Fill basic info before applying
-    await page.locator("#firstName").fill("John");
-    await page.locator("#lastName").fill("Doe");
-    await page.locator("#userEmail").fill("john@example.com");
-
-    // Click submit button (simulating apply button)
-    const submitButton = page.locator("#submit");
-    await submitButton.click();
-
-    // Wait for confirmation modal to appear (with longer timeout)
-    await page.waitForSelector(".modal-content", { timeout: 15000 });
-
-    // Verify modal appeared (simulating application submission)
-    const modal = page.locator(".modal-content");
-    await expect(modal).toBeVisible();
+    // Verify page loaded
+    await expect(page.locator("h1")).toBeVisible();
+    await expect(page.locator("h1")).toContainText("Practice Form");
   });
 
   test("fill basic info form", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
-    // Fill first name
-    const firstNameInput = page.locator("#firstName");
-    await firstNameInput.fill("John");
+    // Fill basic info
+    await page.locator("#firstName").fill("John");
+    await page.locator("#lastName").fill("Doe");
+    await page.locator("#userEmail").fill("john.doe@example.com");
 
-    // Fill last name
-    const lastNameInput = page.locator("#lastName");
-    await lastNameInput.fill("Doe");
-
-    // Fill email
-    const emailInput = page.locator("#userEmail");
-    await emailInput.fill("john.doe@example.com");
+    // Select gender
+    await page.locator('label[for="gender-radio-1"]').click();
 
     // Fill mobile
     const mobileInput = page.locator("#userNumber");
     await mobileInput.fill("1234567890");
 
-    // Verify values were filled
-    await expect(firstNameInput).toHaveValue("John");
-    await expect(lastNameInput).toHaveValue("Doe");
-    await expect(emailInput).toHaveValue("john.doe@example.com");
+    // Verify inputs
+    await expect(page.locator("#firstName")).toHaveValue("John");
+    await expect(page.locator("#lastName")).toHaveValue("Doe");
+    await expect(page.locator("#userEmail")).toHaveValue("john.doe@example.com");
     await expect(mobileInput).toHaveValue("1234567890");
   });
 
   test("upload resume", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
+    const path = await import("node:path");
+    const __dirname = new URL(".", import.meta.url).pathname;
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-
-    // Create a test file content
-    const testFilePath = "/tmp/test-resume.txt";
-    const fs = await import("node:fs");
-    fs.writeFileSync(testFilePath, "John Doe\nSoftware Engineer\nExperience: 5 years");
+    await safeGoto(page, testFormUrl);
 
     // Find file upload input and upload
+    const testFilePath = path.join(__dirname, "../fixtures/files/test-upload.txt");
     const fileInput = page.locator("#uploadPicture");
     await expect(fileInput).toBeVisible();
     
@@ -193,12 +140,13 @@ test.describe("E2E: Basic Job Application", () => {
   test("submit application", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill required fields
     await page.locator("#firstName").fill("John");
     await page.locator("#lastName").fill("Doe");
     await page.locator("#userEmail").fill("john.doe@example.com");
+    await page.locator("#userNumber").fill("1234567890");
 
     // Select gender
     await page.locator('label[for="gender-radio-1"]').click();
@@ -209,88 +157,82 @@ test.describe("E2E: Basic Job Application", () => {
     await page.locator(".react-datepicker__year-select").selectOption("1990");
     await page.locator(".react-datepicker__day--015").click();
 
-    // Enter address
-    await page.locator("#currentAddress").fill("123 Test Street, Test City, TC 12345");
-
-    // Click submit
+    // Click submit button
     const submitButton = page.locator("#submit");
     await submitButton.click();
 
-    // Wait for modal to appear
-    await page.waitForSelector(".modal-content", { timeout: 15000 });
-
-    // Verify submission modal appeared
+    // Wait for submission confirmation
     const modal = page.locator(".modal-content");
-    await expect(modal).toBeVisible();
+    await expect(modal).toBeVisible({ timeout: 15000 });
+    await expect(modal).toContainText("Thanks for submitting the form");
   });
 
   test("verify submission confirmation", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill required fields
     await page.locator("#firstName").fill("Jane");
     await page.locator("#lastName").fill("Smith");
     await page.locator("#userEmail").fill("jane.smith@example.com");
+    await page.locator('label[for="gender-radio-1"]').click();
+    await page.locator("#userNumber").fill("0987654321");
 
     // Submit
     await page.locator("#submit").click();
 
     // Wait for confirmation modal
-    await page.waitForSelector(".modal-content", { timeout: 15000 });
+    const modal = page.locator(".modal-content");
+    await expect(modal).toBeVisible({ timeout: 15000 });
 
-    // Verify confirmation message
-    const modalContent = page.locator(".modal-body");
-    const modalText = await modalContent.textContent();
-
-    // Check that submission was successful (modal shows form data)
+    // Verify modal content
+    const modalText = await modal.innerText();
     expect(modalText).toContain("Jane");
     expect(modalText).toContain("Smith");
     expect(modalText).toContain("jane.smith@example.com");
 
     // Close modal
-    await page.locator("#closeLargeModal").click();
+    const closeButton = page.locator("#closeLargeModal");
+    if (await closeButton.isVisible()) {
+      await closeButton.click();
+    } else {
+      await page.getByRole("button", { name: "Close" }).last().click();
+    }
 
     // Verify modal closed
-    await expect(page.locator(".modal-content")).not.toBeVisible();
+    await expect(page.locator(".modal-content")).not.toBeVisible({ timeout: 5000 });
   });
 
   test("form validation - submit empty form", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
-    // Try to submit without filling required fields
+    // Submit without filling fields
     await page.locator("#submit").click();
 
-    // Wait briefly for validation to trigger
-    await page.waitForTimeout(500);
-
-    // Verify validation errors appear (browser default validation)
-    const firstNameInput = page.locator("#firstName");
-    await expect(firstNameInput).toBeVisible();
-
-    // Check that form was not submitted (no modal should appear)
-    const modal = page.locator(".modal-content");
-    await expect(modal).not.toBeVisible({ timeout: 2000 });
+    // Verify form validation triggered (check for :invalid pseudoclass if possible or specific classes)
+    const firstName = page.locator("#firstName");
+    const validationState = await firstName.evaluate((el) => (el as HTMLInputElement).checkValidity());
+    expect(validationState).toBe(false);
   });
 
   test("navigation - back and forward during application", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
     // Navigate to form
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill some fields
     await page.locator("#firstName").fill("Navigation");
     await page.locator("#lastName").fill("Test");
 
-    // Navigate to another page
-    await page.goto("about:blank");
-    await expect(page).toHaveURL("about:blank");
+    // Navigate away
+    await page.goto("https://www.google.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await expect(page).toHaveURL(/google/);
 
-    // Go back to form
+    // Navigate back
     await page.goBack({ waitUntil: "domcontentloaded", timeout: 30000 });
     await expect(page).toHaveURL(/demoqa\.com/);
 

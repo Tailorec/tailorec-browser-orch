@@ -104,7 +104,7 @@ test.describe("E2E: Pagination Flow", () => {
 
   test("navigate to specific page number", async () => {
     // Click page 3
-    await page.getByText("3").click();
+    await page.getByRole("button", { name: "3", exact: true }).click();
 
     // Verify page 3 displayed
     await expect(page.locator("#pageInfo")).toContainText("Showing 21-30");

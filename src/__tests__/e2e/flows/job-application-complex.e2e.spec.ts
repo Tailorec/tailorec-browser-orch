@@ -68,7 +68,17 @@ test.describe("E2E: Complex Job Application", () => {
   test.beforeEach(async () => {
     controlToken = getControlToken();
     page = await browser.newPage();
+    page.setDefaultTimeout(15000);
   });
+
+  const removeAds = async (p: Page) => {
+    await p.evaluate(() => {
+      const ads = document.querySelectorAll('[id^="google_ads"], [id^="adplus"], .adunit, #ad-container');
+      ads.forEach(ad => (ad as HTMLElement).style.display = "none");
+      const fixedban = document.querySelector("#fixedban");
+      if (fixedban) (fixedban as HTMLElement).style.display = "none";
+    }).catch(() => {});
+  };
 
   test.afterEach(async () => {
     await page.close();
@@ -77,7 +87,7 @@ test.describe("E2E: Complex Job Application", () => {
   test("multi-step application - personal information step", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Step 1: Personal Information
     await page.locator("#firstName").fill("Michael");
@@ -92,7 +102,7 @@ test.describe("E2E: Complex Job Application", () => {
   test("multi-step application - contact information step", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill personal info
     await page.locator("#firstName").fill("Michael");
@@ -111,7 +121,7 @@ test.describe("E2E: Complex Job Application", () => {
   test("multi-step application - additional details step", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill previous steps
     await page.locator("#firstName").fill("Michael");
@@ -137,31 +147,35 @@ test.describe("E2E: Complex Job Application", () => {
   test("application with dropdown selections", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
+    await removeAds(page);
 
     // Fill basic info
     await page.locator("#firstName").fill("Sarah");
     await page.locator("#lastName").fill("Williams");
     await page.locator("#userEmail").fill("sarah.williams@example.com");
+    await page.locator('label[for="gender-radio-2"]').click();
+    await page.locator("#userNumber").fill("1234567890");
 
     // Select from dropdowns
+    await page.locator("#state").scrollIntoViewIfNeeded();
     await page.locator("#state").click();
-    await page.locator("#react-select-3-input").fill("California");
-    await page.locator("#react-select-3-option-0").click();
+    await page.locator("#react-select-3-input").fill("NCR");
+    await page.keyboard.press("Enter");
 
     await page.locator("#city").click();
-    await page.locator("#react-select-4-input").fill("Los Angeles");
-    await page.locator("#react-select-4-option-0").click();
+    await page.locator("#react-select-4-input").fill("Delhi");
+    await page.keyboard.press("Enter");
 
     // Verify selections
-    const stateValue = await page.locator("#state").locator("input").inputValue();
-    expect(stateValue).toBeTruthy();
+    const stateValue = await page.locator("#state").textContent();
+    expect(stateValue).toContain("NCR");
   });
 
   test("application with file uploads and checkboxes", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill basic info
     await page.locator("#firstName").fill("Emily");
@@ -185,32 +199,59 @@ test.describe("E2E: Complex Job Application", () => {
     expect(files).toBeGreaterThan(0);
   });
 
+  const safeGoto = async (p: Page, url: string) => {
+    for (let i = 0; i < 3; i++) {
+      try {
+        await p.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+        return;
+      } catch (e) {
+        if (i === 2) throw e;
+        await p.waitForTimeout(2000);
+      }
+    }
+  };
+
   test("application with dynamic form fields", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
+    await removeAds(page);
 
     // Fill basic info
     await page.locator("#firstName").fill("David");
     await page.locator("#lastName").fill("Miller");
     await page.locator("#userEmail").fill("david.miller@example.com");
+    await page.locator('label[for="gender-radio-1"]').click();
+    await page.locator("#userNumber").fill("1234567890");
 
     // Add multiple subjects (dynamic field)
-    await page.locator("#subjectsInput").fill("Math");
-    await page.locator("#subjectsInput").press("Enter");
+    const subjectsInput = page.locator("#subjectsInput");
+    await subjectsInput.scrollIntoViewIfNeeded();
+    await subjectsInput.click();
+    await page.keyboard.type("Math");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(500);
 
-    await page.locator("#subjectsInput").fill("Science");
-    await page.locator("#subjectsInput").press("Enter");
+    await page.keyboard.type("English");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(500);
 
-    // Verify subjects were added
-    const subjectTags = page.locator(".subjects-auto-complete-multi-value");
-    await expect(subjectTags).toHaveCount(2);
+    // Verify subjects were added - use a more general selector
+    const subjectTags = page.locator(".subjects-auto-complete__multi-value");
+    const count = await subjectTags.count();
+    if (count === 0) {
+      // Fallback to more general class match if DemoQA changed classes
+      await expect(page.locator("[class*='multi-value']")).toHaveCount(2);
+    } else {
+      expect(count).toBe(2);
+    }
   });
 
   test("application with validation errors and corrections", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
+    await removeAds(page);
 
     // Submit with invalid data to trigger validation
     await page.locator("#firstName").fill("A"); // Too short
@@ -238,7 +279,7 @@ test.describe("E2E: Complex Job Application", () => {
   test("application progress persistence across steps", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill all fields
     const testData = {
@@ -262,7 +303,7 @@ test.describe("E2E: Complex Job Application", () => {
     await page.locator("#dateOfBirthInput").click();
     await page.locator(".react-datepicker__month-select").selectOption("June");
     await page.locator(".react-datepicker__year-select").selectOption("1992");
-    await page.locator(".react-datepicker__day--010").click();
+    await page.locator(".react-datepicker__day--010:not(.react-datepicker__day--outside-month)").click();
 
     // Verify all data persisted
     await expect(page.locator("#firstName")).toHaveValue(testData.firstName);
@@ -275,7 +316,8 @@ test.describe("E2E: Complex Job Application", () => {
   test("complete multi-step application submission", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
+    await removeAds(page);
 
     // Complete all steps
     await page.locator("#firstName").fill("Jessica");
@@ -299,14 +341,15 @@ test.describe("E2E: Complex Job Application", () => {
     await page.locator("#currentAddress").fill("321 Elm Street, Seattle, WA 98101");
 
     // Select state
+    await page.locator("#state").scrollIntoViewIfNeeded();
     await page.locator("#state").click();
-    await page.locator("#react-select-3-input").fill("Washington");
+    await page.locator("#react-select-3-input").fill("NCR");
     await page.waitForTimeout(500);
     await page.keyboard.press("Enter");
 
     // Select city
     await page.locator("#city").click();
-    await page.locator("#react-select-4-input").fill("Seattle");
+    await page.locator("#react-select-4-input").fill("Delhi");
     await page.waitForTimeout(500);
     await page.keyboard.press("Enter");
 
@@ -330,7 +373,7 @@ test.describe("E2E: Complex Job Application", () => {
   test("application with back navigation and data retention", async () => {
     const testFormUrl = "https://demoqa.com/automation-practice-form";
 
-    await page.goto(testFormUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await safeGoto(page, testFormUrl);
 
     // Fill initial data
     await page.locator("#firstName").fill("Robert");

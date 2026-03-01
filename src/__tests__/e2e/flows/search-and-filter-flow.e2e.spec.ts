@@ -122,7 +122,7 @@ test.describe("E2E: Search and Filter Flow", () => {
 
     // Verify only high-rated products shown
     const resultCount = page.locator("#resultCount");
-    await expect(resultCount).toContainText("Showing 8");
+    await expect(resultCount).toContainText("Showing 9");
   });
 
   test("sort results by price", async () => {

@@ -91,7 +91,7 @@ test.describe("E2E: Authentication Flow", () => {
 
   test("user registration with valid data", async () => {
     // Navigate to register
-    await page.getByText("Register").click();
+    await page.getByRole("link", { name: "Register" }).click();
 
     // Fill registration form
     await page.locator("#registerName").fill("New User");
@@ -156,7 +156,7 @@ test.describe("E2E: Authentication Flow", () => {
 
   test("registration validation - password mismatch", async () => {
     // Navigate to register
-    await page.getByText("Register").click();
+    await page.getByRole("link", { name: "Register" }).click();
 
     // Fill registration form with mismatched passwords
     await page.locator("#registerName").fill("Test User");

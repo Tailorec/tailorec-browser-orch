@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { test, expect, request, type Browser, type Page } from "@playwright/test";
+import { test, expect, request, type Browser, type Page, type BrowserContext } from "@playwright/test";
 import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
@@ -62,14 +62,19 @@ test.afterAll(async () => {
 });
 
 test.describe("E2E: Large Payload", () => {
+  let context: BrowserContext;
   let page: Page;
 
   test.beforeEach(async () => {
-    page = await browser.newPage();
+    context = await browser.newContext({
+      permissions: ["clipboard-read", "clipboard-write"],
+    });
+    page = await context.newPage();
   });
 
   test.afterEach(async () => {
     await page.close();
+    await context.close();
   });
 
   test("handle large HTML response", async () => {

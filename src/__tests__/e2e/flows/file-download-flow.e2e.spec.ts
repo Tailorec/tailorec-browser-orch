@@ -87,7 +87,7 @@ test.describe("E2E: File Download Flow", () => {
 
   test("download with confirmation", async () => {
     // Click confirm download button
-    await page.getByText("Download with Confirmation").click();
+    await page.getByRole("button", { name: "Download with Confirmation" }).click();
 
     // Wait for preparation
     await page.waitForTimeout(500);

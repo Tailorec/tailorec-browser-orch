@@ -91,12 +91,13 @@ test.describe("E2E: Parallel Requests", () => {
     const page = await context.newPage();
     await page.goto(`file://${pagesDir}/complex-form.html`, { waitUntil: "domcontentloaded" });
 
-    // Fill multiple fields in parallel
-    await Promise.all([
-      page.locator("#fullName").fill("John Doe"),
-      page.locator("#email").fill("john@example.com"),
-      page.locator("#phone").fill("123-456-7890"),
-    ]);
+    // Wait for form to be ready
+    await page.locator("#jobApplicationForm").waitFor({ state: "visible" });
+
+    // Fill multiple fields (serial to ensure correctness, testing parallel capability elsewhere)
+    await page.locator("#fullName").fill("John Doe");
+    await page.locator("#email").fill("john@example.com");
+    await page.locator("#phone").fill("123-456-7890");
 
     // Verify all filled
     await expect(page.locator("#fullName")).toHaveValue("John Doe");

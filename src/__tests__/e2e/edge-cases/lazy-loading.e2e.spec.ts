@@ -99,6 +99,7 @@ test.describe("E2E: Lazy Loading", () => {
       <html>
         <body>
           <div id="content" style="height: 2000px;">Scroll down to load</div>
+          <div id="bottomTrigger">Bottom</div>
           <div id="lazyContent" style="display: none;">
             <div class="loaded-item">Loaded Item 1</div>
             <div class="loaded-item">Loaded Item 2</div>
@@ -111,7 +112,7 @@ test.describe("E2E: Lazy Loading", () => {
                 }
               });
             });
-            observer.observe(document.getElementById('content'));
+            observer.observe(document.getElementById('bottomTrigger'));
           </script>
         </body>
       </html>

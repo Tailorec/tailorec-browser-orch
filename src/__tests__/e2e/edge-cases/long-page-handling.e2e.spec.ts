@@ -122,7 +122,7 @@ test.describe("E2E: Long Page Handling", () => {
     // Take multiple screenshots
     for (let i = 0; i < 3; i++) {
       await page.screenshot({ fullPage: true });
-      await page.evaluate(() => window.scrollTo(0, (i + 1) * 500));
+      await page.evaluate((val) => window.scrollTo(0, (val + 1) * 500), i);
       await page.waitForTimeout(100);
     }
 
