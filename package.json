@@ -10,7 +10,6 @@
     "dev": "tsx src/server.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:legacy": "echo \"Legacy node:test suite migrated to Vitest\"", 
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:contract": "vitest run --project contract",
