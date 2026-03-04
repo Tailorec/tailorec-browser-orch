@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatErrorMessage } from "../../infra/errors.js";
-import { isPortAvailable, ensurePortAvailable } from "../../infra/ports.js";
-import { rawDataToString } from "../../infra/ws.js";
+import { formatErrorMessage } from "../../shared/errors/error.utils.js";
+import { isPortAvailable, ensurePortAvailable } from "../../shared/utils/ports.js";
+import { rawDataToString } from "../../shared/utils/ws.js";
 import { Buffer } from "node:buffer";
 
-describe("infra: errors - formatErrorMessage", () => {
+describe("shared errors - formatErrorMessage", () => {
   it("should return message from Error object", () => {
     const err = new Error("test error message");
     expect(formatErrorMessage(err)).toBe("test error message");
@@ -29,7 +29,7 @@ describe("infra: errors - formatErrorMessage", () => {
   });
 });
 
-describe("infra: ports - isPortAvailable", () => {
+describe("shared utils ports - isPortAvailable", () => {
   it("should return true for available port", async () => {
     // Use a high port number that's likely available
     const result = await isPortAvailable(59999);
@@ -39,7 +39,7 @@ describe("infra: ports - isPortAvailable", () => {
   it("should return false for port in use", async () => {
     const net = await import("node:net");
     const server = net.createServer();
-    
+
     await new Promise<void>((resolve) => {
       server.listen(59998, () => resolve());
     });
@@ -60,22 +60,22 @@ describe("infra: ports - isPortAvailable", () => {
   });
 });
 
-describe("infra: ports - ensurePortAvailable", () => {
+describe("shared utils ports - ensurePortAvailable", () => {
   it("should resolve for available port", async () => {
     await expect(ensurePortAvailable(59997)).resolves.toBeUndefined();
   });
 
-  it("should not throw for unavailable port (no-op implementation)", async () => {
+  it("should throw for unavailable port", async () => {
     const net = await import("node:net");
     const server = net.createServer();
-    
+
     await new Promise<void>((resolve) => {
       server.listen(59996, () => resolve());
     });
 
     try {
-      // Current implementation is no-op for unavailable ports
-      await expect(ensurePortAvailable(59996)).resolves.toBeUndefined();
+      // New implementation throws for unavailable ports
+      await expect(ensurePortAvailable(59996)).rejects.toThrow("Port 59996 is already in use");
     } finally {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -84,7 +84,7 @@ describe("infra: ports - ensurePortAvailable", () => {
   });
 });
 
-describe("infra: ws - rawDataToString", () => {
+describe("shared utils ws - rawDataToString", () => {
   it("should return string as-is", () => {
     expect(rawDataToString("hello" as any)).toBe("hello");
   });
@@ -94,7 +94,7 @@ describe("infra: ws - rawDataToString", () => {
     expect(rawDataToString(buffer)).toBe("hello buffer");
   });
 
-  it("should convert Array of buffers to string", () => {
+  it("should convert array of buffers to string", () => {
     const buffers = [Buffer.from("hello"), Buffer.from(" world")];
     expect(rawDataToString(buffers)).toBe("hello world");
   });
@@ -112,6 +112,6 @@ describe("infra: ws - rawDataToString", () => {
 
   it("should use custom encoding", () => {
     const buffer = Buffer.from("68656c6c6f", "hex");
-    expect(rawDataToString(buffer, "hex")).toBe("68656c6c6f");
+    expect(rawDataToString(buffer, "hex" as any)).toBe("68656c6c6f");
   });
 });

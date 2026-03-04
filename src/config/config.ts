@@ -1,4 +1,4 @@
-import type { AppConfig, BrowserViewport } from './config.types.js';
+import type { AppConfig, BrowserViewport, BrowserProfileConfig, ResolvedBrowserProfile } from './config.types.js';
 import { validateConfig } from './config.validators.js';
 import { createSubsystemLogger } from '../logging/subsystem.js';
 
@@ -66,6 +66,39 @@ function parseViewportEnv(value: string | undefined, fallback: BrowserViewport):
   }
 
   return { width: Math.floor(width), height: Math.floor(height) };
+}
+
+/**
+ * Get configured viewport from environment or default
+ */
+export function getConfiguredViewport(): BrowserViewport {
+  return parseViewportEnv(process.env.BROWSER_VIEWPORT, DEFAULT_CONFIG.browser.viewport);
+}
+
+/**
+ * Resolve browser profile configuration
+ */
+export function resolveProfile(
+  config: AppConfig['browser'],
+  name: string,
+): ResolvedBrowserProfile | null {
+  const profile = config.profiles[name];
+  if (!profile) {
+    log.warn('profile resolution failed', { profile: name });
+    return null;
+  }
+
+  const cdpPort = profile.cdpPort || 9222;
+  const cdpUrl = profile.cdpUrl || `http://127.0.0.1:${cdpPort}`;
+
+  return {
+    name,
+    cdpPort,
+    cdpUrl,
+    cdpIsLoopback: cdpUrl.includes('127.0.0.1') || cdpUrl.includes('localhost'),
+    driver: profile.driver || 'chrome',
+    color: profile.color || 'blue',
+  };
 }
 
 /**

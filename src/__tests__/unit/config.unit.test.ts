@@ -3,7 +3,7 @@ import {
   getConfiguredViewport,
   loadConfig,
   resolveProfile,
-} from "../../browser/config.js";
+} from "../../config/config.js";
 
 const envBackup = { ...process.env };
 
@@ -18,7 +18,7 @@ describe("browser config", () => {
     process.env.BROWSER_VIEWPORT = "1440x900";
 
     const cfg = loadConfig();
-    expect(cfg.browser.controlPort).toBe(4555);
+    expect(cfg.port).toBe(4555);
     expect(cfg.browser.headless).toBe(true);
     expect(cfg.browser.viewport).toEqual({ width: 1440, height: 900 });
   });

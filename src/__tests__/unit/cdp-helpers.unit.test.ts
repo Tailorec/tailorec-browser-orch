@@ -5,9 +5,9 @@ import {
   fetchOk,
   getHeadersWithAuth,
   isLoopbackHost,
-} from "../../browser/cdp.helpers.js";
+} from "../../adapters/utils/cdp.utils.js";
 
-describe("cdp.helpers", () => {
+describe("cdp utils", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatAriaSnapshot, normalizeCdpWsUrl } from "../../browser/cdp.js";
+import { formatAriaSnapshot, normalizeCdpWsUrl } from "../../adapters/utils/cdp.utils.js";
 
-describe("cdp helpers in cdp.ts", () => {
+describe("cdp utils", () => {
   it("normalizes loopback websocket URL for remote cdp URL", () => {
     const normalized = normalizeCdpWsUrl(
       "ws://127.0.0.1:9222/devtools/browser/abc",
