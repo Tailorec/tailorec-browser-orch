@@ -128,6 +128,8 @@ Comprehensive, industry-grade documentation is available in the [`docs/`](./docs
 
 ## 🏗 Architecture
 
+### System Architecture
+
 ```
 ┌──────────────────────────────────┐
 │         LLM / Client             │
@@ -158,6 +160,54 @@ Comprehensive, industry-grade documentation is available in the [`docs/`](./docs
         │   Browser     │
         └───────────────┘
 ```
+
+### Clean Architecture Layers
+
+This project follows **Clean Architecture** principles with clear separation of concerns:
+
+```
+src/
+├── core/              # Domain layer (business logic)
+│   ├── entities/      # Business entities (BrowserSession, Tab, Profile)
+│   ├── services/      # Domain services (Session, Interaction, Snapshot)
+│   ├── ports/         # Interface definitions (IBrowserDriver, IEventBus)
+│   └── use-cases/     # Application use cases (ExecuteAction, TakeSnapshot)
+│
+├── adapters/          # Infrastructure layer (external implementations)
+│   ├── playwright/    # Playwright browser automation
+│   ├── chrome/        # Chrome browser launcher
+│   ├── http/          # Express server adapter
+│   └── logging/       # Pino logger adapter
+│
+├── api/               # Interface layer (HTTP API)
+│   ├── controllers/   # HTTP request handlers
+│   ├── routes/        # Route definitions
+│   ├── validators/    # Request validators (Zod schemas)
+│   └── middlewares/   # Express middlewares
+│
+├── config/            # Configuration management
+│   ├── config.ts      # Configuration loader
+│   └── config.types.ts # Type definitions
+│
+├── container/         # Dependency injection
+│   ├── container.ts   # DI container factory
+│   └── container.types.ts # Container types
+│
+├── shared/            # Cross-cutting utilities
+│   ├── errors/        # Error classes
+│   ├── types/         # Type utilities
+│   └── utils/         # Helper functions
+│
+└── server.ts          # Application entry point
+```
+
+**Key Design Principles:**
+- **Dependency Rule:** Dependencies point inward (outer layers depend on inner layers)
+- **Separation of Concerns:** Each layer has a single responsibility
+- **Testability:** Core logic is isolated and easily testable
+- **Replaceability:** Adapters can be swapped without changing business logic
+
+See [Architecture Overview](./docs/architecture/overview.md) for more details.
 
 ---
 
