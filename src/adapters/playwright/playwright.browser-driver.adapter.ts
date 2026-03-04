@@ -1,7 +1,7 @@
 import type { Browser, BrowserContext, Page } from 'playwright-core';
 import { chromium } from 'playwright-core';
 import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
-import { getHeadersWithAuth, fetchJson } from '../../../browser/cdp.js';
+import { getHeadersWithAuth, fetchJson } from '../utils/cdp.utils.js';
 
 const log = createSubsystemLogger('pw-browser-driver');
 

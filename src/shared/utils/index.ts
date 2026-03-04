@@ -36,3 +36,11 @@ export {
   getNestedValue,
   setNestedValue,
 } from './object.utils.js';
+export {
+  isPortAvailable,
+  ensurePortAvailable,
+  findFreePort,
+} from './ports.js';
+export {
+  rawDataToString,
+} from './ws.js';

@@ -7,3 +7,4 @@ export {
   StaleElementError,
   BrowserNotAvailableError,
 } from './browser.error.js';
+export { formatErrorMessage, createErrorDetails } from './error.utils.js';
