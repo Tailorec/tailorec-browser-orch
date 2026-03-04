@@ -1,6 +1,6 @@
 /**
  * Execute Action Use Case
- * 
+ *
  * Orchestrates the execution of a browser action.
  * This is a domain use case that coordinates services to perform an action.
  */
@@ -63,7 +63,7 @@ export type ExecuteActionResponse = {
 
 /**
  * Execute Action Use Case
- * 
+ *
  * Orchestrates the execution of a browser action by coordinating
  * the session, interaction, and discovery services.
  */

@@ -1,6 +1,6 @@
 /**
  * Take Snapshot Use Case
- * 
+ *
  * Orchestrates the capture of a page snapshot.
  * This is a domain use case that coordinates services to capture snapshots.
  */
@@ -106,7 +106,7 @@ export type TakeSnapshotResponse = {
 
 /**
  * Take Snapshot Use Case
- * 
+ *
  * Orchestrates the capture of page snapshots by coordinating
  * the session and snapshot services.
  */
