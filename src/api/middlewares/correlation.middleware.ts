@@ -1,6 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'node:crypto';
-import { runWithCorrelationId, extractCorrelationIdFromHeaders, generateCorrelationId } from '../../logging/correlation.js';
+import { runWithCorrelationId, extractCorrelationIdFromHeaders, generateCorrelationId } from '../../shared/utils/correlation.js';
 import { createSubsystemLogger } from '../../logging/subsystem.js';
 
 const log = createSubsystemLogger('correlation-middleware');

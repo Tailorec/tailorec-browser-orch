@@ -44,3 +44,10 @@ export {
 export {
   rawDataToString,
 } from './ws.js';
+export {
+  getCorrelationId,
+  runWithCorrelationId,
+  generateCorrelationId,
+  extractCorrelationIdFromHeaders,
+  getOrCreateCorrelationIdFromHeaders,
+} from './correlation.js';
