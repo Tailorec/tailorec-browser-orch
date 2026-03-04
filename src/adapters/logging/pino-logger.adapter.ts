@@ -420,3 +420,8 @@ export async function shutdownLogger(): Promise<void> {
  * Type alias for backward compatibility
  */
 export type SubsystemLogger = Logger;
+
+/**
+ * Alias for withCorrelationId (legacy name)
+ */
+export { runWithCorrelationId as withCorrelationId } from '../../shared/utils/correlation.js';
