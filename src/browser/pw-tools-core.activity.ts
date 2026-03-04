@@ -4,7 +4,7 @@ import type {
   BrowserPageError,
 } from "./pw-session.js";
 import { ensurePageState, getPageForTargetId } from "./pw-session.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("pw-activity");
 

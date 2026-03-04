@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractCorrelationIdFromHeaders, generateCorrelationId, getCorrelationId, runWithCorrelationId } from "./correlation.js";
+import { extractCorrelationIdFromHeaders, generateCorrelationId, getCorrelationId, runWithCorrelationId } from "../shared/utils/correlation.js";
 import "dotenv/config";
 
 type LogLevel = "debug" | "info" | "warn" | "error";

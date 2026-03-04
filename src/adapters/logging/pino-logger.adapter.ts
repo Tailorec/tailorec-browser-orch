@@ -417,23 +417,6 @@ export async function shutdownLogger(): Promise<void> {
 }
 
 /**
- * Re-export correlation utilities from shared utils
- * for backward compatibility with legacy logging/subsystem imports
- */
-export {
-  getCorrelationId,
-  runWithCorrelationId,
-  generateCorrelationId,
-  extractCorrelationIdFromHeaders,
-  getOrCreateCorrelationIdFromHeaders,
-} from '../../shared/utils/correlation.js';
-
-/**
  * Type alias for backward compatibility
  */
 export type SubsystemLogger = Logger;
-
-/**
- * Alias for withCorrelationId (legacy name)
- */
-export const withCorrelationId = runWithCorrelationId;

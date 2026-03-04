@@ -1,5 +1,5 @@
 import type { BrowserRequest, BrowserResponse } from "./types.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { createSubsystemLogger } from "../../adapters/logging/pino-logger.adapter.js";
 import type { BrowserRouteContext, ProfileContext } from "../server-context.js";
 
 const log = createSubsystemLogger("browser-routes");

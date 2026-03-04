@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Server } from "node:http";
 import { URL } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { createSubsystemLogger } from "../../adapters/logging/pino-logger.adapter.js";
 import type { BrowserRouteContext } from "../server-context.js";
 import { getPageForTargetId } from "../pw-session.js";
 

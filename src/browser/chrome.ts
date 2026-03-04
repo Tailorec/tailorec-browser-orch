@@ -20,7 +20,7 @@ import {
   DEFAULT_OPENCLAW_BROWSER_COLOR,
   DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME,
 } from "./constants.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("chrome");
 

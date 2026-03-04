@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("browser-config");
 

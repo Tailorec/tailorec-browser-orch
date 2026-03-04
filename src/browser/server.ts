@@ -6,7 +6,7 @@ import {
   createSubsystemLogger,
   getOrCreateCorrelationIdFromHeaders,
   withCorrelationId,
-} from "../logging/subsystem.js";
+} from "../adapters/logging/pino-logger.adapter.js";
 import { resolveBrowserConfig } from "./config.js";
 import { registerBrowserRoutes } from "./routes/index.js";
 import { installControlLiveWebSocketServer } from "./routes/control-live.js";

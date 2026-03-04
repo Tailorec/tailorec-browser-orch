@@ -3,7 +3,7 @@ import type { BrowserRouteRegistrar } from "./types.js";
 import { resolveProfileContext } from "./agent.shared.js";
 import { getPwAiModule } from "../pw-ai-module.js";
 import { jsonError, toStringOrEmpty, toNumber, toBoolean } from "./utils.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { createSubsystemLogger } from "../../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("browser-snapshot");
 

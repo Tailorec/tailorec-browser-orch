@@ -3,7 +3,7 @@ import type { ResolvedBrowserConfig, ResolvedBrowserProfile } from "./config.js"
 import { resolveProfile } from "./config.js";
 import { isChromeReachable, launchOpenClawChrome, stopOpenClawChrome, type RunningChrome } from "./chrome.js";
 import { createPageViaPlaywright, focusPageByTargetIdViaPlaywright, listPagesViaPlaywright } from "./pw-session.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("server-context");
 

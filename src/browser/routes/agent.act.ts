@@ -19,7 +19,7 @@ import {
 } from "./agent.shared.js";
 import { jsonError, toBoolean, toNumber, toStringArray, toStringOrEmpty } from "./utils.js";
 import { getPwAiModule } from "../pw-ai-module.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { createSubsystemLogger } from "../../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("browser-act");
 

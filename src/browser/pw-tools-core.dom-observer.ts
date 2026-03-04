@@ -1,6 +1,6 @@
 import { type Page } from "playwright-core";
 import { ensurePageState, refLocator, restoreRoleRefsForTarget } from "./pw-session.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("pw-dom-observer");
 

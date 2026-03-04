@@ -12,7 +12,7 @@ import {
   startDomObserver,
   stopDomObserver,
 } from "./pw-tools-core.dom-observer.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("pw-actions");
 
