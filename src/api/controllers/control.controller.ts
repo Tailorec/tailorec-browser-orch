@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import type { GenerateControlTokenUseCase } from '../../core/use-cases/generate-control-token.use-case.js';
-import { createSubsystemLogger } from '../../logging/subsystem.js';
+import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
 
 const log = createSubsystemLogger('control-controller');
 

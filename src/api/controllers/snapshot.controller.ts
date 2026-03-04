@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import type { TakeSnapshotUseCase } from '../../core/use-cases/take-snapshot.use-case.js';
 import { SnapshotValidator, type SnapshotRequestDTO, type SnapshotDeltaRequestDTO } from '../validators/snapshot.validator.js';
-import { createSubsystemLogger } from '../../logging/subsystem.js';
+import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 

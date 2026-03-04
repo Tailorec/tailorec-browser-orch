@@ -1,5 +1,5 @@
 import { startBrowserControlServerFromConfig } from "./browser/server.js";
-import { createSubsystemLogger } from "./logging/subsystem.js";
+import { createSubsystemLogger } from "./adapters/logging/pino-logger.adapter.js";
 
 const log = createSubsystemLogger("main");
 

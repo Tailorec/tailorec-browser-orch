@@ -1,6 +1,6 @@
 import type { AppConfig, BrowserViewport, BrowserProfileConfig, ResolvedBrowserProfile } from './config.types.js';
 import { validateConfig } from './config.validators.js';
-import { createSubsystemLogger } from '../logging/subsystem.js';
+import { createSubsystemLogger } from '../adapters/logging/pino-logger.adapter.js';
 
 const log = createSubsystemLogger('config');
 

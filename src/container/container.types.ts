@@ -1,5 +1,5 @@
 import type { AppConfig } from '../config/config.types.js';
-import type { SubsystemLogger } from '../logging/subsystem.js';
+import type { Logger } from '../adapters/logging/pino-logger.adapter.js';
 
 /**
  * Browser driver interface for controlling browser instances
@@ -58,7 +58,7 @@ export interface Container {
   config: AppConfig;
 
   // Infrastructure
-  logger: SubsystemLogger;
+  logger: Logger;
   browserDriver: IBrowserDriver;
   sessionStore: ISessionStore;
   eventBus: IEventBus;

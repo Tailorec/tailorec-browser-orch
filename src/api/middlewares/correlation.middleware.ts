@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { runWithCorrelationId, extractCorrelationIdFromHeaders, generateCorrelationId } from '../../shared/utils/correlation.js';
-import { createSubsystemLogger } from '../../logging/subsystem.js';
+import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
 
 const log = createSubsystemLogger('correlation-middleware');
 

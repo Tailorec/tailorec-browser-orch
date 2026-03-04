@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { ActionValidator } from '../validators/action.validator.js';
-import { createSubsystemLogger } from '../../logging/subsystem.js';
+import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
 
 const log = createSubsystemLogger('hooks-controller');
 

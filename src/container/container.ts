@@ -1,6 +1,6 @@
 import type { Container } from './container.types.js';
 import type { AppConfig } from '../config/config.types.js';
-import { createSubsystemLogger } from '../logging/subsystem.js';
+import { createSubsystemLogger } from '../adapters/logging/pino-logger.adapter.js';
 
 /**
  * Create in-memory session store
