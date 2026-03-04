@@ -1,5 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { extractCorrelationIdFromHeaders, generateCorrelationId, getCorrelationId, runWithCorrelationId } from "./correlation.js";
 import "dotenv/config";
 
@@ -18,7 +18,7 @@ interface LogRecord {
   [key: string]: unknown;
 }
 
-interface SubsystemLogger {
+export interface SubsystemLogger {
   debug(message: string, extra?: Record<string, unknown>): void;
   info(message: string, extra?: Record<string, unknown>): void;
   warn(message: string, extra?: Record<string, unknown>): void;
