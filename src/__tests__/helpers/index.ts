@@ -14,3 +14,6 @@ export * from "./pw-session-fixtures.js";
 export * from "./pw-fill-fixtures.js";
 export * from "./upload-fixtures.js";
 export * from "./remote-debug-browser.js";
+
+// Logger helpers
+export * from "./test-logger.js";
