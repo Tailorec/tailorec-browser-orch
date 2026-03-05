@@ -1,4 +1,4 @@
-import type { Router, Express } from 'express';
+import { Router, type Express } from 'express';
 import type { MiddlewareRegistry } from '../middlewares/index.js';
 import { SnapshotController } from '../controllers/snapshot.controller.js';
 import { SimpleActionController } from '../controllers/simple-action.controller.js';

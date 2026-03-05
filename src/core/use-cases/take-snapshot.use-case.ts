@@ -21,7 +21,7 @@ export type TakeSnapshotRequest = {
   /**
    * CDP URL for browser connection
    */
-  cdpUrl: string;
+  cdpUrl?: string;
 
   /**
    * Target ID (optional, uses default if not provided)
