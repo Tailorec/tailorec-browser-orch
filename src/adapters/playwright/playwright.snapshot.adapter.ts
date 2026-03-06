@@ -1,14 +1,13 @@
 import type { Page } from 'playwright-core';
 import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
-import type { AriaSnapshotNode, RawAXNode } from '../../browser/cdp.js';
+import { formatAriaSnapshot, type AriaSnapshotNode, type RawAXNode } from '../utils/cdp.types.js';
 import {
   buildRoleSnapshotFromAiSnapshot,
   buildRoleSnapshotFromAriaSnapshot,
   getRoleSnapshotStats,
   type RoleSnapshotOptions,
   type RoleRefMap,
-} from '../../browser/pw-role-snapshot.js';
-
+} from './playwright.role-snapshot.adapter.js';
 const log = createSubsystemLogger('pw-snapshot-adapter');
 
 /**
@@ -135,9 +134,9 @@ export class PlaywrightSnapshotAdapter {
     try {
       await session.send('Accessibility.enable');
       const res = await session.send('Accessibility.getFullAXTree');
-      const nodes = Array.isArray(res?.nodes) ? res.nodes : [];
+      const nodes = (Array.isArray(res?.nodes) ? res.nodes : []) as unknown as RawAXNode[];
 
-      const formatted = this.formatAriaSnapshot(nodes, limit);
+      const formatted = formatAriaSnapshot(nodes, limit);
 
       log.info('captureAriaSnapshot succeeded', {
         url: page.url(),
@@ -294,10 +293,5 @@ export class PlaywrightSnapshotAdapter {
       'radio',
     ];
     return Object.values(refs).filter((r) => interactiveRoles.includes(r.role)).length;
-  }
-
-  private formatAriaSnapshot(nodes: RawAXNode[], limit: number): AriaSnapshotNode[] {
-    // Format aria snapshot nodes, limiting to the specified count
-    return nodes.slice(0, limit) as AriaSnapshotNode[];
   }
 }

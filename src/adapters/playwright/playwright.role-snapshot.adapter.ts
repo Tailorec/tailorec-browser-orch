@@ -1,3 +1,13 @@
+/**
+ * Playwright Role Snapshot Adapter
+ * 
+ * Handles role-based snapshot generation from ARIA and AI snapshots.
+ * Extracted from: src/browser/pw-role-snapshot.ts
+ */
+
+/**
+ * Role reference structure
+ */
 export type RoleRef = {
   role: string;
   name?: string;
@@ -5,8 +15,14 @@ export type RoleRef = {
   nth?: number;
 };
 
+/**
+ * Role reference map (ref -> RoleRef)
+ */
 export type RoleRefMap = Record<string, RoleRef>;
 
+/**
+ * Role snapshot statistics
+ */
 export type RoleSnapshotStats = {
   lines: number;
   chars: number;
@@ -14,6 +30,9 @@ export type RoleSnapshotStats = {
   interactive: number;
 };
 
+/**
+ * Role snapshot options
+ */
 export type RoleSnapshotOptions = {
   /** Only include interactive elements (buttons, links, inputs, etc.). */
   interactive?: boolean;
@@ -23,75 +42,93 @@ export type RoleSnapshotOptions = {
   compact?: boolean;
 };
 
+/**
+ * Interactive roles that should have refs
+ */
 const INTERACTIVE_ROLES = new Set([
-  "button",
-  "link",
-  "textbox",
-  "checkbox",
-  "radio",
-  "combobox",
-  "listbox",
-  "menuitem",
-  "menuitemcheckbox",
-  "menuitemradio",
-  "option",
-  "searchbox",
-  "slider",
-  "spinbutton",
-  "switch",
-  "tab",
-  "treeitem",
+  'button',
+  'link',
+  'textbox',
+  'checkbox',
+  'radio',
+  'combobox',
+  'listbox',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'searchbox',
+  'slider',
+  'spinbutton',
+  'switch',
+  'tab',
+  'treeitem',
 ]);
 
+/**
+ * Content roles that may have refs when named
+ */
 const CONTENT_ROLES = new Set([
-  "heading",
-  "cell",
-  "gridcell",
-  "columnheader",
-  "rowheader",
-  "listitem",
-  "article",
-  "region",
-  "main",
-  "navigation",
+  'heading',
+  'cell',
+  'gridcell',
+  'columnheader',
+  'rowheader',
+  'listitem',
+  'article',
+  'region',
+  'main',
+  'navigation',
 ]);
 
+/**
+ * Structural roles that can be pruned in compact mode
+ */
 const STRUCTURAL_ROLES = new Set([
-  "generic",
-  "group",
-  "list",
-  "table",
-  "row",
-  "rowgroup",
-  "grid",
-  "treegrid",
-  "menu",
-  "menubar",
-  "toolbar",
-  "tablist",
-  "tree",
-  "directory",
-  "document",
-  "application",
-  "presentation",
-  "none",
+  'generic',
+  'group',
+  'list',
+  'table',
+  'row',
+  'rowgroup',
+  'grid',
+  'treegrid',
+  'menu',
+  'menubar',
+  'toolbar',
+  'tablist',
+  'tree',
+  'directory',
+  'document',
+  'application',
+  'presentation',
+  'none',
 ]);
 
+/**
+ * Get statistics for a role snapshot
+ */
 export function getRoleSnapshotStats(snapshot: string, refs: RoleRefMap): RoleSnapshotStats {
   const interactive = Object.values(refs).filter((r) => INTERACTIVE_ROLES.has(r.role)).length;
   return {
-    lines: snapshot.split("\n").length,
+    lines: snapshot.split('\n').length,
     chars: snapshot.length,
     refs: Object.keys(refs).length,
     interactive,
   };
 }
 
+/**
+ * Get indentation level of a line (2 spaces = 1 level)
+ */
 function getIndentLevel(line: string): number {
   const match = line.match(/^(\s*)/);
   return match ? Math.floor(match[1].length / 2) : 0;
 }
 
+/**
+ * Tracker for role names to handle duplicates
+ */
 type RoleNameTracker = {
   counts: Map<string, number>;
   refsByKey: Map<string, string[]>;
@@ -101,14 +138,18 @@ type RoleNameTracker = {
   getDuplicateKeys: () => Set<string>;
 };
 
+/**
+ * Create a role name tracker
+ */
 function createRoleNameTracker(): RoleNameTracker {
   const counts = new Map<string, number>();
   const refsByKey = new Map<string, string[]>();
+
   return {
     counts,
     refsByKey,
     getKey(role: string, name?: string) {
-      return `${role}:${name ?? ""}`;
+      return `${role}:${name ?? ''}`;
     },
     getNextIndex(role: string, name?: string) {
       const key = this.getKey(role, name);
@@ -134,6 +175,9 @@ function createRoleNameTracker(): RoleNameTracker {
   };
 }
 
+/**
+ * Remove nth property from non-duplicate refs
+ */
 function removeNthFromNonDuplicates(refs: RoleRefMap, tracker: RoleNameTracker) {
   const duplicates = tracker.getDuplicateKeys();
   for (const [ref, data] of Object.entries(refs)) {
@@ -144,17 +188,20 @@ function removeNthFromNonDuplicates(refs: RoleRefMap, tracker: RoleNameTracker) 
   }
 }
 
+/**
+ * Compact tree by removing structural elements without refs
+ */
 function compactTree(tree: string) {
-  const lines = tree.split("\n");
+  const lines = tree.split('\n');
   const result: string[] = [];
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    if (line.includes("[ref=")) {
+    if (line.includes('[ref=')) {
       result.push(line);
       continue;
     }
-    if (line.includes(":") && !line.trimEnd().endsWith(":")) {
+    if (line.includes(':') && !line.trimEnd().endsWith(':')) {
       result.push(line);
       continue;
     }
@@ -162,11 +209,11 @@ function compactTree(tree: string) {
     const currentIndent = getIndentLevel(line);
     let hasRelevantChildren = false;
     for (let j = i + 1; j < lines.length; j += 1) {
-      const childIndent = getIndentLevel(lines[j]);
+      const childIndent = getIndentLevel(lines[j]!);
       if (childIndent <= currentIndent) {
         break;
       }
-      if (lines[j]?.includes("[ref=")) {
+      if (lines[j]?.includes('[ref=')) {
         hasRelevantChildren = true;
         break;
       }
@@ -176,9 +223,12 @@ function compactTree(tree: string) {
     }
   }
 
-  return result.join("\n");
+  return result.join('\n');
 }
 
+/**
+ * Process a single line of ARIA snapshot
+ */
 function processLine(
   line: string,
   refs: RoleRefMap,
@@ -197,7 +247,7 @@ function processLine(
   }
 
   const [, prefix, roleRaw, name, suffix] = match;
-  if (roleRaw.startsWith("/")) {
+  if (roleRaw.startsWith('/')) {
     return options.interactive ? null : line;
   }
 
@@ -241,24 +291,30 @@ function processLine(
   return enhanced;
 }
 
+/**
+ * Parse a role reference from various formats
+ */
 export function parseRoleRef(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) {
     return null;
   }
-  const normalized = trimmed.startsWith("@")
+  const normalized = trimmed.startsWith('@')
     ? trimmed.slice(1)
-    : trimmed.startsWith("ref=")
+    : trimmed.startsWith('ref=')
       ? trimmed.slice(4)
       : trimmed;
   return /^e\d+$/.test(normalized) ? normalized : null;
 }
 
+/**
+ * Build role snapshot from ARIA snapshot
+ */
 export function buildRoleSnapshotFromAriaSnapshot(
   ariaSnapshot: string,
   options: RoleSnapshotOptions = {},
 ): { snapshot: string; refs: RoleRefMap } {
-  const lines = ariaSnapshot.split("\n");
+  const lines = ariaSnapshot.split('\n');
   const refs: RoleRefMap = {};
   const tracker = createRoleNameTracker();
 
@@ -281,7 +337,7 @@ export function buildRoleSnapshotFromAriaSnapshot(
         continue;
       }
       const [, , roleRaw, name, suffix] = match;
-      if (roleRaw.startsWith("/")) {
+      if (roleRaw.startsWith('/')) {
         continue;
       }
 
@@ -307,7 +363,7 @@ export function buildRoleSnapshotFromAriaSnapshot(
       if (nth > 0) {
         enhanced += ` [nth=${nth}]`;
       }
-      if (suffix.includes("[")) {
+      if (suffix.includes('[')) {
         enhanced += suffix;
       }
       result.push(enhanced);
@@ -316,7 +372,7 @@ export function buildRoleSnapshotFromAriaSnapshot(
     removeNthFromNonDuplicates(refs, tracker);
 
     return {
-      snapshot: result.join("\n") || "(no interactive elements)",
+      snapshot: result.join('\n') || '(no interactive elements)',
       refs,
     };
   }
@@ -331,27 +387,30 @@ export function buildRoleSnapshotFromAriaSnapshot(
 
   removeNthFromNonDuplicates(refs, tracker);
 
-  const tree = result.join("\n") || "(empty)";
+  const tree = result.join('\n') || '(empty)';
   return {
     snapshot: options.compact ? compactTree(tree) : tree,
     refs,
   };
 }
 
+/**
+ * Parse AI snapshot ref from suffix
+ */
 function parseAiSnapshotRef(suffix: string): string | null {
   const match = suffix.match(/\[ref=(e\d+)\]/i);
   return match ? match[1] : null;
 }
 
 /**
- * Build a role snapshot from Playwright's AI snapshot output while preserving Playwright's own
- * aria-ref ids (e.g. ref=e13). This makes the refs self-resolving across calls.
+ * Build role snapshot from Playwright's AI snapshot output
+ * Preserves Playwright's own aria-ref ids (e.g. ref=e13)
  */
 export function buildRoleSnapshotFromAiSnapshot(
   aiSnapshot: string,
   options: RoleSnapshotOptions = {},
 ): { snapshot: string; refs: RoleRefMap } {
-  const lines = String(aiSnapshot ?? "").split("\n");
+  const lines = String(aiSnapshot ?? '').split('\n');
   const refs: RoleRefMap = {};
 
   if (options.interactive) {
@@ -366,7 +425,7 @@ export function buildRoleSnapshotFromAiSnapshot(
         continue;
       }
       const [, , roleRaw, name, suffix] = match;
-      if (roleRaw.startsWith("/")) {
+      if (roleRaw.startsWith('/')) {
         continue;
       }
       const role = roleRaw.toLowerCase();
@@ -378,10 +437,10 @@ export function buildRoleSnapshotFromAiSnapshot(
         continue;
       }
       refs[ref] = { role, ...(name ? { name } : {}) };
-      out.push(`- ${roleRaw}${name ? ` "${name}"` : ""}${suffix}`);
+      out.push(`- ${roleRaw}${name ? ` "${name}"` : ''}${suffix}`);
     }
     return {
-      snapshot: out.join("\n") || "(no interactive elements)",
+      snapshot: out.join('\n') || '(no interactive elements)',
       refs,
     };
   }
@@ -399,7 +458,7 @@ export function buildRoleSnapshotFromAiSnapshot(
       continue;
     }
     const [, , roleRaw, name, suffix] = match;
-    if (roleRaw.startsWith("/")) {
+    if (roleRaw.startsWith('/')) {
       out.push(line);
       continue;
     }
@@ -419,7 +478,7 @@ export function buildRoleSnapshotFromAiSnapshot(
     out.push(line);
   }
 
-  const tree = out.join("\n") || "(empty)";
+  const tree = out.join('\n') || '(empty)';
   return {
     snapshot: options.compact ? compactTree(tree) : tree,
     refs,

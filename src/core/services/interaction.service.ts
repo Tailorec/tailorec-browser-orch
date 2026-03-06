@@ -43,7 +43,7 @@ export type ClickAction = {
   ref: string;
   doubleClick?: boolean;
   button?: 'left' | 'right' | 'middle';
-  modifiers?: Array<'Alt' | 'Control' | 'Meta' | 'Shift'>;
+  modifiers?: Array<'Alt' | 'Control' | 'Meta' | 'Shift' | 'ControlOrMeta'>;
   timeoutMs?: number;
 };
 

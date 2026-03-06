@@ -15,9 +15,9 @@ const BaseActionSchema = z.object({
 const ClickActionSchema = BaseActionSchema.extend({
   kind: z.literal('click'),
   ref: z.string(),
-  doubleClick: z.boolean().optional().default(false),
+  doubleClick: z.boolean().default(false),
   button: z.enum(['left', 'right', 'middle']).optional(),
-  modifiers: z.array(z.enum(['Alt', 'Control', 'Meta', 'Shift'])).optional(),
+  modifiers: z.array(z.enum(['Alt', 'Control', 'Meta', 'Shift', 'ControlOrMeta'])).optional(),
 });
 
 /**
@@ -27,8 +27,8 @@ const TypeActionSchema = BaseActionSchema.extend({
   kind: z.literal('type'),
   ref: z.string(),
   text: z.string(),
-  submit: z.boolean().optional().default(false),
-  slowly: z.boolean().optional().default(false),
+  submit: z.boolean().default(false),
+  slowly: z.boolean().default(false),
 });
 
 /**
@@ -285,14 +285,14 @@ export class ActionValidator {
    * Validate click action
    */
   validateClick(payload: unknown): ClickActionDTO {
-    return this.validate(payload, ClickActionSchema);
+    return this.validate(payload, ClickActionSchema) as ClickActionDTO;
   }
 
   /**
    * Validate type action
    */
   validateType(payload: unknown): TypeActionDTO {
-    return this.validate(payload, TypeActionSchema);
+    return this.validate(payload, TypeActionSchema) as TypeActionDTO;
   }
 
   /**

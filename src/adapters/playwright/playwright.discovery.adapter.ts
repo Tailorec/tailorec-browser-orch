@@ -19,7 +19,7 @@ export type DropdownOption = {
 export type BlockerInfo = {
   type: 'modal' | 'overlay' | 'popup' | 'cookie-banner';
   selector: string;
-  closeSelector?: string;
+  closeSelector?: string | null;
   suggestedStrategy: 'click-close' | 'press-escape' | 'click-outside';
 };
 

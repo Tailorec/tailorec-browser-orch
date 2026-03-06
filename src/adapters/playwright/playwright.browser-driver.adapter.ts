@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Page } from 'playwright-core';
+import type { Browser, BrowserContext, Page, Locator } from 'playwright-core';
 import { chromium } from 'playwright-core';
 import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
 import { getHeadersWithAuth, fetchJson } from '../utils/cdp.utils.js';
@@ -77,7 +77,8 @@ export class PlaywrightBrowserDriverAdapter {
     
     if (this.connecting) {
       log.debug('awaiting in-flight cdp connection', { cdp_url: normalized });
-      return await this.connecting;
+      const connected = await this.connecting;
+      return connected.browser;
     }
 
     const connectWithRetry = async (): Promise<{ browser: Browser; cdpUrl: string }> => {
@@ -125,11 +126,13 @@ export class PlaywrightBrowserDriverAdapter {
       throw new Error(lastErr ? `CDP connect failed: ${String(lastErr)}` : 'CDP connect failed');
     };
 
-    this.connecting = connectWithRetry().finally(() => {
+    const promise = connectWithRetry().finally(() => {
       this.connecting = null;
     });
+    this.connecting = promise;
 
-    return (await this.connecting).browser;
+    const result = await promise;
+    return result.browser;
   }
 
   /**
@@ -240,6 +243,20 @@ export class PlaywrightBrowserDriverAdapter {
     }
     
     return found;
+  }
+
+  /**
+   * Create locator from reference.
+   */
+  refLocator(page: Page, ref: string): Locator {
+    const normalized = ref.startsWith('@')
+      ? ref.slice(1)
+      : ref.startsWith('ref=')
+        ? ref.slice(4)
+        : ref;
+
+    // Handle aria-ref locator as the primary mechanism
+    return page.locator(`[aria-ref="${normalized}"]`);
   }
 
   private normalizeCdpUrl(raw: string): string {

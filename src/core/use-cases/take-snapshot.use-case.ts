@@ -69,6 +69,16 @@ export type TakeSnapshotResponse = {
   ok: boolean;
 
   /**
+   * Target ID after snapshot
+   */
+  targetId?: string;
+
+  /**
+   * URL after snapshot
+   */
+  url?: string;
+
+  /**
    * Snapshot string (for ai/role types)
    */
   snapshot?: string;
@@ -131,7 +141,7 @@ export class TakeSnapshotUseCase {
       });
 
       // Get page from session
-      const page = await this.sessionService.getPage(request.targetId, request.cdpUrl);
+      const page = await this.sessionService.getPage(request.targetId, request.cdpUrl ?? '');
 
       // Capture snapshot based on type
       const snapshotType = request.type ?? 'ai';
@@ -149,6 +159,10 @@ export class TakeSnapshotUseCase {
           result = await this.captureAiSnapshot(page, request.targetId, request.options);
           break;
       }
+
+      // Populate targetId and url if missing
+      if (!result.targetId) result.targetId = request.targetId;
+      if (!result.url) result.url = page.url();
 
       // Publish completion event
       this.publishEvent('SNAPSHOT_COMPLETED', {

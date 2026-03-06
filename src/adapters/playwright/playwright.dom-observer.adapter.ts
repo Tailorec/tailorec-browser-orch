@@ -1,8 +1,14 @@
-import { type Page } from "playwright-core";
-import { ensurePageState, refLocator, restoreRoleRefsForTarget } from "./pw-session.js";
-import { createSubsystemLogger } from "../adapters/logging/pino-logger.adapter.js";
+/**
+ * Playwright DOM Observer Adapter
+ * 
+ * Provides DOM observation capabilities for detecting page changes.
+ * Extracted from: src/browser/pw-tools-core.dom-observer.ts
+ */
 
-const log = createSubsystemLogger("pw-dom-observer");
+import type { Page, ElementHandle } from 'playwright-core';
+import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+
+const log = createSubsystemLogger('pw-dom-observer');
 
 /**
  * Incremental element detected by the MutationObserver.
@@ -39,6 +45,15 @@ export type DomDelta = {
   urlChanged: boolean;
   previousUrl: string;
   currentUrl: string;
+  observationDurationMs: number;
+};
+
+/**
+ * Lightweight snapshot of newly-discovered elements after a DOM mutation.
+ */
+export type IncrementalSnapshot = {
+  newElements: IncrementalElement[];
+  removedCount: number;
   observationDurationMs: number;
 };
 
@@ -82,7 +97,7 @@ const OBSERVER_JS = `
               ref: node.getAttribute?.('aria-ref') || null,
             });
           }
-          // Track attribute changes (value, class, disabled, aria-invalid, etc.)
+          // Track attribute changes
           if (mutation.type === 'attributes') {
             const target = mutation.target;
             if (target.nodeType !== Node.ELEMENT_NODE) continue;
@@ -136,17 +151,11 @@ const OBSERVER_JS = `
 
     _processAddedNode(node) {
       const rect = node.getBoundingClientRect();
-      // Even if rect is 0, we might want it if it's a script/style/etc, 
-      // but for UI deltas we usually want visible elements.
-      // However, some elements might be added and then animated in.
-      // Skyvern filters by width/height > 0.
-      
       const isVisible = rect.width > 0 && rect.height > 0;
       if (isVisible) {
           this.added.push(this._serializeElement(node, rect));
       }
 
-      // Also process children (for subtree additions like entire form sections)
       for (const child of node.querySelectorAll('*')) {
         const childRect = child.getBoundingClientRect();
         if (childRect.width > 0 && childRect.height > 0) {
@@ -193,133 +202,159 @@ const OBSERVER_JS = `
 })();
 `;
 
-export async function snapshotDeltaViaPlaywright(opts: {
-  page: Page,
-  action: "start" | "stop";
+/**
+ * JS for lightweight DOM observer (dropdown discovery).
+ */
+const LIGHTWEIGHT_OBSERVER_JS = `
+(function() {
+  window.__skyvernIncrementalNodes = [];
+  window.__skyvernStartTime = Date.now();
+
+  if (window.__skyvernObserver) {
+    window.__skyvernObserver.disconnect();
+  }
+
+  window.__skyvernObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        const el = node;
+
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
+        let current = el;
+        while (current) {
+          const rect = current.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0;
+          if (isVisible) {
+            const styles = window.getComputedStyle(current);
+            window.__skyvernIncrementalNodes.push({
+              tagName: current.tagName.toLowerCase(),
+              role: current.getAttribute("role"),
+              text: (current.textContent || "").trim().slice(0, 200),
+              ariaLabel: current.getAttribute("aria-label"),
+              ariaSelected: current.getAttribute("aria-selected"),
+              dataValue: current.getAttribute("data-value") || current.getAttribute("value"),
+              className: current.className?.toString?.()?.slice(0, 100) || "",
+              rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+              isInteractable:
+                current.tagName === "BUTTON" ||
+                current.tagName === "A" ||
+                current.tagName === "INPUT" ||
+                current.tagName === "OPTION" ||
+                current.getAttribute("role") === "option" ||
+                current.getAttribute("role") === "menuitem" ||
+                current.getAttribute("role") === "listitem" ||
+                current.getAttribute("tabindex") !== null ||
+                current.onclick !== null ||
+                styles.cursor === "pointer",
+            });
+          }
+          current = walker.nextNode();
+        }
+      }
+    }
+  });
+})();
+`;
+
+/**
+ * Start DOM delta observer to track page changes.
+ * 
+ * @param page - Playwright page instance
+ * @param anchorRef - Optional reference to anchor element
+ * @param cdpUrl - CDP URL for connection
+ * @param targetId - Optional target ID
+ * @returns Object with observing: true if started, or DomDelta if stopped
+ */
+export async function startDomDeltaObserver(opts: {
+  page: Page;
   anchorRef?: string;
   cdpUrl: string;
   targetId?: string;
-}): Promise<DomDelta | { observing: true }> {
-  if (opts.action === "start") {
-    await opts.page.evaluate(OBSERVER_JS);
-    
-    let anchorElement = null;
-    if (opts.anchorRef) {
-      restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page: opts.page });
-      try {
-        anchorElement = await refLocator(opts.page, opts.anchorRef).elementHandle();
-      } catch (e) {
-        // Fallback to body if anchor not found
-      }
-    }
-    
-    await opts.page.evaluate(
-      (anchor) => {
-        (window as any).__skyvernDeltaObserver.start(anchor);
-      },
-      anchorElement
-    );
-    return { observing: true };
-  }
+  refLocator: (page: Page, ref: string) => any;
+  restoreRoleRefs: (opts: { cdpUrl: string; targetId?: string; page: Page }) => void;
+}): Promise<{ observing: true }> {
+  const { page, anchorRef, refLocator, restoreRoleRefs } = opts;
+  
+  log.debug('startDomDeltaObserver started', {
+    cdp_url: opts.cdpUrl,
+    target_id: opts.targetId,
+    anchor_ref: anchorRef,
+  });
 
-  // action === "stop"
-  const delta = await opts.page.evaluate(() => {
+  await page.evaluate(OBSERVER_JS);
+  
+  let anchorElement: ElementHandle | null = null;
+  if (anchorRef) {
+    restoreRoleRefs({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+    try {
+      anchorElement = await refLocator(page, anchorRef).elementHandle();
+    } catch {
+      log.warn('anchor element not found, using body', { anchorRef });
+    }
+  }
+  
+  await page.evaluate(
+    (anchor) => {
+      (window as any).__skyvernDeltaObserver.start(anchor);
+    },
+    anchorElement
+  );
+  
+  return { observing: true };
+}
+
+/**
+ * Stop DOM delta observer and return detected changes.
+ * 
+ * @param page - Playwright page instance
+ * @returns DomDelta with detected changes
+ */
+export async function stopDomDeltaObserver(page: Page): Promise<DomDelta> {
+  log.debug('stopDomDeltaObserver');
+  
+  const delta = await page.evaluate(() => {
     const observer = (window as any).__skyvernDeltaObserver;
     if (!observer) return null;
     return observer.stop();
   });
 
   if (!delta) {
-    throw new Error("Delta observer not started or lost due to navigation/refresh");
+    throw new Error('Delta observer not started or lost due to navigation/refresh');
   }
 
   return delta as DomDelta;
 }
 
-// ─── Lightweight Dropdown Observer (Plan 01) ──────────────────────────
-
 /**
- * Lightweight snapshot of newly-discovered elements after a DOM mutation.
- * Used by discoverDropdownOptionsViaPlaywright.
- */
-export type IncrementalSnapshot = {
-  newElements: IncrementalElement[];
-  removedCount: number;
-  observationDurationMs: number;
-};
-
-/**
- * Start a lightweight DOM observer focused on capturing new elements
- * after triggering a dropdown. Simpler than the full delta observer —
- * only tracks added nodes (no removed/modified).
- *
- * Mirrors Skyvern's startGlobalIncrementalObserver (domUtils.js line 2778)
- * but scoped to childList only for dropdown discovery.
+ * Start lightweight DOM observer for dropdown discovery.
+ * 
+ * @param page - Playwright page instance
+ * @param anchorSelector - Optional CSS selector for anchor element
  */
 export async function startDomObserver(page: Page, anchorSelector?: string): Promise<void> {
-  log.debug("starting DOM observer", { anchorSelector });
+  log.debug('starting DOM observer', { anchorSelector });
+  
   await page.evaluate((selector: string | undefined) => {
+    // Inject the observer JS
+    eval(LIGHTWEIGHT_OBSERVER_JS);
+    
     const anchor = selector ? document.querySelector(selector) : document.body;
     if (!anchor) return;
-
-    (window as any).__skyvernIncrementalNodes = [];
-    (window as any).__skyvernStartTime = Date.now();
-
-    if ((window as any).__skyvernObserver) {
-      (window as any).__skyvernObserver.disconnect();
-    }
-
-    (window as any).__skyvernObserver = new MutationObserver((mutations: MutationRecord[]) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          const el = node as HTMLElement;
-
-          // Walk the subtree of the added node
-          const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
-          let current: Element | null = el;
-          while (current) {
-            const rect = current.getBoundingClientRect();
-            const isVisible = rect.width > 0 && rect.height > 0;
-            if (isVisible) {
-              const styles = window.getComputedStyle(current);
-              (window as any).__skyvernIncrementalNodes.push({
-                tagName: current.tagName.toLowerCase(),
-                role: current.getAttribute("role"),
-                text: (current.textContent || "").trim().slice(0, 200),
-                ariaLabel: current.getAttribute("aria-label"),
-                ariaSelected: current.getAttribute("aria-selected"),
-                dataValue: current.getAttribute("data-value") || current.getAttribute("value"),
-                className: current.className?.toString?.()?.slice(0, 100) || "",
-                rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                isInteractable:
-                  current.tagName === "BUTTON" ||
-                  current.tagName === "A" ||
-                  current.tagName === "INPUT" ||
-                  current.tagName === "OPTION" ||
-                  current.getAttribute("role") === "option" ||
-                  current.getAttribute("role") === "menuitem" ||
-                  current.getAttribute("role") === "listitem" ||
-                  current.getAttribute("tabindex") !== null ||
-                  (current as any).onclick !== null ||
-                  styles.cursor === "pointer",
-              });
-            }
-            current = walker.nextNode() as Element | null;
-          }
-        }
-      }
-    });
 
     (window as any).__skyvernObserver.observe(anchor, { childList: true, subtree: true });
   }, anchorSelector);
 }
 
 /**
- * Stop the lightweight observer and return discovered elements with assigned refs.
+ * Stop lightweight DOM observer and return discovered elements.
+ * 
+ * @param page - Playwright page instance
+ * @returns IncrementalSnapshot with discovered elements
  */
 export async function stopDomObserver(page: Page): Promise<IncrementalSnapshot> {
-  log.debug("stopping DOM observer");
+  log.debug('stopping DOM observer');
+  
   const result = await page.evaluate(() => {
     if ((window as any).__skyvernObserver) {
       (window as any).__skyvernObserver.disconnect();
@@ -344,7 +379,7 @@ export async function stopDomObserver(page: Page): Promise<IncrementalSnapshot> 
       tagName: node.tagName,
       role: node.role,
       text: node.text,
-      className: node.className || "",
+      className: node.className || '',
       ariaInvalid: null,
       isError: false,
       ariaLabel: node.ariaLabel,
@@ -363,10 +398,17 @@ export async function stopDomObserver(page: Page): Promise<IncrementalSnapshot> 
 }
 
 /**
- * Injects aria-ref attributes into discovered elements so refLocator() can find them.
- * Uses elementFromPoint + text matching to re-identify nodes.
+ * Inject aria-ref attributes into discovered elements.
+ * 
+ * @param page - Playwright page instance
+ * @param elements - Elements to inject refs into
  */
-export async function injectIncrementalRefs(page: Page, elements: IncrementalElement[]): Promise<void> {
+export async function injectIncrementalRefs(
+  page: Page,
+  elements: IncrementalElement[],
+): Promise<void> {
+  log.debug('injectIncrementalRefs', { count: elements.length });
+  
   await page.evaluate((els) => {
     for (const el of els) {
       if (!el.rect) continue;
@@ -378,10 +420,10 @@ export async function injectIncrementalRefs(page: Page, elements: IncrementalEle
         while (target && target !== document.body) {
           if (
             target.tagName.toLowerCase() === el.tagName &&
-            (target.textContent || "").trim().slice(0, 200) === el.text
+            (target.textContent || '').trim().slice(0, 200) === el.text
           ) {
             if (el.ref) {
-              target.setAttribute("aria-ref", el.ref);
+              target.setAttribute('aria-ref', el.ref);
             }
             break;
           }
@@ -390,4 +432,35 @@ export async function injectIncrementalRefs(page: Page, elements: IncrementalEle
       }
     }
   }, elements);
+}
+
+/**
+ * Discover dropdown options using DOM observer.
+ * 
+ * @param page - Playwright page instance
+ * @param triggerFn - Function to trigger dropdown
+ * @param timeoutMs - Timeout for dropdown to appear
+ * @returns Discovered dropdown options
+ */
+export async function discoverDropdownOptions(
+  page: Page,
+  triggerFn: () => Promise<void>,
+  timeoutMs: number = 3000,
+): Promise<IncrementalElement[]> {
+  log.debug('discoverDropdownOptions started');
+  
+  await startDomObserver(page);
+  
+  await triggerFn();
+  
+  await page.waitForTimeout(timeoutMs);
+  
+  const snapshot = await stopDomObserver(page);
+  
+  log.debug('discoverDropdownOptions completed', {
+    newElements: snapshot.newElements.length,
+    duration_ms: snapshot.observationDurationMs,
+  });
+  
+  return snapshot.newElements;
 }

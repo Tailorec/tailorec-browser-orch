@@ -168,7 +168,7 @@ export function createRelayAuthMiddleware(expectedToken?: string): RequestHandle
  */
 export type WebSocketUpgradeHandler = (
   req: import('http').IncomingMessage,
-  socket: import('net').Duplex,
+  socket: import('node:stream').Duplex,
   head: Buffer,
 ) => void;
 

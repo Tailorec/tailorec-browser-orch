@@ -56,6 +56,28 @@ export type ExecuteActionResponse = {
   result?: unknown;
 
   /**
+   * Form fill results (for fill actions)
+   */
+  results?: Array<{
+    ref: string;
+    requestedValue: string;
+    actualValue: string;
+    matched: boolean;
+    strategy: string;
+    warning?: string;
+  }>;
+
+  /**
+   * Whether all fields were matched (for fill actions)
+   */
+  allMatched?: boolean;
+
+  /**
+   * Whether some fields were mismatched (for fill actions)
+   */
+  mismatched?: boolean;
+
+  /**
    * Error message if action failed
    */
   error?: string;
@@ -89,7 +111,7 @@ export class ExecuteActionUseCase {
       });
 
       // Get page from session
-      const page = await this.sessionService.getPage(request.targetId, request.cdpUrl);
+      const page = await this.sessionService.getPage(request.targetId, request.cdpUrl ?? '');
 
       // Restore role refs for element lookup
       if (request.targetId) {
@@ -97,7 +119,7 @@ export class ExecuteActionUseCase {
       }
 
       // Get refs from session for element lookup
-      const session = await this.sessionService.getSession(request.targetId, request.cdpUrl);
+      const session = await this.sessionService.getSession(request.targetId, request.cdpUrl ?? '');
       const refs = session.getRoleRefs();
 
       // Handle special action types that need discovery service
@@ -120,12 +142,25 @@ export class ExecuteActionUseCase {
         url: result.url,
       });
 
-      return {
+      // Populate response
+      const response: ExecuteActionResponse = {
         ok: result.ok,
         targetId: result.targetId,
         url: result.url,
         result: result.result,
       };
+
+      // Handle fill results
+      if (request.action.kind === 'fill' && result.result && typeof result.result === 'object') {
+        const fillData = result.result as { results: any[] };
+        if (Array.isArray(fillData.results)) {
+          response.results = fillData.results;
+          response.allMatched = fillData.results.every((r) => r.matched);
+          response.mismatched = fillData.results.some((r) => !r.matched);
+        }
+      }
+
+      return response;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
