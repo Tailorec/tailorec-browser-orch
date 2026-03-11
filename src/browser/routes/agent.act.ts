@@ -749,9 +749,11 @@ export function registerBrowserAgentActRoutes(
     }
     const body = readBody(req);
     const targetId = toStringOrEmpty(body.targetId) || undefined;
+    const quality = toNumber(body.quality);
+    const requestedType = toStringOrEmpty(body.type);
     let type: "png" | "jpeg";
     try {
-      type = parseScreenshotType(body.type);
+      type = requestedType || quality !== undefined && quality !== null ? parseScreenshotType(requestedType || "jpeg") : parseScreenshotType(body.type);
     } catch (err) {
       return jsonError(res, 400, err);
     }
@@ -765,6 +767,14 @@ export function registerBrowserAgentActRoutes(
     if ((ref || element) && fullPage) {
       return jsonError(res, 400, "fullPage is only allowed for full-page screenshots");
     }
+    if (quality !== undefined && quality !== null) {
+      if (type !== "jpeg") {
+        return jsonError(res, 400, "quality is only allowed for jpeg screenshots");
+      }
+      if (!Number.isInteger(quality) || quality < 0 || quality > 100) {
+        return jsonError(res, 400, "quality must be an integer between 0 and 100");
+      }
+    }
 
     try {
       const tab = await profileCtx.ensureTabAvailable(targetId);
@@ -776,6 +786,7 @@ export function registerBrowserAgentActRoutes(
         element,
         fullPage: fullPage === true,
         type,
+        quality: quality ?? undefined,
       });
       res.json({
         ok: true,
