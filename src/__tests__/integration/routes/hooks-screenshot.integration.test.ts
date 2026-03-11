@@ -546,6 +546,12 @@ describe("integration: /hooks and /screenshot routes", () => {
       });
 
       expect(res.status).toBe(200);
+      expect(takeScreenshotViaPlaywright).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "jpeg",
+          quality: 80,
+        })
+      );
     });
 
     it("screenshot with format png", async () => {
@@ -651,14 +657,12 @@ describe("integration: /hooks and /screenshot routes", () => {
     });
 
     it("error: invalid quality", async () => {
-      takeScreenshotViaPlaywright.mockRejectedValue(new Error("Invalid quality"));
-
       const res = await request(makeApp()).post("/screenshot").send({
         quality: 150,
       });
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Invalid quality");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("quality");
     });
 
     it("error: browser unavailable", async () => {
