@@ -95,6 +95,10 @@ export function loadConfig(): { browser: BrowserConfig } {
     process.env.BROWSER_HEADLESS ?? process.env.HEADLESS,
     DEFAULT_CONFIG.headless,
   );
+  const noSandbox = parseBooleanEnv(
+    process.env.BROWSER_NO_SANDBOX ?? process.env.NO_SANDBOX,
+    false,
+  );
   const controlPort = Number(process.env.PORT) || 4000;
   const viewport = getConfiguredViewport();
   const loaded = {
@@ -102,12 +106,14 @@ export function loadConfig(): { browser: BrowserConfig } {
       ...DEFAULT_CONFIG,
       controlPort,
       headless,
+      noSandbox,
       viewport,
     }
   };
   log.info("browser config loaded", {
     control_port: loaded.browser.controlPort,
     headless: loaded.browser.headless,
+    no_sandbox: loaded.browser.noSandbox ?? false,
     evaluate_enabled: loaded.browser.evaluateEnabled,
     viewport: `${loaded.browser.viewport.width}x${loaded.browser.viewport.height}`,
     profile_count: Object.keys(loaded.browser.profiles).length,
