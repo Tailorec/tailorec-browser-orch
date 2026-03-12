@@ -8,6 +8,51 @@ export type BrowserExecutable = {
   kind: "chrome" | "chromium" | "edge" | "brave";
 };
 
+function firstExisting(paths: string[]): string | null {
+  for (const p of paths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function findPlaywrightChromiumLinux(): BrowserExecutable | null {
+  const explicitExecutable = process.env.CHROME_EXECUTABLE_PATH?.trim();
+  if (explicitExecutable && fs.existsSync(explicitExecutable)) {
+    return { path: explicitExecutable, kind: "chromium" };
+  }
+
+  const browserRoots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    "/ms-playwright",
+    path.join(os.homedir(), ".cache", "ms-playwright"),
+  ].filter((value): value is string => Boolean(value && value.trim()));
+
+  for (const root of browserRoots) {
+    try {
+      const entries = fs.readdirSync(root, { withFileTypes: true });
+      const chromiumDirs = entries
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith("chromium-"))
+        .map((entry) => entry.name)
+        .sort()
+        .reverse();
+
+      for (const dir of chromiumDirs) {
+        const candidate = firstExisting([
+          path.join(root, dir, "chrome-linux", "chrome"),
+          path.join(root, dir, "chrome-linux", "headless_shell"),
+        ]);
+        if (candidate) {
+          return { path: candidate, kind: "chromium" };
+        }
+      }
+    } catch {
+      // ignore missing or unreadable roots
+    }
+  }
+
+  return null;
+}
+
 export function findChromeExecutableLinux(): BrowserExecutable | null {
   const paths = [
     "/usr/bin/google-chrome",
@@ -15,10 +60,11 @@ export function findChromeExecutableLinux(): BrowserExecutable | null {
     "/usr/bin/chromium-browser",
     "/snap/bin/chromium",
   ];
-  for (const p of paths) {
-    if (fs.existsSync(p)) return { path: p, kind: "chrome" };
+  const systemBrowser = firstExisting(paths);
+  if (systemBrowser) {
+    return { path: systemBrowser, kind: "chrome" };
   }
-  return null;
+  return findPlaywrightChromiumLinux();
 }
 
 export function findChromeExecutableMac(): BrowserExecutable | null {
@@ -28,8 +74,9 @@ export function findChromeExecutableMac(): BrowserExecutable | null {
     "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
   ];
-  for (const p of paths) {
-    if (fs.existsSync(p)) return { path: p, kind: "chrome" };
+  const browser = firstExisting(paths);
+  if (browser) {
+    return { path: browser, kind: "chrome" };
   }
   return null;
 }
