@@ -39,7 +39,9 @@ function findPlaywrightChromiumLinux(): BrowserExecutable | null {
       for (const dir of chromiumDirs) {
         const candidate = firstExisting([
           path.join(root, dir, "chrome-linux", "chrome"),
+          path.join(root, dir, "chrome-linux64", "chrome"),
           path.join(root, dir, "chrome-linux", "headless_shell"),
+          path.join(root, dir, "chrome-linux64", "headless_shell"),
         ]);
         if (candidate) {
           return { path: candidate, kind: "chromium" };
