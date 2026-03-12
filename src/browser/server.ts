@@ -65,10 +65,10 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
 
   const port = resolved.controlPort;
   const server = await new Promise<Server>((resolve, reject) => {
-    const s = app.listen(port, "127.0.0.1", () => resolve(s));
+    const s = app.listen(port, "0.0.0.0", () => resolve(s));
     s.once("error", reject);
   }).catch((err) => {
-    logServer.error(`browser server failed to bind 127.0.0.1:${port}: ${String(err)}`);
+    logServer.error(`browser server failed to bind 0.0.0.0:${port}: ${String(err)}`);
     return null;
   });
 
@@ -85,7 +85,7 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
 
   installControlLiveWebSocketServer(server, ctx);
 
-  logServer.info(`Browser control listening on http://127.0.0.1:${port}/`);
+  logServer.info(`Browser control listening on http://0.0.0.0:${port}/`);
   return state;
 }
 
