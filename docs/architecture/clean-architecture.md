@@ -314,9 +314,10 @@ export class ExecuteActionUseCase {
 
 Merging separately developed worktrees creates type mismatches that need resolution.
 
-### Dual Code Paths
+### Runtime Composition
 
-Legacy code (`src/browser/`) coexists with new architecture during migration.
+The runtime now starts from `src/main.ts` and composes only the clean-architecture layers:
+`api`, `adapters`, `core`, `config`, `container`, and `shared`.
 
 ### Test Migration
 

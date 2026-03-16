@@ -1,223 +1,182 @@
 import type { Request, Response } from 'express';
+import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.use-case.js';
+import type { BrowserRouteContext } from '../context/browser.context.js';
+import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
+import { SessionService } from '../../core/services/session.service.js';
+import { DiscoveryService } from '../../core/services/discovery.service.js';
+import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller-advanced');
 
-/**
- * Action controller - Advanced Actions
- * Handles HTTP requests for advanced actions (query_state, scrollIntoView, evaluate, close, dropdown, blocker)
- * These actions are not yet implemented in Worktree A
- */
 export class AdvancedActionController {
-  constructor() {}
+  private readonly validator = new ActionValidator();
 
-  /**
-   * Handle POST /act/query_state
-   * Query element state(s)
-   */
+  constructor(
+    private executeActionUseCase: ExecuteActionUseCase,
+    private sessionService: SessionService,
+    private discoveryService: DiscoveryService,
+    private browserContext: BrowserRouteContext,
+    private evaluateEnabled: boolean,
+  ) {}
+
   async handleQueryState(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('query_state request started', { 
-      ref: body.ref,
-      refs: body.refs?.length || 0,
-    });
-
     try {
-      // Note: Query state use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Query state not yet implemented',
-      });
+      const dto = this.validator.validateQueryState(req.body || {});
+      const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
 
-      log.info('query_state request completed', {
-        duration_ms: Date.now() - started,
-      });
+      if (dto.refs?.length) {
+        const states = await Promise.all(
+          dto.refs.map(async (ref) => this.discoveryService.queryElementState(page, ref)),
+        );
+        res.json({ ok: true, targetId: tab.targetId, states });
+        return;
+      }
+
+      if (!dto.ref) {
+        sendLegacyError(res, 400, 'ref or refs is required');
+        return;
+      }
+
+      const state = await this.discoveryService.queryElementState(page, dto.ref);
+      res.json({ ok: true, targetId: tab.targetId, state });
+      log.debug('query_state completed', { profile: profileCtx.profile.name, target_id: tab.targetId });
     } catch (error) {
-      log.exception('query_state request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Query state failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /act/scrollIntoView
-   * Scroll element into view
-   */
   async handleScrollIntoView(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('scrollIntoView request started', { ref: body.ref });
-
-    try {
-      // Note: ScrollIntoView use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'ScrollIntoView not yet implemented',
-      });
-
-      log.info('scrollIntoView request completed', {
-        duration_ms: Date.now() - started,
-      });
-    } catch (error) {
-      log.exception('scrollIntoView request failed', error);
-      throw error;
-    }
+    const dto = this.validator.validateScrollIntoView(req.body || {});
+    await this.execute(req, res, dto.targetId, {
+      kind: 'scrollIntoView',
+      ref: dto.ref,
+      timeoutMs: dto.timeoutMs,
+    });
   }
 
-  /**
-   * Handle POST /act/evaluate
-   * Evaluate JavaScript
-   */
   async handleEvaluate(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('evaluate request started', { fn: body.fn?.substring(0, 50) });
-
     try {
-      // Note: Evaluate use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Evaluate not yet implemented',
-      });
+      if (!this.evaluateEnabled) {
+        sendLegacyError(
+          res,
+          403,
+          'act:evaluate is disabled by config (browser.evaluateEnabled=false).\nDocs: /gateway/configuration#browser-openclaw-managed-browser',
+        );
+        return;
+      }
 
-      log.info('evaluate request completed', {
-        duration_ms: Date.now() - started,
-      });
+      const dto = this.validator.validateEvaluate(req.body || {});
+      await this.execute(req, res, dto.targetId, {
+        kind: 'evaluate',
+        fn: dto.fn,
+        ref: dto.ref,
+      }, true);
     } catch (error) {
-      log.exception('evaluate request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Evaluate failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /act/close
-   * Close page/tab
-   */
   async handleClose(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    
-    log.info('close request started');
-
-    try {
-      // Note: Close use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Close not yet implemented',
-      });
-
-      log.info('close request completed', {
-        duration_ms: Date.now() - started,
-      });
-    } catch (error) {
-      log.exception('close request failed', error);
-      throw error;
-    }
+    await this.execute(req, res, (req.body || {}).targetId, { kind: 'close' });
   }
 
-  /**
-   * Handle POST /act/discover_dropdown
-   * Discover dropdown options
-   */
   async handleDiscoverDropdown(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('discover_dropdown request started', { ref: body.ref });
-
     try {
-      // Note: DiscoverDropdown use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'DiscoverDropdown not yet implemented',
-      });
-
-      log.info('discover_dropdown request completed', {
-        duration_ms: Date.now() - started,
-      });
+      const dto = this.validator.validateDiscoverDropdown(req.body || {});
+      const { tab, page } = await this.resolvePage(req, dto.targetId);
+      const result = await this.discoveryService.discoverDropdownOptions(
+        page,
+        dto.ref,
+        dto.searchText,
+        dto.timeoutMs,
+      );
+      res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
-      log.exception('discover_dropdown request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Discover dropdown failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /act/close_dropdown
-   * Close dropdown
-   */
   async handleCloseDropdown(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('close_dropdown request started', { ref: body.ref });
-
     try {
-      // Note: CloseDropdown use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'CloseDropdown not yet implemented',
-      });
-
-      log.info('close_dropdown request completed', {
-        duration_ms: Date.now() - started,
-      });
+      const dto = this.validator.validateCloseDropdown(req.body || {});
+      const { tab, page } = await this.resolvePage(req, dto.targetId);
+      await this.discoveryService.closeDropdown(page, dto.ref);
+      res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
-      log.exception('close_dropdown request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Close dropdown failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /act/detect_blocker
-   * Detect blocking element
-   */
   async handleDetectBlocker(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('detect_blocker request started', { ref: body.ref });
-
     try {
-      // Note: DetectBlocker use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'DetectBlocker not yet implemented',
-      });
-
-      log.info('detect_blocker request completed', {
-        duration_ms: Date.now() - started,
-      });
+      const dto = this.validator.validateDetectBlocker(req.body || {});
+      const { tab, page } = await this.resolvePage(req, dto.targetId);
+      const result = await this.discoveryService.detectBlockingElement(page, dto.ref);
+      res.json({ ok: true, targetId: tab.targetId, ...(result ?? { isBlocked: false }) });
     } catch (error) {
-      log.exception('detect_blocker request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Detect blocker failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /act/dismiss_blocker
-   * Dismiss blocking element
-   */
   async handleDismissBlocker(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('dismiss_blocker request started', { targetRef: body.targetRef });
-
     try {
-      // Note: DismissBlocker use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'DismissBlocker not yet implemented',
+      const dto = this.validator.validateDismissBlocker(req.body || {});
+      const { tab, page } = await this.resolvePage(req, (req.body || {}).targetId);
+      const result = await this.discoveryService.dismissBlocker(
+        page,
+        dto.targetRef,
+        dto.strategy as any,
+        dto.closeButtonRef,
+      );
+      res.json({ ok: true, targetId: tab.targetId, ...result });
+    } catch (error) {
+      const mapped = mapRouteError(this.browserContext, error, 'Dismiss blocker failed');
+      sendLegacyError(res, mapped.status, mapped.message);
+    }
+  }
+
+  private async execute(
+    req: Request,
+    res: Response,
+    targetId: string | undefined,
+    action: Parameters<ExecuteActionUseCase['execute']>[0]['action'],
+    includeResult = false,
+  ): Promise<void> {
+    try {
+      const { profileCtx, tab } = await this.resolvePage(req, targetId);
+      const result = await this.executeActionUseCase.execute({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        action,
       });
 
-      log.info('dismiss_blocker request completed', {
-        duration_ms: Date.now() - started,
+      if (!result.ok) {
+        sendLegacyError(res, 500, result.error || 'Action failed');
+        return;
+      }
+
+      res.json({
+        ok: true,
+        targetId: result.targetId ?? tab.targetId,
+        url: result.url ?? tab.url,
+        ...(includeResult ? { result: result.result } : {}),
       });
     } catch (error) {
-      log.exception('dismiss_blocker request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Action failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
+  }
+
+  private async resolvePage(req: Request, targetId?: string) {
+    const profileCtx = getProfileContext(this.browserContext, req);
+    const tab = await profileCtx.ensureTabAvailable(targetId);
+    const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+    return { profileCtx, tab, page };
   }
 }

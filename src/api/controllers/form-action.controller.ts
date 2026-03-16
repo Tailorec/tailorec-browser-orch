@@ -1,185 +1,126 @@
 import type { Request, Response } from 'express';
 import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.use-case.js';
+import type { BrowserRouteContext } from '../context/browser.context.js';
 import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
+import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller-forms');
 
-/**
- * Action controller - Form & Interaction Actions
- * Handles HTTP requests for form and interaction actions (fill, select, drag, resize, wait)
- * Delegates to ExecuteActionUseCase from Worktree A
- */
 export class FormActionController {
-  private readonly validator: ActionValidator;
+  private readonly validator = new ActionValidator();
 
   constructor(
     private executeActionUseCase: ExecuteActionUseCase,
-  ) {
-    this.validator = new ActionValidator();
-  }
+    private browserContext: BrowserRouteContext,
+  ) {}
 
-  /**
-   * Handle POST /act/fill
-   * Fill form fields
-   */
   async handleFill(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('fill request started', { fields: body.fields?.length || 0 });
-
-    try {
-      const dto = this.validator.validateFill(body);
-
-      const result = await this.executeActionUseCase.execute({
-        action: {
-          kind: 'fill',
-          fields: dto.fields as Array<{ ref: string; type: string; value?: string | number | boolean }>,
-        },
-        targetId: dto.targetId,
-      });
-
-      res.json({
-        ok: true,
-        targetId: result.targetId,
-        url: result.url,
-        results: result.results,
-        allMatched: result.allMatched,
-        mismatched: result.mismatched,
-      });
-
-      log.info('fill request completed', {
-        duration_ms: Date.now() - started,
-        fields: dto.fields.length,
-      });
-    } catch (error) {
-      log.exception('fill request failed', error);
-      throw error;
-    }
+    const dto = this.validator.validateFill(req.body || {});
+    await this.handleAction(req, res, dto.targetId, {
+      kind: 'fill',
+      fields: dto.fields as Array<{ ref: string; type: string; value?: string | number | boolean }>,
+      timeoutMs: dto.timeoutMs,
+    }, true);
   }
 
-  /**
-   * Handle POST /act/select
-   * Select options
-   */
   async handleSelect(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('select request started', { ref: body.ref, values: body.values?.length || 0 });
-
-    try {
-      // Note: Select use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Select not yet implemented',
-      });
-
-      log.info('select request completed', {
-        duration_ms: Date.now() - started,
-      });
-    } catch (error) {
-      log.exception('select request failed', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle POST /act/drag
-   * Drag from one element to another
-   */
-  async handleDrag(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('drag request started', { startRef: body.startRef, endRef: body.endRef });
-
-    try {
-      // Note: Drag use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Drag not yet implemented',
-      });
-
-      log.info('drag request completed', {
-        duration_ms: Date.now() - started,
-      });
-    } catch (error) {
-      log.exception('drag request failed', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle POST /act/resize
-   * Resize viewport
-   */
-  async handleResize(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('resize request started', { width: body.width, height: body.height });
-
-    try {
-      // Note: Resize use case to be implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Resize not yet implemented',
-      });
-
-      log.info('resize request completed', {
-        duration_ms: Date.now() - started,
-      });
-    } catch (error) {
-      log.exception('resize request failed', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle POST /act/wait
-   * Wait for condition
-   */
-  async handleWait(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('wait request started', { 
-      timeMs: body.timeMs,
-      text: body.text,
-      selector: body.selector,
+    const dto = this.validator.validateSelect(req.body || {});
+    await this.handleAction(req, res, dto.targetId, {
+      kind: 'select',
+      ref: dto.ref,
+      values: dto.values,
+      timeoutMs: dto.timeoutMs,
     });
+  }
 
+  async handleDrag(req: Request, res: Response): Promise<void> {
+    const dto = this.validator.validateDrag(req.body || {});
+    await this.handleAction(req, res, dto.targetId, {
+      kind: 'drag',
+      startRef: dto.startRef,
+      endRef: dto.endRef,
+      timeoutMs: dto.timeoutMs,
+    });
+  }
+
+  async handleResize(req: Request, res: Response): Promise<void> {
+    const dto = this.validator.validateResize(req.body || {});
+    await this.handleAction(req, res, dto.targetId, {
+      kind: 'resize',
+      width: dto.width,
+      height: dto.height,
+    });
+  }
+
+  async handleWait(req: Request, res: Response): Promise<void> {
+    const dto = this.validator.validateWait(req.body || {});
+    await this.handleAction(req, res, dto.targetId, {
+      kind: 'wait',
+      timeMs: dto.timeMs,
+      text: dto.text,
+      textGone: dto.textGone,
+      selector: dto.selector,
+      url: dto.url,
+      loadState: dto.loadState,
+      fn: dto.fn,
+      timeoutMs: dto.timeoutMs,
+    });
+  }
+
+  private async handleAction(
+    req: Request,
+    res: Response,
+    targetId: string | undefined,
+    action: Parameters<ExecuteActionUseCase['execute']>[0]['action'],
+    includeFillResponse = false,
+  ): Promise<void> {
+    const started = Date.now();
     try {
-      const dto = this.validator.validateWait(body);
-
-      await this.executeActionUseCase.execute({
-        action: {
-          kind: 'wait',
-          timeMs: dto.timeMs,
-          text: dto.text,
-          textGone: dto.textGone,
-          selector: dto.selector,
-          url: dto.url,
-          loadState: dto.loadState,
-          fn: dto.fn,
-        },
-        targetId: dto.targetId,
+      const profileCtx = getProfileContext(this.browserContext, req);
+      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const result = await this.executeActionUseCase.execute({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        action,
       });
 
-      res.json({
-        ok: true,
-        targetId: dto.targetId || 'unknown',
-        url: '',
-      });
+      if (!result.ok) {
+        sendLegacyError(res, 500, result.error || 'Action failed');
+        return;
+      }
 
-      log.info('wait request completed', {
+      if (includeFillResponse) {
+        res.json({
+          ok: true,
+          targetId: result.targetId ?? tab.targetId,
+          url: result.url ?? tab.url,
+          results: result.results ?? [],
+          allMatched: result.allMatched ?? false,
+          mismatched: (result.results ?? [])
+            .filter((entry) => !entry.matched)
+            .map((entry) => ({
+              ref: entry.ref,
+              requested: entry.requestedValue,
+              actual: entry.actualValue,
+              warning: entry.warning,
+            })),
+        });
+      } else {
+        res.json({
+          ok: true,
+          targetId: result.targetId ?? tab.targetId,
+          url: result.url ?? tab.url,
+        });
+      }
+
+      log.info('form action completed', {
         duration_ms: Date.now() - started,
+        path: req.path,
       });
     } catch (error) {
-      log.exception('wait request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Action failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 }

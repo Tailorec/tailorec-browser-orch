@@ -1,44 +1,32 @@
 import type { Request, Response } from 'express';
 import type { TakeSnapshotUseCase } from '../../core/use-cases/take-snapshot.use-case.js';
-import { SnapshotValidator, type SnapshotRequestDTO, type SnapshotDeltaRequestDTO } from '../validators/snapshot.validator.js';
+import { SnapshotValidator } from '../validators/snapshot.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
+import { DiscoveryService } from '../../core/services/discovery.service.js';
+import { SessionService } from '../../core/services/session.service.js';
+import type { BrowserRouteContext } from '../context/browser.context.js';
+import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
-/**
- * Snapshot controller
- * Handles HTTP requests for snapshot operations
- * Delegates to TakeSnapshotUseCase from Worktree A
- */
 export class SnapshotController {
-  private readonly validator: SnapshotValidator;
+  private readonly validator = new SnapshotValidator();
 
   constructor(
     private takeSnapshotUseCase: TakeSnapshotUseCase,
-  ) {
-    this.validator = new SnapshotValidator();
-  }
+    private sessionService: SessionService,
+    private discoveryService: DiscoveryService,
+    private browserContext: BrowserRouteContext,
+  ) {}
 
-  /**
-   * Handle POST /snapshot
-   * Take a snapshot of the current page
-   */
   async handleSnapshot(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('snapshot request started', {
-      targetId: body.targetId,
-      interactiveOnly: body.interactiveOnly,
-    });
-
     try {
-      // Validate request
-      const dto = this.validator.validate(body);
-
-      // Execute use case
+      const dto = this.validator.validate(req.body || {});
+      const profileCtx = getProfileContext(this.browserContext, req);
+      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
       const result = await this.takeSnapshotUseCase.execute({
-        targetId: dto.targetId,
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
         options: {
           timeoutMs: dto.timeoutMs,
           maxChars: dto.maxChars,
@@ -48,83 +36,74 @@ export class SnapshotController {
         },
       });
 
-      // Send response - preserve API contract
+      if (!result.ok) {
+        sendLegacyError(res, 500, result.error || 'Snapshot failed');
+        return;
+      }
+
       res.json({
         ok: true,
-        targetId: result.targetId,
-        url: result.url,
+        targetId: result.targetId ?? tab.targetId,
+        url: result.url ?? tab.url,
         snapshot: result.snapshot,
         refs: result.refs,
         truncated: result.truncated,
         stats: result.stats,
       });
-
-      log.info('snapshot request completed', {
-        duration_ms: Date.now() - started,
-        chars: typeof result.snapshot === 'string' ? result.snapshot.length : 0,
-        refs: Object.keys(result.refs || {}).length,
-      });
     } catch (error) {
-      log.exception('snapshot request failed', error);
-      throw error; // Let error middleware handle it
+      const mapped = mapRouteError(this.browserContext, error, 'Snapshot failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /snapshot/delta
-   * Start/stop incremental snapshot observation
-   */
   async handleSnapshotDelta(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    const body = req.body || {};
-    
-    log.info('snapshot delta request started', {
-      targetId: body.targetId,
-      action: body.action,
-    });
-
     try {
-      // Validate request
-      const dto = this.validator.validateDelta(body);
+      const dto = this.validator.validateDelta(req.body || {});
+      const profileCtx = getProfileContext(this.browserContext, req);
+      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
 
-      // Note: Delta snapshot use case to be implemented in Worktree A
-      // For now, return not implemented
-      res.status(501).json({
-        ok: false,
-        error: 'Delta snapshots not yet implemented',
-      });
+      const result =
+        dto.action === 'start'
+          ? await this.discoveryService.startDomObserver(page, dto.anchorRef)
+          : await this.discoveryService.stopDomObserver(page);
 
-      log.info('snapshot delta request completed', {
-        duration_ms: Date.now() - started,
-      });
+      res.json({ ok: true, targetId: tab.targetId, ...result });
+      log.info('snapshot delta completed', { target_id: tab.targetId, action: dto.action });
     } catch (error) {
-      log.exception('snapshot delta request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'Delta snapshot failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 
-  /**
-   * Handle POST /snapshot/aria
-   * Take accessibility tree snapshot
-   */
   async handleSnapshotAria(req: Request, res: Response): Promise<void> {
-    const started = Date.now();
-    
-    log.info('snapshot aria request started');
-
     try {
-      // Note: Aria snapshot use case to be implemented in Worktree A
-      res.status(501).json({
-        ok: false,
-        error: 'Aria snapshots not yet implemented',
+      const dto = this.validator.validate(req.body || {});
+      const profileCtx = getProfileContext(this.browserContext, req);
+      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const result = await this.takeSnapshotUseCase.execute({
+        cdpUrl: profileCtx.profile.cdpUrl,
+        targetId: tab.targetId,
+        type: 'aria',
+        options: {
+          ariaLimit: dto.maxChars,
+        },
       });
 
-      log.info('snapshot aria request completed', {
-        duration_ms: Date.now() - started,
+      if (!result.ok) {
+        sendLegacyError(res, 500, result.error || 'ARIA snapshot failed');
+        return;
+      }
+
+      res.json({
+        ok: true,
+        targetId: result.targetId ?? tab.targetId,
+        url: result.url ?? tab.url,
+        nodes: result.nodes ?? [],
       });
     } catch (error) {
-      log.exception('snapshot aria request failed', error);
-      throw error;
+      const mapped = mapRouteError(this.browserContext, error, 'ARIA snapshot failed');
+      sendLegacyError(res, mapped.status, mapped.message);
     }
   }
 }

@@ -214,6 +214,16 @@ export type HoverActionDTO = z.infer<typeof HoverActionSchema>;
 export type FillActionDTO = z.infer<typeof FillActionSchema>;
 export type NavigateActionDTO = z.infer<typeof NavigateActionSchema>;
 export type WaitActionDTO = z.infer<typeof WaitActionSchema>;
+export type ScrollIntoViewActionDTO = z.infer<typeof ScrollIntoViewActionSchema>;
+export type DragActionDTO = z.infer<typeof DragActionSchema>;
+export type SelectActionDTO = z.infer<typeof SelectActionSchema>;
+export type ResizeActionDTO = z.infer<typeof ResizeActionSchema>;
+export type EvaluateActionDTO = z.infer<typeof EvaluateActionSchema>;
+export type QueryStateActionDTO = z.infer<typeof QueryStateActionSchema>;
+export type DiscoverDropdownActionDTO = z.infer<typeof DiscoverDropdownActionSchema>;
+export type CloseDropdownActionDTO = z.infer<typeof CloseDropdownActionSchema>;
+export type DetectBlockerActionDTO = z.infer<typeof DetectBlockerActionSchema>;
+export type DismissBlockerActionDTO = z.infer<typeof DismissBlockerActionSchema>;
 
 /**
  * File chooser hook request schema
@@ -323,11 +333,51 @@ export class ActionValidator {
     return this.validate(payload, NavigateActionSchema);
   }
 
+  validateScrollIntoView(payload: unknown): ScrollIntoViewActionDTO {
+    return this.validate(payload, ScrollIntoViewActionSchema);
+  }
+
+  validateDrag(payload: unknown): DragActionDTO {
+    return this.validate(payload, DragActionSchema);
+  }
+
+  validateSelect(payload: unknown): SelectActionDTO {
+    return this.validate(payload, SelectActionSchema);
+  }
+
+  validateResize(payload: unknown): ResizeActionDTO {
+    return this.validate(payload, ResizeActionSchema);
+  }
+
   /**
    * Validate wait action
    */
   validateWait(payload: unknown): WaitActionDTO {
     return this.validate(payload, WaitActionSchema);
+  }
+
+  validateEvaluate(payload: unknown): EvaluateActionDTO {
+    return this.validate(payload, EvaluateActionSchema);
+  }
+
+  validateQueryState(payload: unknown): QueryStateActionDTO {
+    return this.validate(payload, QueryStateActionSchema);
+  }
+
+  validateDiscoverDropdown(payload: unknown): DiscoverDropdownActionDTO {
+    return this.validate(payload, DiscoverDropdownActionSchema);
+  }
+
+  validateCloseDropdown(payload: unknown): CloseDropdownActionDTO {
+    return this.validate(payload, CloseDropdownActionSchema);
+  }
+
+  validateDetectBlocker(payload: unknown): DetectBlockerActionDTO {
+    return this.validate(payload, DetectBlockerActionSchema);
+  }
+
+  validateDismissBlocker(payload: unknown): DismissBlockerActionDTO {
+    return this.validate(payload, DismissBlockerActionSchema);
   }
 
   /**

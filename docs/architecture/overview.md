@@ -70,7 +70,7 @@ Tailorec Browser Service is a specialized browser automation service that expose
 
 ### 1. Express HTTP Server
 
-**Location:** `src/browser/server.ts`, `src/browser/routes/`
+**Location:** `src/main.ts`, `src/api/routes/`, `src/api/controllers/`, `src/adapters/http/`
 
 **Responsibilities:**
 - HTTP request routing
@@ -82,18 +82,18 @@ Tailorec Browser Service is a specialized browser automation service that expose
 
 | Route | Method | Handler |
 |-------|--------|---------|
-| `/status` | GET | `registerBrowserBasicRoutes` |
-| `/snapshot` | POST | `registerBrowserAgentSnapshotRoutes` |
-| `/act` | POST | `registerBrowserAgentActRoutes` |
-| `/screenshot` | POST | `registerBrowserAgentActRoutes` |
-| `/hooks/*` | POST | `registerBrowserAgentActRoutes` |
-| `/control` | GET | `registerBrowserControlRoutes` |
+| `/status` | GET | `registerBasicRoutes` |
+| `/snapshot` | POST | `registerSnapshotRoutes` |
+| `/act` | POST | `registerActionRoutes` |
+| `/screenshot` | POST | `registerMediaRoutes` |
+| `/hooks/*` | POST | `registerHooksRoutes` |
+| `/control` | GET | `registerControlRoutes` |
 
 ---
 
 ### 2. Playwright Wrapper Layer
 
-**Location:** `src/browser/pw-*.ts`
+**Location:** `src/adapters/playwright/`, `src/core/services/`
 
 **Responsibilities:**
 - Browser tab management
@@ -175,11 +175,11 @@ Returns:
 
 ### 3. Logging Subsystem
 
-**Location:** `src/logging/`
+**Location:** `src/adapters/logging/`, `src/shared/utils/correlation.ts`
 
 **Components:**
 
-#### logging/subsystem.ts
+#### adapters/logging/logger.adapter.ts
 
 Structured logging with correlation IDs:
 
@@ -195,7 +195,7 @@ Features:
 - Correlation ID tracking
 - Subsystem tagging
 
-#### logging/correlation.ts
+#### shared/utils/correlation.ts
 
 Request correlation:
 
@@ -209,7 +209,7 @@ Ensures logs can be traced across requests.
 
 ### 4. Infrastructure Layer
 
-**Location:** `src/infra/`
+**Location:** `src/shared/`, `src/adapters/utils/`
 
 **Components:**
 

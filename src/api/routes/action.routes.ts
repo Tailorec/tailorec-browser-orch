@@ -2,6 +2,7 @@ import type { Router } from 'express';
 import type { SimpleActionController } from '../controllers/simple-action.controller.js';
 import type { FormActionController } from '../controllers/form-action.controller.js';
 import type { AdvancedActionController } from '../controllers/advanced-action.controller.js';
+import type { ActionCompatController } from '../controllers/action-compat.controller.js';
 import type { MiddlewareRegistry } from '../middlewares/index.js';
 
 /**
@@ -13,8 +14,16 @@ export function registerActionRoutes(
   simpleController: SimpleActionController,
   formController: FormActionController,
   advancedController: AdvancedActionController,
+  compatController: ActionCompatController,
   middleware: MiddlewareRegistry,
 ): void {
+  router.post(
+    '/act',
+    middleware.correlation,
+    middleware.logging,
+    compatController.handleAct.bind(compatController),
+  );
+
   /**
    * POST /act/click
    * Click an element
