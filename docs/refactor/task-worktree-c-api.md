@@ -204,7 +204,7 @@ import type { Request, Response } from 'express';
 import type { TakeSnapshotUseCase } from '../../core/use-cases/take-snapshot.use-case.js';
 import type { SnapshotRequestDTO } from '../validators/snapshot.validator.js';
 import { SnapshotValidator } from '../validators/snapshot.validator.js';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
@@ -278,7 +278,7 @@ export class SnapshotController {
 import type { Request, Response } from 'express';
 import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.use-case.js';
 import { ActionValidator } from '../validators/action.validator.js';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('action-controller');
 
@@ -491,7 +491,7 @@ export function getCorrelationId(req: Request): string {
 ```typescript
 // Expected content (~120 lines)
 import type { Request, Response, NextFunction } from 'express';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('error-middleware');
 
@@ -541,7 +541,7 @@ function mapErrorToMessage(err: Error): string {
 ```typescript
 // Expected content (~100 lines)
 import type { Request, Response, NextFunction } from 'express';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('request-logging');
 

@@ -74,7 +74,7 @@ src/
 │   │   ├── express.server.adapter.ts
 │   │   └── express.middleware.adapter.ts
 │   └── logging/             # Logging adapters
-│       └── pino-logger.adapter.ts
+│       └── logger.adapter.ts
 │
 ├── api/                     # Interface layer
 │   ├── controllers/         # HTTP request handlers

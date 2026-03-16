@@ -296,7 +296,7 @@ See [Testing Overview](./testing/overview.md) for details.
 | `BROWSER_HEADLESS` | `false` | Headless browser mode |
 | `BROWSER_VIEWPORT` | `1280x720` | Browser viewport size (WIDTHxHEIGHT) |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
-| `LOG_FORMAT` | `json` | Log format (json, pretty) |
+| `LOG_FORMAT` | `json` | Log format (json, console) |
 | `LOG_TO_FILE` | `true` | Enable file logging |
 | `LOG_FILE_PATH` | `logs/app.log` | Log file location |
 | `LOG_MAX_BYTES` | `10485760` | Max log file size before rotation |

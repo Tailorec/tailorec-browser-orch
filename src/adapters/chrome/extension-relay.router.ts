@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 import { RELAY_AUTH_HEADER, getHeader } from './extension-relay.utils.js';
 import type { ChromeExtensionRelayServer } from './extension-relay.types.js';
 

@@ -9,7 +9,7 @@
 
 import type { Server } from 'node:http';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('browser-context');
 

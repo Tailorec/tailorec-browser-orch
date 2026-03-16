@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { createContainer } from './container/index.js';
 import { loadConfig } from './config/config.js';
-import { createSubsystemLogger } from './adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger, initializeLogging } from './adapters/logging/logger.adapter.js';
 import { ExpressServerAdapter } from './adapters/http/express.server.adapter.js';
 
 // Import Services
@@ -59,6 +59,14 @@ async function main() {
 
     // 1. Load configuration
     const config = loadConfig();
+    initializeLogging({
+      level: config.logging.level,
+      format: config.logging.format,
+      logToFile: config.logging.toFile,
+      logFilePath: config.logging.filePath,
+      logMaxBytes: config.logging.maxBytes,
+      logBackupCount: config.logging.backupCount,
+    });
 
     // 2. Create DI container
     const container = createContainer(config);

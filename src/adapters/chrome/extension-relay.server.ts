@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { createServer } from 'node:http';
 import WebSocket, { WebSocketServer } from 'ws';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 import {
   RELAY_AUTH_HEADER,
   isLoopbackAddress,

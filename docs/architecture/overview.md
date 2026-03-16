@@ -190,7 +190,7 @@ log.exception("action click failed", error, { ref: "e12" });
 ```
 
 Features:
-- JSON or pretty formatting
+- JSON or console formatting
 - Log rotation
 - Correlation ID tracking
 - Subsystem tagging

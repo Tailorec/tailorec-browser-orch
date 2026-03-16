@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('basic-controller');
 

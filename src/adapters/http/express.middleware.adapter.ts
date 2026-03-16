@@ -1,5 +1,5 @@
 import type { RequestHandler, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('express-middleware');
 

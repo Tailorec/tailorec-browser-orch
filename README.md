@@ -285,7 +285,7 @@ See [API Reference](./docs/api-reference/overview.md) for complete documentation
 | `BROWSER_HEADLESS` | `false` | Run browser in headless mode |
 | `BROWSER_VIEWPORT` | `1280x720` | Browser viewport size (WIDTHxHEIGHT) |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
-| `LOG_FORMAT` | `json` | Log format (json, pretty) |
+| `LOG_FORMAT` | `json` | Log format (json, console) |
 | `LOG_TO_FILE` | `true` | Enable file logging |
 | `BROWSER_EVALUATE_ENABLED` | `true` | Enable JavaScript evaluation |
 

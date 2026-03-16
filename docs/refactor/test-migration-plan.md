@@ -119,7 +119,7 @@ The following legacy files are still required by the new architecture:
 - `src/config/config.ts`
 - Most adapters and services
 
-**Status:** New pino adapter exists but not fully integrated
+**Status:** New logger adapter exists but not fully integrated
 
 ### 2. `src/browser/routes/*.ts`
 
@@ -152,13 +152,13 @@ The following legacy files are still required by the new architecture:
 
 ### 1. Logging Subsystem
 
-The new `pino-logger.adapter.ts` cannot replace `logging/subsystem.ts` yet because:
+The new `logger.adapter.ts` cannot replace `logging/subsystem.ts` yet because:
 
 - Container depends on `SubsystemLogger` interface from legacy
 - Config depends on legacy logging
 - Most files import from legacy
 
-**Resolution:** Update container and config to use pino adapter first
+**Resolution:** Update container and config to use logger adapter first
 
 ### 2. API/Core Type Mismatch
 

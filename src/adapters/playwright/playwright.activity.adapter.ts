@@ -6,7 +6,7 @@
  */
 
 import type { Page } from 'playwright-core';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('pw-activity');
 

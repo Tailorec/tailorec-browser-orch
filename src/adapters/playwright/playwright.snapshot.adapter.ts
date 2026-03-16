@@ -1,5 +1,5 @@
 import type { Page } from 'playwright-core';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 import { formatAriaSnapshot, type AriaSnapshotNode, type RawAXNode } from '../utils/cdp.types.js';
 import {
   buildRoleSnapshotFromAiSnapshot,

@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { getCorrelationIdFromResponse } from './correlation.middleware.js';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('error-middleware');
 

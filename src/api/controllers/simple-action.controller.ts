@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.use-case.js';
 import { ActionValidator } from '../validators/action.validator.js';
-import { createSubsystemLogger } from '../../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('action-controller');
 

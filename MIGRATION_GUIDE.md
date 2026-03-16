@@ -74,7 +74,7 @@ src/
 | `src/browser/pw-tools-core.snapshot` | `src/adapters/playwright/playwright.snapshot.adapter` | ⚠️ Partial |
 | `src/browser/pw-tools-core.interactions` | `src/adapters/playwright/playwright.interactions.adapter` | ⚠️ Partial |
 | `src/browser/routes/agent` | `src/api/routes/` | ⚠️ Partial |
-| `src/logging/subsystem` | `src/adapters/logging/pino-logger.adapter` | ⚠️ Partial |
+| `src/logging/subsystem` | `src/adapters/logging/logger.adapter` | ⚠️ Partial |
 
 ### Notes
 
@@ -184,7 +184,7 @@ const log = createSubsystemLogger('my-subsystem');
 ### After (Planned)
 
 ```typescript
-import { createSubsystemLogger } from './adapters/logging/pino-logger.adapter';
+import { createSubsystemLogger } from './adapters/logging/logger.adapter';
 const log = createSubsystemLogger('my-subsystem');
 ```
 

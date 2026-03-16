@@ -32,7 +32,7 @@ const BrowserConfigSchema = z.object({
  */
 const LoggingConfigSchema = z.object({
   level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  format: z.enum(['json', 'pretty']).default('json'),
+  format: z.enum(['json', 'console']).default('json'),
   toFile: z.boolean().default(true),
   filePath: z.string().default('logs/app.log'),
   maxBytes: z.number().min(1024).default(10 * 1024 * 1024),

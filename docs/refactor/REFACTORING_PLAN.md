@@ -128,7 +128,7 @@ src/
 │   │   └── express.middleware.adapter.ts
 │   │
 │   └── logging/
-│       └── pino-logger.adapter.ts
+│       └── logger.adapter.ts
 │
 ├── api/                       # Interface layer (delivery)
 │   ├── controllers/
@@ -274,7 +274,7 @@ npm run test:contract -- src/__tests__/contract/status.contract.test.ts
 | `src/browser/extension-relay.ts` | 790 | `adapters/chrome/extension-relay.*.ts` (4 files) |
 | `src/browser/cdp.ts` | 455 | `adapters/playwright/cdp.client.ts`, `adapters/playwright/cdp.types.ts` |
 | `src/browser/server.ts` | 127 | `adapters/http/express.server.adapter.ts` |
-| `src/logging/subsystem.ts` | 263 | `adapters/logging/pino-logger.adapter.ts` |
+| `src/logging/subsystem.ts` | 263 | `adapters/logging/logger.adapter.ts` |
 
 #### Tests That Must Pass
 

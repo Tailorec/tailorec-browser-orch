@@ -1,6 +1,6 @@
 import type { AppConfig, BrowserViewport, BrowserProfileConfig, ResolvedBrowserProfile } from './config.types.js';
 import { validateConfig } from './config.validators.js';
-import { createSubsystemLogger } from '../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('config');
 
@@ -122,7 +122,11 @@ export function loadConfig(): AppConfig {
     logging: {
       ...DEFAULT_CONFIG.logging,
       level: (process.env.LOG_LEVEL as any) ?? DEFAULT_CONFIG.logging.level,
-      format: (process.env.LOG_FORMAT as any) ?? DEFAULT_CONFIG.logging.format,
+      format: (
+        process.env.LOG_FORMAT === 'console' || process.env.LOG_FORMAT === 'json'
+          ? process.env.LOG_FORMAT
+          : DEFAULT_CONFIG.logging.format
+      ),
       toFile: parseBooleanEnv(process.env.LOG_TO_FILE, DEFAULT_CONFIG.logging.toFile),
     },
     nodeEnv: (process.env.NODE_ENV as any) ?? 'development',

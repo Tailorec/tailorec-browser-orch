@@ -736,7 +736,7 @@ export function validateConfig(raw: unknown): AppConfig {
 // Expected content (~150 lines)
 import type { AppConfig, BrowserViewport } from './config.types.js';
 import { validateConfig } from './config.validators.js';
-import { createSubsystemLogger } from '../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('config');
 
@@ -878,7 +878,7 @@ export type ContainerKey = keyof Container;
 // Expected content (~200 lines)
 import type { Container } from './container.types.js';
 import type { AppConfig } from '../config/config.types.js';
-import { createSubsystemLogger } from '../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 import { PlaywrightBrowserDriverAdapter } from '../adapters/playwright/playwright.browser-driver.adapter.js';
 import { PlaywrightSnapshotAdapter } from '../adapters/playwright/playwright.snapshot.adapter.js';
 import { PlaywrightInteractionsAdapter } from '../adapters/playwright/playwright.interactions.adapter.js';

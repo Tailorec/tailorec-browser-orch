@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import express, { type Application, type RequestHandler } from 'express';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('express-server');
 

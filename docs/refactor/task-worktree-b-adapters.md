@@ -50,7 +50,7 @@ src/adapters/
 │   └── express.middleware.adapter.ts            # ~200 lines
 │
 └── logging/
-    └── pino-logger.adapter.ts                   # ~150 lines
+    └── logger.adapter.ts                        # ~150 lines
 ```
 
 ---
@@ -164,7 +164,7 @@ import type {
   AriaSnapshotOptions,
   AriaSnapshotResult,
 } from '../../core/services/snapshot.service.js';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('pw-snapshot-adapter');
 
@@ -300,7 +300,7 @@ export class PlaywrightSnapshotAdapter {
 ```typescript
 // Expected content (~450 lines)
 import type { Page, Locator } from 'playwright-core';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('pw-interactions-adapter');
 
@@ -615,7 +615,7 @@ function findCloseButton(element: Element): string | null {
 ```typescript
 // Expected content (~250 lines)
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('chrome-launcher');
 
@@ -776,7 +776,7 @@ See the main refactoring plan for detailed splitting strategy.
 // Expected content (~150 lines)
 import type { Server } from 'node:http';
 import express from 'express';
-import { createSubsystemLogger } from '../logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 const log = createSubsystemLogger('express-server');
 
@@ -836,13 +836,13 @@ export class ExpressServerAdapter {
 }
 ```
 
-#### `src/adapters/logging/pino-logger.adapter.ts`
+#### `src/adapters/logging/logger.adapter.ts`
 
 **Source:** Replace `src/logging/subsystem.ts`
 
 ```typescript
 // Expected content (~150 lines)
-import pino from 'pino';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -854,14 +854,14 @@ export interface Logger {
   exception(message: string, err: unknown, extra?: Record<string, unknown>): void;
 }
 
-let logger: pino.Logger | null = null;
+let logger: Logger | null = null;
 
 export function createSubsystemLogger(subsystem: string): Logger {
   if (!logger) {
-    logger = pino({
+    logger = createSubsystemLogger('app');
       level: process.env.LOG_LEVEL ?? 'info',
       transport: process.env.LOG_FORMAT === 'json' ? undefined : {
-        target: 'pino-pretty',
+        target: 'console',
       },
     });
   }
@@ -951,7 +951,7 @@ Help me create the following files in src/adapters/:
 11. src/adapters/chrome/extension-relay.router.ts
 12. src/adapters/http/express.server.adapter.ts
 13. src/adapters/http/express.middleware.adapter.ts
-14. src/adapters/logging/pino-logger.adapter.ts
+14. src/adapters/logging/logger.adapter.ts
 
 CONSTRAINTS:
 - Implement interfaces from Worktree A (core/ports/)

@@ -72,12 +72,12 @@ git commit -m "fix: resolve merge conflicts"
 
 | File | Likely Conflict | Resolution |
 |------|----------------|------------|
-| `package.json` | New dependencies (pino, zod) | Accept all changes |
+| `package.json` | New dependencies (logging, zod) | Accept all changes |
 | `tsconfig.json` | Path aliases | Merge path configurations |
 | `src/browser/pw-session.ts` | Moved to core/adapters | Delete, use new files |
 | `src/browser/pw-tools-core.*.ts` | Moved to adapters | Delete, use new files |
 | `src/browser/routes/*.ts` | Moved to API | Delete, use new files |
-| `src/logging/subsystem.ts` | Replaced with pino | Delete, use new adapter |
+| `src/logging/subsystem.ts` | Replaced with logger adapter | Delete, use new adapter |
 
 ---
 
@@ -118,7 +118,7 @@ Create a script to help with bulk updates:
 find src/__tests__ -name "*.test.ts" -exec sed -i 's|../../browser/config|../../config/config|g' {} \;
 
 # Update logging imports
-find src/__tests__ -name "*.test.ts" -exec sed -i 's|../../logging/subsystem|../../adapters/logging/pino-logger|g' {} \;
+find src/__tests__ -name "*.test.ts" -exec sed -i 's|../../logging/subsystem|../../adapters/logging/logger|g' {} \;
 
 # Update session imports
 find src/__tests__ -name "*.test.ts" -exec sed -i 's|../../browser/pw-session|../../core/services/session|g' {} \;
@@ -193,7 +193,7 @@ ls -la src/container/
 // src/main.ts
 import { createContainer } from './container/container.js';
 import { loadConfig } from './config/config.js';
-import { createSubsystemLogger } from './adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from './adapters/logging/logger.adapter.js';
 import { ExpressServerAdapter } from './adapters/http/express.server.adapter.js';
 import { registerAllRoutes } from './api/routes/index.js';
 import { errorMiddleware } from './api/middlewares/error.middleware.js';
@@ -357,7 +357,7 @@ src/__tests__/
 | `src/browser/pw-tools-core.snapshot` | `src/adapters/playwright/playwright.snapshot.adapter` |
 | `src/browser/pw-tools-core.interactions` | `src/adapters/playwright/playwright.interactions.adapter` |
 | `src/browser/routes/agent` | `src/api/routes/agent.routes` |
-| `src/logging/subsystem` | `src/adapters/logging/pino-logger.adapter` |
+| `src/logging/subsystem` | `src/adapters/logging/logger.adapter` |
 
 ## API Changes
 

@@ -6,7 +6,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 /**
  * Log format for application logging
  */
-export type LogFormat = 'json' | 'pretty';
+export type LogFormat = 'json' | 'console';
 
 /**
  * Browser viewport configuration

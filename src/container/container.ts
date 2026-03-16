@@ -1,6 +1,6 @@
 import type { Container } from './container.types.js';
 import type { AppConfig } from '../config/config.types.js';
-import { createSubsystemLogger } from '../adapters/logging/pino-logger.adapter.js';
+import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 import { PlaywrightBrowserDriverAdapter } from '../adapters/playwright/playwright.browser-driver.adapter.js';
 import { InMemorySessionStoreAdapter } from '../adapters/utils/in-memory-session-store.adapter.js';
 import { InMemoryEventBusAdapter } from '../adapters/utils/in-memory-event-bus.adapter.js';
