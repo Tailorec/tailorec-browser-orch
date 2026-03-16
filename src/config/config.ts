@@ -128,6 +128,9 @@ export function loadConfig(): AppConfig {
           : DEFAULT_CONFIG.logging.format
       ),
       toFile: parseBooleanEnv(process.env.LOG_TO_FILE, DEFAULT_CONFIG.logging.toFile),
+      filePath: process.env.LOG_FILE_PATH || DEFAULT_CONFIG.logging.filePath,
+      maxBytes: Number(process.env.LOG_MAX_BYTES) || DEFAULT_CONFIG.logging.maxBytes,
+      backupCount: Number(process.env.LOG_BACKUP_COUNT) || DEFAULT_CONFIG.logging.backupCount,
     },
     nodeEnv: (process.env.NODE_ENV as any) ?? 'development',
   };

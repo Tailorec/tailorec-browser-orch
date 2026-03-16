@@ -1,8 +1,12 @@
+import 'dotenv/config';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { loadConfig, resolveProfile } from './config/config.js';
-import { createSubsystemLogger } from './adapters/logging/logger.adapter.js';
+import {
+  createSubsystemLogger,
+  initializeLogging,
+} from './adapters/logging/logger.adapter.js';
 import { ExpressServerAdapter } from './adapters/http/express.server.adapter.js';
 import { createMiddlewareRegistry } from './api/middlewares/index.js';
 import { ChromeLauncherAdapter } from './adapters/chrome/chrome-launcher.adapter.js';
@@ -53,6 +57,15 @@ process.on('unhandledRejection', (reason) => {
 
 async function main() {
   const config = loadConfig();
+  initializeLogging({
+    level: config.logging.level,
+    format: config.logging.format,
+    logToFile: config.logging.toFile,
+    logFilePath: config.logging.filePath,
+    logMaxBytes: config.logging.maxBytes,
+    logBackupCount: config.logging.backupCount,
+  });
+
   if (!config.browser.enabled) {
     log.error('Browser service disabled by configuration');
     process.exit(1);
