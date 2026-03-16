@@ -175,6 +175,7 @@ async function main() {
   const basicController = new BasicController(browserContext);
 
   const app = expressServer.getApp();
+  expressServer.useJsonParser('50mb');
   app.use(middleware.correlation);
   app.use(middleware.logging);
 

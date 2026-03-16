@@ -79,10 +79,7 @@ export class ExpressServerAdapter {
    * Start the server.
    */
   async start(options: ExpressServerOptions): Promise<{ port: number; server: Server }> {
-    const { port, host = '127.0.0.1', jsonLimit = '50mb' } = options;
-
-    // Configure JSON parser
-    this.useJsonParser(jsonLimit);
+    const { port, host = '127.0.0.1' } = options;
 
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(port, host, () => {
