@@ -176,8 +176,6 @@ async function main() {
 
   const app = expressServer.getApp();
   expressServer.useJsonParser('50mb');
-  app.use(middleware.correlation);
-  app.use(middleware.logging);
 
   registerBasicRoutes(app, basicController, middleware);
   registerControlRoutes(app, controlController, middleware);

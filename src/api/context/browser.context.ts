@@ -137,9 +137,23 @@ export function createBrowserRouteContext(opts: {
                 });
                 return { targetId, url: found.url };
               }
+              throw new Error(`Target ${targetId} not found`);
             }
 
-            // Create new tab
+            // Reuse an existing tab when no targetId is provided.
+            const pages = await opts.listPages(resolvedProfile.cdpUrl);
+            if (pages.length > 0) {
+              const first = pages[0];
+              await opts.focusPage(resolvedProfile.cdpUrl, first.targetId);
+              log.debug('reusing existing tab', {
+                profile: name,
+                target_id: first.targetId,
+                url: first.url,
+                duration_ms: Date.now() - startedAt,
+              });
+              return { targetId: first.targetId, url: first.url };
+            }
+
             const result = await opts.createPage(resolvedProfile.cdpUrl);
             log.info('new tab created', {
               profile: name,
