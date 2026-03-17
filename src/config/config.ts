@@ -13,6 +13,7 @@ const DEFAULT_CONFIG: AppConfig = {
   browser: {
     enabled: true,
     headless: false,
+    noSandbox: false,
     profiles: {
       default: {
         name: 'default',
@@ -114,6 +115,10 @@ export function loadConfig(): AppConfig {
         process.env.BROWSER_HEADLESS ?? process.env.HEADLESS,
         DEFAULT_CONFIG.browser.headless,
       ),
+      noSandbox: parseBooleanEnv(
+        process.env.BROWSER_NO_SANDBOX ?? process.env.NO_SANDBOX,
+        DEFAULT_CONFIG.browser.noSandbox ?? false,
+      ),
       viewport: parseViewportEnv(
         process.env.BROWSER_VIEWPORT,
         DEFAULT_CONFIG.browser.viewport,
@@ -140,6 +145,7 @@ export function loadConfig(): AppConfig {
   log.info('config loaded', {
     port: config.port,
     headless: config.browser.headless,
+    no_sandbox: config.browser.noSandbox ?? false,
     viewport: `${config.browser.viewport.width}x${config.browser.viewport.height}`,
     log_level: config.logging.level,
   });
