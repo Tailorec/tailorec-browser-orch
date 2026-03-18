@@ -5,7 +5,7 @@ import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js'
 import { DiscoveryService } from '../../core/services/discovery.service.js';
 import { SessionService } from '../../core/services/session.service.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
-import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
@@ -37,7 +37,7 @@ export class SnapshotController {
       });
 
       if (!result.ok) {
-        sendLegacyError(res, 500, result.error || 'Snapshot failed');
+        sendErrorResponse(res, 500, result.error || 'Snapshot failed');
         return;
       }
 
@@ -52,7 +52,7 @@ export class SnapshotController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Snapshot failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -72,7 +72,7 @@ export class SnapshotController {
       log.info('snapshot delta completed', { target_id: tab.targetId, action: dto.action });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Delta snapshot failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -91,7 +91,7 @@ export class SnapshotController {
       });
 
       if (!result.ok) {
-        sendLegacyError(res, 500, result.error || 'ARIA snapshot failed');
+        sendErrorResponse(res, 500, result.error || 'ARIA snapshot failed');
         return;
       }
 
@@ -103,7 +103,7 @@ export class SnapshotController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'ARIA snapshot failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 }

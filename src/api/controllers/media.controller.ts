@@ -3,7 +3,7 @@ import type { BrowserRouteContext } from '../context/browser.context.js';
 import { SessionService } from '../../core/services/session.service.js';
 import { PlaywrightNavigationAdapter } from '../../adapters/playwright/playwright.navigation.adapter.js';
 import { PlaywrightInteractionsAdapter } from '../../adapters/playwright/playwright.interactions.adapter.js';
-import { getProfileContext, mapRouteError, normalizeScreenshotType, sendLegacyError } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, normalizeScreenshotType, sendErrorResponse } from './controller-runtime.utils.js';
 
 type LabeledRef = { role: string; name?: string; nth?: number };
 
@@ -26,15 +26,15 @@ export class MediaController {
       const fullPage = body.fullPage === true;
 
       if (ref && element) {
-        sendLegacyError(res, 400, 'ref and element are mutually exclusive');
+        sendErrorResponse(res, 400, 'ref and element are mutually exclusive');
         return;
       }
       if ((ref || element) && fullPage) {
-        sendLegacyError(res, 400, 'fullPage is only allowed for full-page screenshots');
+        sendErrorResponse(res, 400, 'fullPage is only allowed for full-page screenshots');
         return;
       }
       if (quality !== undefined && (type !== 'jpeg' || !Number.isInteger(quality) || quality < 0 || quality > 100)) {
-        sendLegacyError(res, 400, 'quality must be an integer between 0 and 100');
+        sendErrorResponse(res, 400, 'quality must be an integer between 0 and 100');
         return;
       }
 
@@ -57,7 +57,7 @@ export class MediaController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Screenshot failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -66,7 +66,7 @@ export class MediaController {
       const body = req.body || {};
       const refs = this.parseRefs(body.refs);
       if (!Object.keys(refs).length) {
-        sendLegacyError(res, 400, 'refs must include at least one valid {role,name?,nth?} entry');
+        sendErrorResponse(res, 400, 'refs must include at least one valid {role,name?,nth?} entry');
         return;
       }
 
@@ -93,7 +93,7 @@ export class MediaController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Labeled screenshot failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -101,7 +101,7 @@ export class MediaController {
     try {
       const body = req.body || {};
       if (typeof body.ref !== 'string' || !body.ref.trim()) {
-        sendLegacyError(res, 400, 'ref is required');
+        sendErrorResponse(res, 400, 'ref is required');
         return;
       }
 
@@ -114,7 +114,7 @@ export class MediaController {
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Highlight failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 

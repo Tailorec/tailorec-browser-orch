@@ -14,7 +14,7 @@ import {
   getProfileContext,
   mapRouteError,
   resolveUploadPaths,
-  sendLegacyError,
+  sendErrorResponse,
 } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('hooks-controller');
@@ -32,11 +32,11 @@ export class HooksController {
     try {
       const dto = this.validator.validateFileChooser(req.body || {});
       if (!dto.paths.length) {
-        sendLegacyError(res, 400, 'paths are required');
+        sendErrorResponse(res, 400, 'paths are required');
         return;
       }
       if ((dto.inputRef || dto.element) && dto.ref) {
-        sendLegacyError(res, 400, 'ref cannot be combined with inputRef/element');
+        sendErrorResponse(res, 400, 'ref cannot be combined with inputRef/element');
         return;
       }
 
@@ -62,7 +62,7 @@ export class HooksController {
       log.info('file chooser armed', { target_id: tab.targetId, paths: dto.paths.length });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'File chooser failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     } finally {
       if (process.env.BROWSER_KEEP_STAGED_UPLOADS !== 'true') {
         await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
@@ -84,7 +84,7 @@ export class HooksController {
       res.json({ ok: true });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Dialog hook failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -101,7 +101,7 @@ export class HooksController {
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Wait for download failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -120,7 +120,7 @@ export class HooksController {
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Download failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 }

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { sendLegacyError } from './controller-runtime.utils.js';
+import { sendErrorResponse } from './controller-runtime.utils.js';
 import type { SimpleActionController } from './simple-action.controller.js';
 import type { FormActionController } from './form-action.controller.js';
 import type { AdvancedActionController } from './advanced-action.controller.js';
@@ -19,7 +19,7 @@ export class ActionCompatController {
   async handleAct(req: Request, res: Response): Promise<void> {
     const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
     if (req.body && Object.hasOwn(req.body, 'selector') && kind !== 'wait') {
-      sendLegacyError(
+      sendErrorResponse(
         res,
         400,
         'CSS selectors are not supported. Use role-based refs (e.g., e1, e2) from snapshots.',
@@ -52,7 +52,7 @@ export class ActionCompatController {
         return this.formController.handleResize(req, res);
       case 'wait':
         if (req.body?.fn && !this.evaluateEnabled) {
-          sendLegacyError(
+          sendErrorResponse(
             res,
             403,
             'wait --fn is disabled by config (browser.evaluateEnabled=false).\nDocs: /gateway/configuration#browser-openclaw-managed-browser',
@@ -86,7 +86,7 @@ export class ActionCompatController {
       case 'screenshot':
         return this.mediaController.handleScreenshot(req, res);
       default:
-        sendLegacyError(res, 400, kind ? 'unsupported kind' : 'kind is required');
+        sendErrorResponse(res, 400, kind ? 'unsupported kind' : 'kind is required');
     }
   }
 }

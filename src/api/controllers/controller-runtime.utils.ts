@@ -17,7 +17,7 @@ export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function sendLegacyError(res: ExpressResponse, status: number, error: unknown): void {
+export function sendErrorResponse(res: ExpressResponse, status: number, error: unknown): void {
   res.status(status).json({
     ok: false,
     error: getErrorMessage(error),

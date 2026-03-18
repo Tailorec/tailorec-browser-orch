@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { SessionService } from '../../core/services/session.service.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { ActivityValidator } from '../validators/activity.validator.js';
-import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 export class ActivityController {
   private readonly validator = new ActivityValidator();
@@ -52,7 +52,7 @@ export class ActivityController {
       res.json({ ok: true, targetId: tab.targetId, requests: this.applyLimit(data, limit) });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Activity retrieval failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -63,4 +63,3 @@ export class ActivityController {
     return items.slice(items.length - limit);
   }
 }
-

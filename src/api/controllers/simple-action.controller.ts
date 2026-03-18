@@ -3,7 +3,7 @@ import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.u
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
-import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller');
 
@@ -79,7 +79,7 @@ export class SimpleActionController {
       });
 
       if (!result.ok) {
-        sendLegacyError(res, 500, result.error || 'Action failed');
+        sendErrorResponse(res, 500, result.error || 'Action failed');
         return;
       }
 
@@ -96,7 +96,7 @@ export class SimpleActionController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 }

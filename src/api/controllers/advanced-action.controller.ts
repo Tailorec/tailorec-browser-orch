@@ -5,7 +5,7 @@ import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { SessionService } from '../../core/services/session.service.js';
 import { DiscoveryService } from '../../core/services/discovery.service.js';
-import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller-advanced');
 
@@ -34,7 +34,7 @@ export class AdvancedActionController {
       }
 
       if (!dto.ref) {
-        sendLegacyError(res, 400, 'ref or refs is required');
+        sendErrorResponse(res, 400, 'ref or refs is required');
         return;
       }
 
@@ -43,7 +43,7 @@ export class AdvancedActionController {
       log.debug('query_state completed', { profile: profileCtx.profile.name, target_id: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Query state failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -59,7 +59,7 @@ export class AdvancedActionController {
   async handleEvaluate(req: Request, res: Response): Promise<void> {
     try {
       if (!this.evaluateEnabled) {
-        sendLegacyError(
+        sendErrorResponse(
           res,
           403,
           'act:evaluate is disabled by config (browser.evaluateEnabled=false).\nDocs: /gateway/configuration#browser-openclaw-managed-browser',
@@ -75,7 +75,7 @@ export class AdvancedActionController {
       }, true);
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Evaluate failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -96,7 +96,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Discover dropdown failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -108,7 +108,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Close dropdown failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -120,7 +120,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...(result ?? { isBlocked: false }) });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Detect blocker failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -137,7 +137,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Dismiss blocker failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -157,7 +157,7 @@ export class AdvancedActionController {
       });
 
       if (!result.ok) {
-        sendLegacyError(res, 500, result.error || 'Action failed');
+        sendErrorResponse(res, 500, result.error || 'Action failed');
         return;
       }
 
@@ -169,7 +169,7 @@ export class AdvancedActionController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 

@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { CdpValidator } from '../validators/cdp.validator.js';
-import { getProfileContext, mapRouteError, sendLegacyError } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 import {
   captureScreenshot,
   createTargetViaCdp,
@@ -45,7 +45,7 @@ export class CdpController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'CDP screenshot failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -63,7 +63,7 @@ export class CdpController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'CDP create target failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -97,8 +97,7 @@ export class CdpController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'CDP evaluate failed');
-      sendLegacyError(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 }
-
