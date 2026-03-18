@@ -51,3 +51,7 @@ export {
   extractCorrelationIdFromHeaders,
   getOrCreateCorrelationIdFromHeaders,
 } from './correlation.js';
+export {
+  verifyControlToken,
+  createControlToken,
+} from './control-token.js';

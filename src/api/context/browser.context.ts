@@ -204,11 +204,23 @@ export function createBrowserRouteContext(opts: {
     mapTabError(err: unknown): { status: number; message: string } | null {
       if (err instanceof Error) {
         const msg = err.message;
-        if (msg.includes('Target closed') || msg.includes('Target page is closed')) {
-          return { status: 404, message: 'Target page not found or closed' };
+        if (msg.includes('tab not found') || msg.includes('Target closed') || msg.includes('Target page is closed')) {
+          return { status: 404, message: 'Tab not found or closed' };
         }
         if (msg.includes('connectOverCDP') || msg.includes('ECONNREFUSED')) {
-          return { status: 503, message: 'Browser not available' };
+          return { status: 503, message: 'Browser CDP unavailable. Retry in a few seconds.' };
+        }
+        if (
+          msg.includes('not found or not visible') ||
+          msg.includes('Run a new snapshot to see current page elements')
+        ) {
+          return {
+            status: 409,
+            message: 'Reference became stale after page update. Take a new snapshot and retry.',
+          };
+        }
+        if (msg.includes('Timeout') || msg.includes('TimeoutError')) {
+          return { status: 408, message: 'Browser action timed out' };
         }
         if (msg.includes('Navigation failed')) {
           return { status: 500, message: 'Navigation failed' };

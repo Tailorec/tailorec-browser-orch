@@ -6,7 +6,7 @@ import { z } from 'zod';
  */
 const BaseActionSchema = z.object({
   targetId: z.string().optional(),
-  timeoutMs: z.number().min(500).max(60000).optional(),
+  timeoutMs: z.number().optional(),
 });
 
 /**
@@ -79,7 +79,7 @@ const SelectActionSchema = BaseActionSchema.extend({
  */
 const BrowserFormFieldSchema = z.object({
   ref: z.string(),
-  type: z.enum(['text', 'email', 'phone', 'date', 'password', 'checkbox', 'radio']),
+  type: z.string(),
   value: z.union([z.string(), z.number(), z.boolean()]).optional(),
 });
 
@@ -128,7 +128,7 @@ const EvaluateActionSchema = BaseActionSchema.extend({
  */
 const NavigateActionSchema = BaseActionSchema.extend({
   kind: z.literal('navigate'),
-  url: z.string().url(),
+  url: z.string().min(1),
 });
 
 /**
@@ -353,7 +353,24 @@ export class ActionValidator {
    * Validate wait action
    */
   validateWait(payload: unknown): WaitActionDTO {
-    return this.validate(payload, WaitActionSchema);
+    const parsed = this.validate(payload, WaitActionSchema);
+    if (
+      parsed.timeMs === undefined &&
+      !parsed.text &&
+      !parsed.textGone &&
+      !parsed.selector &&
+      !parsed.url &&
+      !parsed.loadState &&
+      !parsed.fn
+    ) {
+      throw new ActionValidationError([
+        {
+          field: 'root',
+          message: 'wait requires at least one of: timeMs, text, textGone, selector, url, loadState, fn',
+        },
+      ]);
+    }
+    return parsed;
   }
 
   validateEvaluate(payload: unknown): EvaluateActionDTO {

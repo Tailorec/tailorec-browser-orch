@@ -16,6 +16,12 @@ export type ControlTokenClaims = {
 
 const JWT_ISSUER = () => process.env.AGENT_RUNTIME_JWT_ISSUER || 'tailorec-backend';
 const JWT_AUDIENCE = () => process.env.AGENT_RUNTIME_JWT_AUDIENCE || 'tailorec-agent-runtime';
+const DEFAULT_CONTROL_TOKEN_EXPIRES_IN_SEC = 60 * 15;
+
+function base64UrlEncode(input: Buffer | string): string {
+  const raw = Buffer.isBuffer(input) ? input : Buffer.from(input, 'utf8');
+  return raw.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
 
 function base64UrlDecode(input: string): Buffer {
   const base64 = input.replace(/-/g, '+').replace(/_/g, '/');
@@ -92,4 +98,53 @@ export function verifyControlToken(token: string): ControlTokenClaims {
   }
 
   return payload as ControlTokenClaims;
+}
+
+export type CreateControlTokenInput = {
+  runId: string;
+  browserSessionId?: string;
+  tenantId?: string;
+  userId?: string;
+  expiresInSec?: number;
+};
+
+export function createControlToken(input: CreateControlTokenInput): {
+  token: string;
+  expiresIn: number;
+} {
+  const secret = process.env.AGENT_RUNTIME_JWT_SECRET || process.env.JWT_SECRET_KEY;
+  if (!secret) {
+    throw new Error('missing_jwt_secret');
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const expiresIn = Math.max(30, Math.floor(input.expiresInSec ?? DEFAULT_CONTROL_TOKEN_EXPIRES_IN_SEC));
+  const header = {
+    alg: 'HS256',
+    typ: 'JWT',
+  } as const;
+  const payload: ControlTokenClaims = {
+    iat: now,
+    nbf: now,
+    exp: now + expiresIn,
+    iss: JWT_ISSUER(),
+    aud: JWT_AUDIENCE(),
+    scope: ['browser:control'],
+    token_type: 'agent_browser_control',
+    run_id: input.runId,
+    browser_session_id: input.browserSessionId,
+    tenant_id: input.tenantId,
+    user_id: input.userId,
+  };
+
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const data = `${encodedHeader}.${encodedPayload}`;
+  const signature = createHmac('sha256', secret).update(data).digest();
+  const encodedSignature = base64UrlEncode(signature);
+
+  return {
+    token: `${data}.${encodedSignature}`,
+    expiresIn,
+  };
 }

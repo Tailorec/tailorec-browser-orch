@@ -6,11 +6,11 @@ import { z } from 'zod';
  */
 export const SnapshotRequestSchema = z.object({
   targetId: z.string().optional(),
-  timeoutMs: z.number().min(500).max(60000).optional(),
-  maxChars: z.number().min(100).max(100000).optional(),
+  timeoutMs: z.number().optional(),
+  maxChars: z.number().optional(),
   interactiveOnly: z.boolean().optional().default(false),
   compact: z.boolean().optional().default(false),
-  maxDepth: z.number().min(1).max(20).optional().default(10),
+  maxDepth: z.number().optional().default(10),
 });
 
 export type SnapshotRequestDTO = z.infer<typeof SnapshotRequestSchema>;

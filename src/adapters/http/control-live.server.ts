@@ -4,7 +4,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { createSubsystemLogger } from '../logging/logger.adapter.js';
 import type { BrowserRouteContext } from '../../api/context/browser.context.js';
 import { verifyControlToken, type ControlTokenClaims } from '../../shared/utils/control-token.js';
-import { PlaywrightBrowserDriverAdapter } from '../playwright/playwright.browser-driver.adapter.js';
+import type { IBrowserDriver } from '../../core/ports/browser-driver.port.js';
 
 const log = createSubsystemLogger('control-live-server');
 const FRAME_INTERVAL_MS = Math.max(200, Number(process.env.CONTROL_FRAME_INTERVAL_MS || 350));
@@ -52,7 +52,7 @@ function parseClientMessage(raw: WebSocket.RawData): ControlClientMessage | null
 export function installControlLiveWebSocketServer(
   server: Server,
   ctx: BrowserRouteContext,
-  browserDriver: PlaywrightBrowserDriverAdapter,
+  browserDriver: IBrowserDriver,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const activeByRunId = new Map<string, WebSocket>();
@@ -113,7 +113,7 @@ export function installControlLiveWebSocketServer(
       const tab = await profileCtx.ensureTabAvailable(targetId);
       targetId = tab.targetId;
       const browser = await browserDriver.connect(profileCtx.profile.cdpUrl);
-      const page = await browserDriver.getPage(browser, tab.targetId, profileCtx.profile.cdpUrl);
+      const page = await browserDriver.getPage(browser, tab.targetId);
       return { page, tab };
     };
 
