@@ -51,8 +51,7 @@ export class SnapshotController {
         stats: result.stats,
       });
     } catch (error) {
-      const mapped = mapRouteError(this.browserContext, error, 'Snapshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, 500, String(error));
     }
   }
 
@@ -71,8 +70,7 @@ export class SnapshotController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
       log.info('snapshot delta completed', { target_id: tab.targetId, action: dto.action });
     } catch (error) {
-      const mapped = mapRouteError(this.browserContext, error, 'Delta snapshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, 500, String(error));
     }
   }
 

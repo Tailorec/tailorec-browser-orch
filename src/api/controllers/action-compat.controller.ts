@@ -3,36 +3,59 @@ import { sendErrorResponse } from './controller-runtime.utils.js';
 import type { SimpleActionController } from './simple-action.controller.js';
 import type { FormActionController } from './form-action.controller.js';
 import type { AdvancedActionController } from './advanced-action.controller.js';
-import type { HooksController } from './hooks.controller.js';
-import type { MediaController } from './media.controller.js';
+
+const ACT_KINDS = new Set<string>([
+  'click',
+  'close',
+  'drag',
+  'evaluate',
+  'fill',
+  'hover',
+  'scrollIntoView',
+  'press',
+  'resize',
+  'select',
+  'type',
+  'wait',
+  'navigate',
+  'discover_dropdown',
+  'close_dropdown',
+  'query_state',
+  'detect_blocker',
+  'dismiss_blocker',
+]);
+
+const SELECTOR_UNSUPPORTED_MESSAGE = [
+  "Error: 'selector' is not supported. Use 'ref' from snapshot instead.",
+  '',
+  'Example workflow:',
+  '1. snapshot action to get page state with refs',
+  '2. act with ref: "e123" to interact with element',
+  '',
+  'This is more reliable for modern SPAs.',
+].join('\n');
 
 export class ActionCompatController {
   constructor(
     private simpleController: SimpleActionController,
     private formController: FormActionController,
     private advancedController: AdvancedActionController,
-    private hooksController: HooksController,
-    private mediaController: MediaController,
     private evaluateEnabled: boolean,
   ) {}
 
   async handleAct(req: Request, res: Response): Promise<void> {
     const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
+    if (!ACT_KINDS.has(kind)) {
+      sendErrorResponse(res, 400, 'kind is required');
+      return;
+    }
     if (req.body && Object.hasOwn(req.body, 'selector') && kind !== 'wait') {
-      sendErrorResponse(
-        res,
-        400,
-        'CSS selectors are not supported. Use role-based refs (e.g., e1, e2) from snapshots.',
-      );
+      sendErrorResponse(res, 400, SELECTOR_UNSUPPORTED_MESSAGE);
       return;
     }
 
     switch (kind) {
       case 'click':
-      case 'dblclick':
-        if (kind === 'dblclick') {
-          req.body.doubleClick = true;
-        }
         return this.simpleController.handleClick(req, res);
       case 'type':
         return this.simpleController.handleType(req, res);
@@ -66,7 +89,6 @@ export class ActionCompatController {
         return this.advancedController.handleClose(req, res);
       case 'query_state':
         return this.advancedController.handleQueryState(req, res);
-      case 'scroll':
       case 'scrollIntoView':
         return this.advancedController.handleScrollIntoView(req, res);
       case 'discover_dropdown':
@@ -77,16 +99,8 @@ export class ActionCompatController {
         return this.advancedController.handleDetectBlocker(req, res);
       case 'dismiss_blocker':
         return this.advancedController.handleDismissBlocker(req, res);
-      case 'file_upload':
-        return this.hooksController.handleFileChooser(req, res);
-      case 'dialog':
-        return this.hooksController.handleDialog(req, res);
-      case 'download':
-        return this.hooksController.handleDownload(req, res);
-      case 'screenshot':
-        return this.mediaController.handleScreenshot(req, res);
       default:
-        sendErrorResponse(res, 400, kind ? 'unsupported kind' : 'kind is required');
+        sendErrorResponse(res, 400, 'kind is required');
     }
   }
 }

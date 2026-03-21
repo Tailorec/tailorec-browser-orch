@@ -157,8 +157,6 @@ async function main() {
     simpleController,
     formController,
     advancedController,
-    hooksController,
-    mediaController,
     config.browser.evaluateEnabled,
   );
   const controlController = new ControlController();

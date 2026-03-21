@@ -157,7 +157,8 @@ export class AdvancedActionController {
       });
 
       if (!result.ok) {
-        sendErrorResponse(res, 500, result.error || 'Action failed');
+        const mapped = mapRouteError(this.browserContext, result.error || 'Action failed', 'Action failed');
+        sendErrorResponse(res, mapped.status, mapped.message);
         return;
       }
 

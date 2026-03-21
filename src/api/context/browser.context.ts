@@ -219,6 +219,16 @@ export function createBrowserRouteContext(opts: {
             message: 'Reference became stale after page update. Take a new snapshot and retry.',
           };
         }
+        if (
+          (msg.includes('Timeout') || msg.includes('TimeoutError')) &&
+          msg.includes('waiting for locator') &&
+          msg.includes('[aria-ref=')
+        ) {
+          return {
+            status: 409,
+            message: 'Reference became stale after page update. Take a new snapshot and retry.',
+          };
+        }
         if (msg.includes('Timeout') || msg.includes('TimeoutError')) {
           return { status: 408, message: 'Browser action timed out' };
         }

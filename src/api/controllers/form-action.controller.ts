@@ -86,7 +86,20 @@ export class FormActionController {
       });
 
       if (!result.ok) {
-        sendErrorResponse(res, 500, result.error || 'Action failed');
+        const timeoutMs = 'timeoutMs' in action ? action.timeoutMs : undefined;
+        const waitTimeoutResponse = this.buildWaitLoadStateTimeoutResponse(
+          action.kind,
+          result.error,
+          tab.targetId,
+          timeoutMs,
+          action.kind === 'wait' ? action.loadState : undefined,
+        );
+        if (waitTimeoutResponse) {
+          res.status(408).json(waitTimeoutResponse);
+          return;
+        }
+        const mapped = mapRouteError(this.browserContext, result.error || 'Action failed', 'Action failed');
+        sendErrorResponse(res, mapped.status, mapped.message);
         return;
       }
 
@@ -119,8 +132,66 @@ export class FormActionController {
         path: req.path,
       });
     } catch (error) {
+      const timeoutMs = 'timeoutMs' in action ? action.timeoutMs : undefined;
+      const waitTimeoutResponse = this.buildWaitLoadStateTimeoutResponse(
+        action.kind,
+        error,
+        targetId,
+        timeoutMs,
+        action.kind === 'wait' ? action.loadState : undefined,
+      );
+      if (waitTimeoutResponse) {
+        res.status(408).json(waitTimeoutResponse);
+        return;
+      }
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
       sendErrorResponse(res, mapped.status, mapped.message);
     }
+  }
+
+  private buildWaitLoadStateTimeoutResponse(
+    kind: Parameters<ExecuteActionUseCase['execute']>[0]['action']['kind'],
+    error: unknown,
+    targetId: string | undefined,
+    timeoutMs: number | undefined,
+    loadState: 'load' | 'domcontentloaded' | 'networkidle' | undefined,
+  ):
+    | {
+        ok: false;
+        error: string;
+        code: 'WAIT_LOAD_STATE_TIMEOUT';
+        details: {
+          kind: string;
+          targetId: string | null;
+          loadState: string | null;
+          timeoutMs: number | null;
+          hint: string;
+          raw: string;
+        };
+      }
+    | null {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+    if (kind !== 'wait' || !rawMessage.includes('waitForLoadState') || !rawMessage.includes('Timeout')) {
+      return null;
+    }
+
+    const hint =
+      loadState === 'networkidle'
+        ? 'networkidle can hang on pages with long-polling/analytics; prefer load or domcontentloaded'
+        : 'increase timeoutMs or use a less strict wait condition';
+
+    return {
+      ok: false,
+      error: 'Browser wait action timed out',
+      code: 'WAIT_LOAD_STATE_TIMEOUT',
+      details: {
+        kind: 'wait',
+        targetId: targetId ?? null,
+        loadState: loadState ?? null,
+        timeoutMs: timeoutMs ?? null,
+        hint,
+        raw: rawMessage.slice(0, 1000),
+      },
+    };
   }
 }
