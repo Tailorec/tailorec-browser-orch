@@ -17,6 +17,20 @@ export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function normalizeValidationErrorMessage(error: Error): string {
+  const raw = error.message.replace(/^Action validation failed:\s*/i, '').trim();
+  const first = raw.split(',')[0]?.trim() || 'invalid request payload';
+  const required = first.match(/^([a-zA-Z0-9_.-]+):\s*Required$/);
+  if (required) {
+    return `${required[1]} is required`;
+  }
+  const root = first.match(/^root:\s*(.+)$/i);
+  if (root) {
+    return root[1];
+  }
+  return first;
+}
+
 export function sendErrorResponse(res: ExpressResponse, status: number, error: unknown): void {
   res.status(status).json({
     ok: false,
@@ -29,6 +43,9 @@ export function mapRouteError(
   error: unknown,
   fallback: string,
 ): { status: number; message: string } {
+  if (error instanceof Error && /ValidationError$/.test(error.name)) {
+    return { status: 400, message: normalizeValidationErrorMessage(error) };
+  }
   return ctx.mapTabError(error) ?? { status: 500, message: getErrorMessage(error) || fallback };
 }
 
