@@ -16,14 +16,20 @@ export class SimpleActionController {
   ) {}
 
   async handleClick(req: Request, res: Response): Promise<void> {
-    await this.handleAction(req, res, () => this.validator.validateClick(req.body || {}), (dto) => ({
-      kind: 'click',
-      ref: dto.ref,
-      doubleClick: dto.doubleClick,
-      button: dto.button,
-      modifiers: dto.modifiers,
-      timeoutMs: dto.timeoutMs,
-    }));
+    await this.handleAction(
+      req,
+      res,
+      () => this.validator.validateClick(req.body || {}),
+      (dto) => ({
+        kind: 'click',
+        ref: dto.ref,
+        doubleClick: dto.doubleClick,
+        button: dto.button,
+        modifiers: dto.modifiers,
+        timeoutMs: dto.timeoutMs,
+      }),
+      true,
+    );
   }
 
   async handleType(req: Request, res: Response): Promise<void> {
@@ -54,11 +60,17 @@ export class SimpleActionController {
   }
 
   async handleNavigate(req: Request, res: Response): Promise<void> {
-    await this.handleAction(req, res, () => this.validator.validateNavigate(req.body || {}), (dto) => ({
-      kind: 'navigate',
-      url: dto.url,
-      timeoutMs: dto.timeoutMs,
-    }));
+    await this.handleAction(
+      req,
+      res,
+      () => this.validator.validateNavigate(req.body || {}),
+      (dto) => ({
+        kind: 'navigate',
+        url: dto.url,
+        timeoutMs: dto.timeoutMs,
+      }),
+      true,
+    );
   }
 
   private async handleAction<T extends { targetId?: string }>(
@@ -66,6 +78,7 @@ export class SimpleActionController {
     res: Response,
     parse: () => T,
     buildAction: (dto: T) => Parameters<ExecuteActionUseCase['execute']>[0]['action'],
+    includeUrl = false,
   ): Promise<void> {
     const started = Date.now();
     try {
@@ -87,7 +100,7 @@ export class SimpleActionController {
       res.json({
         ok: true,
         targetId: result.targetId ?? tab.targetId,
-        url: result.url ?? tab.url,
+        ...(includeUrl ? { url: result.url ?? tab.url } : {}),
         ...(result.result !== undefined ? { result: result.result } : {}),
       });
 

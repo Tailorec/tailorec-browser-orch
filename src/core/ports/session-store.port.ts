@@ -14,6 +14,12 @@ import type { BrowserSession } from '../entities/browser-session.entity.js';
  */
 export type RoleRefMap = Record<string, { role: string; name?: string; nth?: number }>;
 
+export type StoredRoleRefs = {
+  refs: RoleRefMap;
+  mode: 'role' | 'aria';
+  frameSelector?: string;
+};
+
 /**
  * Port: Session Store
  * 
@@ -50,6 +56,7 @@ export interface ISessionStore {
     session: BrowserSession,
     refs: RoleRefMap,
     mode: 'role' | 'aria',
+    frameSelector?: string,
   ): Promise<void>;
 
   /**
@@ -57,7 +64,7 @@ export interface ISessionStore {
    * @param session - The session to restore refs for
    * @returns The restored role references or null if not found
    */
-  restoreRoleRefs(session: BrowserSession): Promise<RoleRefMap | null>;
+  restoreRoleRefs(session: BrowserSession): Promise<StoredRoleRefs | null>;
 }
 
 /**

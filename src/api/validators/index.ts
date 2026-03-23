@@ -2,15 +2,6 @@
  * Validator exports
  */
 export {
-  SnapshotRequestSchema,
-  SnapshotDeltaRequestSchema,
-  SnapshotValidationError,
-  SnapshotValidator,
-  type SnapshotRequestDTO,
-  type SnapshotDeltaRequestDTO,
-} from './snapshot.validator.js';
-
-export {
   ActionRequestSchema,
   FileChooserRequestSchema,
   DialogRequestSchema,
@@ -31,17 +22,3 @@ export {
   type DownloadWaitRequestDTO,
   type DownloadRequestDTO,
 } from './action.validator.js';
-
-export {
-  ActivityValidationError,
-  ActivityValidator,
-  type ActivityRequestDTO,
-} from './activity.validator.js';
-
-export {
-  CdpValidationError,
-  CdpValidator,
-  type CdpScreenshotDTO,
-  type CdpCreateTargetDTO,
-  type CdpEvaluateDTO,
-} from './cdp.validator.js';

@@ -60,22 +60,4 @@ export function registerSnapshotRoutes(
     controller.handleSnapshotDelta.bind(controller),
   );
 
-  /**
-   * POST /snapshot/aria
-   * Take accessibility tree snapshot
-   * 
-   * Request body:
-   * - targetId?: string - Tab target ID
-   * 
-   * Response:
-   * - ok: boolean
-   * - targetId: string
-   * - ariaTree: unknown
-   */
-  router.post(
-    '/snapshot/aria',
-    middleware.correlation,
-    middleware.logging,
-    controller.handleSnapshotAria.bind(controller),
-  );
 }

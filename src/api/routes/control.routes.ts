@@ -36,30 +36,4 @@ export function registerControlRoutes(
     controller.handleControl.bind(controller),
   );
 
-  /**
-   * GET /control/live
-   * WebSocket endpoint for live browser control
-   * 
-   * Query parameters:
-   * - token: string - JWT control token (required)
-   * - targetId?: string - Tab target ID (optional)
-   * 
-   * This endpoint handles WebSocket upgrades, not HTTP requests.
-   * The WebSocket server sends:
-   * - frame: JPEG screenshot frames
-   * - status: Page status updates
-   * 
-   * The WebSocket server receives:
-   * - click: Mouse click events
-   * - wheel: Scroll events
-   * - key: Key press events
-   * - type: Text input events
-   * - ping: Keepalive
-   */
-  router.get(
-    '/control/live',
-    middleware.correlation,
-    middleware.logging,
-    controller.handleControlLive.bind(controller),
-  );
 }

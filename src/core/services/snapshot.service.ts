@@ -6,6 +6,7 @@
  */
 
 import type { Page } from 'playwright-core';
+import { buildRoleSnapshotFromAiSnapshot, getRoleSnapshotStats } from '../../adapters/playwright/playwright.role-snapshot.adapter.js';
 import type { RoleRefMap } from '../ports/session-store.port.js';
 
 /**
@@ -129,18 +130,17 @@ export class SnapshotService {
     }
 
     // Build role refs from snapshot
-    const refs = this.buildRoleRefsFromSnapshot(snapshot);
+    const built = buildRoleSnapshotFromAiSnapshot(snapshot, {
+      interactive: options.interactiveOnly,
+      compact: options.compact,
+      maxDepth: options.maxDepth,
+    });
 
     return {
-      snapshot,
-      refs,
+      snapshot: built.snapshot,
+      refs: built.refs,
       truncated,
-      stats: {
-        lines: snapshot.split('\n').length,
-        chars: snapshot.length,
-        refs: Object.keys(refs).length,
-        interactive: this.countInteractiveElements(refs),
-      },
+      stats: getRoleSnapshotStats(built.snapshot, built.refs),
     };
   }
 
@@ -164,54 +164,6 @@ export class SnapshotService {
     } finally {
       await session.detach().catch(() => {});
     }
-  }
-
-  /**
-   * Build role references from snapshot string
-   * @param snapshot - Snapshot string
-   * @returns Role references map
-   */
-  private buildRoleRefsFromSnapshot(snapshot: string): RoleRefMap {
-    const refs: RoleRefMap = {};
-    const refPattern = /\[ref=(e\d+)\]/g;
-    const lines = snapshot.split('\n');
-
-    for (const line of lines) {
-      const refMatch = line.match(refPattern);
-      if (refMatch) {
-        const ref = refMatch[0].match(/e\d+/)?.[0];
-        if (ref) {
-          // Extract role and name from line
-          const roleMatch = line.match(/^- (\w+)/);
-          const nameMatch = line.match(/"([^"]+)"/);
-
-          refs[ref] = {
-            role: roleMatch?.[1] ?? 'unknown',
-            name: nameMatch?.[1],
-          };
-        }
-      }
-    }
-
-    return refs;
-  }
-
-  /**
-   * Count interactive elements in refs
-   * @param refs - Role references map
-   * @returns Count of interactive elements
-   */
-  private countInteractiveElements(refs: RoleRefMap): number {
-    const interactiveRoles = [
-      'button',
-      'link',
-      'textbox',
-      'combobox',
-      'listbox',
-      'checkbox',
-      'radio',
-    ];
-    return Object.values(refs).filter((r) => interactiveRoles.includes(r.role)).length;
   }
 
   /**

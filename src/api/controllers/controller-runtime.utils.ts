@@ -10,7 +10,13 @@ export function getProfileName(req: Request): string {
 }
 
 export function getProfileContext(ctx: BrowserRouteContext, req: Request) {
-  return ctx.forProfile(getProfileName(req));
+  try {
+    return ctx.forProfile(getProfileName(req));
+  } catch (error) {
+    const wrapped = new Error(getErrorMessage(error));
+    (wrapped as Error & { status?: number }).status = 404;
+    throw wrapped;
+  }
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -43,6 +49,17 @@ export function mapRouteError(
   error: unknown,
   fallback: string,
 ): { status: number; message: string } {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'status' in error &&
+    typeof (error as { status?: unknown }).status === 'number'
+  ) {
+    return {
+      status: (error as { status: number }).status,
+      message: getErrorMessage(error),
+    };
+  }
   if (error instanceof Error && /ValidationError$/.test(error.name)) {
     return { status: 400, message: normalizeValidationErrorMessage(error) };
   }

@@ -19,6 +19,7 @@ const log = createSubsystemLogger('browser-context');
 export type BrowserServerState = {
   server: Server;
   port: number;
+  configuredProfiles: Map<string, ResolvedBrowserProfile>;
   profiles: Map<string, RunningProfile>;
 };
 
@@ -85,7 +86,7 @@ export function createBrowserRouteContext(opts: {
       const s = opts.getState();
       if (!s) throw new Error('Server not started');
 
-      const resolvedProfile = s.profiles.get(name)?.config;
+      const resolvedProfile = s.configuredProfiles.get(name);
       if (!resolvedProfile) {
         throw new Error(`Profile ${name} not found`);
       }
@@ -204,10 +205,10 @@ export function createBrowserRouteContext(opts: {
     mapTabError(err: unknown): { status: number; message: string } | null {
       if (err instanceof Error) {
         const msg = err.message;
-        if (msg.includes('tab not found') || msg.includes('Target closed') || msg.includes('Target page is closed')) {
+        if (msg.includes('tab not found') || msg.includes('Target closed')) {
           return { status: 404, message: 'Tab not found or closed' };
         }
-        if (msg.includes('connectOverCDP') || msg.includes('ECONNREFUSED')) {
+        if (isConnectionRefusedError(err)) {
           return { status: 503, message: 'Browser CDP unavailable. Retry in a few seconds.' };
         }
         if (
@@ -219,24 +220,8 @@ export function createBrowserRouteContext(opts: {
             message: 'Reference became stale after page update. Take a new snapshot and retry.',
           };
         }
-        if (
-          (msg.includes('Timeout') || msg.includes('TimeoutError')) &&
-          msg.includes('waiting for locator') &&
-          msg.includes('[aria-ref=')
-        ) {
-          return {
-            status: 409,
-            message: 'Reference became stale after page update. Take a new snapshot and retry.',
-          };
-        }
         if (msg.includes('Timeout') || msg.includes('TimeoutError')) {
           return { status: 408, message: 'Browser action timed out' };
-        }
-        if (msg.includes('Navigation failed')) {
-          return { status: 500, message: 'Navigation failed' };
-        }
-        if (msg.includes('Protocol error')) {
-          return { status: 500, message: 'Browser protocol error' };
         }
       }
       return null;

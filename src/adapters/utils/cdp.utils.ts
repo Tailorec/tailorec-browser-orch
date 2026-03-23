@@ -7,6 +7,7 @@
 
 import WebSocket from "ws";
 import { Buffer } from "node:buffer";
+import { getChromeExtensionRelayAuthHeaders } from "../chrome/extension-relay.server.js";
 
 /**
  * Check if host is a loopback address
@@ -28,7 +29,8 @@ export function isLoopbackHost(host: string): boolean {
  * Get headers with authentication
  */
 export function getHeadersWithAuth(url: string, headers: Record<string, string> = {}): Record<string, string> {
-  const mergedHeaders = { ...headers };
+  const relayHeaders = getChromeExtensionRelayAuthHeaders(url);
+  const mergedHeaders = { ...relayHeaders, ...headers };
   try {
     const parsed = new URL(url);
     const hasAuthHeader = Object.keys(mergedHeaders).some(

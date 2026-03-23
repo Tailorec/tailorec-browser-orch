@@ -41,11 +41,4 @@ export class ControlController {
       note: 'Use ws_url for browser interaction. Legacy frame/action/status control endpoints are removed.',
     });
   }
-
-  handleControlLive(_req: Request, res: Response): void {
-    res.status(426).json({
-      ok: false,
-      error: 'WebSocket upgrade required',
-    });
-  }
 }

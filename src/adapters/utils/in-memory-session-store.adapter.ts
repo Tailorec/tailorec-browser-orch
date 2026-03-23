@@ -1,5 +1,5 @@
 import type { BrowserSession } from '../../core/entities/browser-session.entity.js';
-import type { ISessionStore, RoleRefMap } from '../../core/ports/session-store.port.js';
+import type { ISessionStore, RoleRefMap, StoredRoleRefs } from '../../core/ports/session-store.port.js';
 
 /**
  * In-Memory Session Store Adapter
@@ -8,7 +8,7 @@ import type { ISessionStore, RoleRefMap } from '../../core/ports/session-store.p
  */
 export class InMemorySessionStoreAdapter implements ISessionStore {
   private sessions = new Map<string, BrowserSession>();
-  private roleRefs = new Map<string, { refs: RoleRefMap; mode: 'role' | 'aria' }>();
+  private roleRefs = new Map<string, StoredRoleRefs>();
 
   async getSession(targetId?: string): Promise<BrowserSession | null> {
     if (!targetId) return null;
@@ -28,12 +28,12 @@ export class InMemorySessionStoreAdapter implements ISessionStore {
     session: BrowserSession,
     refs: RoleRefMap,
     mode: 'role' | 'aria',
+    frameSelector?: string,
   ): Promise<void> {
-    this.roleRefs.set(session.id, { refs, mode });
+    this.roleRefs.set(session.id, { refs, mode, frameSelector });
   }
 
-  async restoreRoleRefs(session: BrowserSession): Promise<RoleRefMap | null> {
-    const entry = this.roleRefs.get(session.id);
-    return entry ? entry.refs : null;
+  async restoreRoleRefs(session: BrowserSession): Promise<StoredRoleRefs | null> {
+    return this.roleRefs.get(session.id) ?? null;
   }
 }

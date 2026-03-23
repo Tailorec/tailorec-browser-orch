@@ -1,17 +1,14 @@
 import type { Request, Response } from 'express';
 import type { TakeSnapshotUseCase } from '../../core/use-cases/take-snapshot.use-case.js';
-import { SnapshotValidator } from '../validators/snapshot.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { DiscoveryService } from '../../core/services/discovery.service.js';
 import { SessionService } from '../../core/services/session.service.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
 export class SnapshotController {
-  private readonly validator = new SnapshotValidator();
-
   constructor(
     private takeSnapshotUseCase: TakeSnapshotUseCase,
     private sessionService: SessionService,
@@ -20,19 +17,25 @@ export class SnapshotController {
   ) {}
 
   async handleSnapshot(req: Request, res: Response): Promise<void> {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const targetId = typeof body.targetId === 'string' ? body.targetId.trim() || undefined : undefined;
     try {
-      const dto = this.validator.validate(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const timeoutMs = this.toNumber(body.timeoutMs);
+      const maxChars = this.toNumber(body.maxChars);
+      const interactiveOnly = body.interactiveOnly === true;
+      const compact = body.compact === true;
+      const maxDepth = this.toNumber(body.maxDepth);
       const result = await this.takeSnapshotUseCase.execute({
         cdpUrl: profileCtx.profile.cdpUrl,
         targetId: tab.targetId,
         options: {
-          timeoutMs: dto.timeoutMs,
-          maxChars: dto.maxChars,
-          interactiveOnly: dto.interactiveOnly,
-          compact: dto.compact,
-          maxDepth: dto.maxDepth,
+          timeoutMs,
+          maxChars,
+          interactiveOnly,
+          compact,
+          maxDepth,
         },
       });
 
@@ -56,52 +59,41 @@ export class SnapshotController {
   }
 
   async handleSnapshotDelta(req: Request, res: Response): Promise<void> {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const targetId = typeof body.targetId === 'string' ? body.targetId.trim() || undefined : undefined;
+    const action = typeof body.action === 'string' ? body.action.trim() : '';
+    const anchorRef = typeof body.anchorRef === 'string' ? body.anchorRef.trim() || undefined : undefined;
+    if (action !== 'start' && action !== 'stop') {
+      sendErrorResponse(res, 400, "action must be 'start' or 'stop'");
+      return;
+    }
     try {
-      const dto = this.validator.validateDelta(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const tab = await profileCtx.ensureTabAvailable(targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
 
       const result =
-        dto.action === 'start'
-          ? await this.discoveryService.startDomObserver(page, dto.anchorRef)
+        action === 'start'
+          ? await this.discoveryService.startDomObserver(page, anchorRef)
           : await this.discoveryService.stopDomObserver(page);
 
       res.json({ ok: true, targetId: tab.targetId, ...result });
-      log.info('snapshot delta completed', { target_id: tab.targetId, action: dto.action });
+      log.info('snapshot delta completed', { target_id: tab.targetId, action });
     } catch (error) {
       sendErrorResponse(res, 500, String(error));
     }
   }
 
-  async handleSnapshotAria(req: Request, res: Response): Promise<void> {
-    try {
-      const dto = this.validator.validate(req.body || {});
-      const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
-      const result = await this.takeSnapshotUseCase.execute({
-        cdpUrl: profileCtx.profile.cdpUrl,
-        targetId: tab.targetId,
-        type: 'aria',
-        options: {
-          ariaLimit: dto.maxChars,
-        },
-      });
-
-      if (!result.ok) {
-        sendErrorResponse(res, 500, result.error || 'ARIA snapshot failed');
-        return;
-      }
-
-      res.json({
-        ok: true,
-        targetId: result.targetId ?? tab.targetId,
-        url: result.url ?? tab.url,
-        nodes: result.nodes ?? [],
-      });
-    } catch (error) {
-      const mapped = mapRouteError(this.browserContext, error, 'ARIA snapshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+  private toNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
     }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return undefined;
   }
 }

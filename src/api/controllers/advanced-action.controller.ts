@@ -68,11 +68,18 @@ export class AdvancedActionController {
       }
 
       const dto = this.validator.validateEvaluate(req.body || {});
-      await this.execute(req, res, dto.targetId, {
-        kind: 'evaluate',
-        fn: dto.fn,
-        ref: dto.ref,
-      }, true);
+      await this.execute(
+        req,
+        res,
+        dto.targetId,
+        {
+          kind: 'evaluate',
+          fn: dto.fn,
+          ref: dto.ref,
+        },
+        true,
+        true,
+      );
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Evaluate failed');
       sendErrorResponse(res, mapped.status, mapped.message);
@@ -147,6 +154,7 @@ export class AdvancedActionController {
     targetId: string | undefined,
     action: Parameters<ExecuteActionUseCase['execute']>[0]['action'],
     includeResult = false,
+    includeUrl = false,
   ): Promise<void> {
     try {
       const { profileCtx, tab } = await this.resolvePage(req, targetId);
@@ -165,7 +173,7 @@ export class AdvancedActionController {
       res.json({
         ok: true,
         targetId: result.targetId ?? tab.targetId,
-        url: result.url ?? tab.url,
+        ...(includeUrl ? { url: result.url ?? tab.url } : {}),
         ...(includeResult ? { result: result.result } : {}),
       });
     } catch (error) {

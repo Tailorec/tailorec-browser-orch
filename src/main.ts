@@ -11,9 +11,7 @@ import {
 import { createBrowserRouteContext, type BrowserServerState } from './api/context/browser.context.js';
 import {
   AdvancedActionController,
-  ActivityController,
   BasicController,
-  CdpController,
   ControlController,
   FormActionController,
   HooksController,
@@ -24,9 +22,7 @@ import {
 } from './api/controllers/index.js';
 import {
   registerActionRoutes,
-  registerActivityRoutes,
   registerBasicRoutes,
-  registerCdpRoutes,
   registerControlRoutes,
   registerHooksRoutes,
   registerMediaRoutes,
@@ -76,11 +72,11 @@ async function main() {
     interactionsAdapter,
   } = container;
 
-  const resolvedProfiles = new Map();
+  const configuredProfiles = new Map();
   for (const name of Object.keys(config.browser.profiles)) {
     const profile = resolveProfile(config.browser, name);
     if (profile) {
-      resolvedProfiles.set(name, { name, config: profile });
+      configuredProfiles.set(name, profile);
     }
   }
 
@@ -161,16 +157,12 @@ async function main() {
   );
   const controlController = new ControlController();
   const basicController = new BasicController(browserContext);
-  const activityController = new ActivityController(sessionService, browserContext);
-  const cdpController = new CdpController(browserContext);
 
   const app = expressServer.getApp();
   expressServer.useJsonParser('50mb');
 
   registerBasicRoutes(app, basicController, middleware);
   registerControlRoutes(app, controlController, middleware);
-  registerActivityRoutes(app, activityController, middleware);
-  registerCdpRoutes(app, cdpController, middleware);
   registerSnapshotRoutes(app, snapshotController, middleware);
   registerHooksRoutes(app, hooksController, middleware);
   registerMediaRoutes(app, mediaController, middleware);
@@ -181,11 +173,12 @@ async function main() {
   state = {
     server: started.server,
     port: started.port,
-    profiles: resolvedProfiles,
+    configuredProfiles,
+    profiles: new Map(),
   };
 
   installControlLiveWebSocketServer(started.server, browserContext, browserDriver);
-  log.info('Service ready', { port: started.port, profiles: Array.from(resolvedProfiles.keys()) });
+  log.info('Service ready', { port: started.port, profiles: Array.from(configuredProfiles.keys()) });
 }
 
 void main();

@@ -141,6 +141,14 @@ export function installControlLiveWebSocketServer(
       }
     };
 
+    sendJson({
+      type: 'hello',
+      run_id: claims.run_id ?? null,
+      browser_session_id: claims.browser_session_id ?? null,
+      targetId: targetId ?? null,
+      frame_interval_ms: FRAME_INTERVAL_MS,
+    });
+
     const interval = setInterval(() => void pushFrame(), FRAME_INTERVAL_MS);
     void pushFrame();
 
@@ -157,38 +165,44 @@ export function installControlLiveWebSocketServer(
           return;
         }
 
-        if (message.type === 'init' && message.targetId) {
-          targetId = message.targetId;
-          await pushFrame();
+        if (message.type === 'init') {
+          targetId = message.targetId || targetId;
+          const { page, tab } = await resolvePage();
+          sendJson({
+            type: 'status',
+            ok: true,
+            targetId: tab.targetId,
+            url: page.url(),
+          });
           return;
         }
 
-        const { page, tab } = await resolvePage();
+        const { page } = await resolvePage();
         switch (message.type) {
           case 'click':
             await page.mouse.click(message.x, message.y, {
               button: message.button || 'left',
-              clickCount: message.clickCount || 1,
+              clickCount: Math.max(1, message.clickCount || 1),
             });
+            sendJson({ type: 'ack', action: 'click' });
             break;
           case 'wheel':
             await page.mouse.wheel(message.deltaX, message.deltaY);
+            sendJson({ type: 'ack', action: 'wheel' });
             break;
           case 'key':
             await page.keyboard.press(message.key);
+            sendJson({ type: 'ack', action: 'key', key: message.key });
             break;
           case 'type':
+            if (message.text.trim().length === 0) {
+              sendJson({ type: 'error', error: 'type_text_required' });
+              return;
+            }
             await page.keyboard.type(message.text);
+            sendJson({ type: 'ack', action: 'type', size: message.text.length });
             break;
         }
-
-        sendJson({
-          type: 'status',
-          ok: true,
-          targetId: tab.targetId,
-          url: page.url(),
-          run_id: claims.run_id ?? null,
-        });
         await pushFrame();
       } catch (error) {
         sendJson({ type: 'error', error: error instanceof Error ? error.message : String(error) });

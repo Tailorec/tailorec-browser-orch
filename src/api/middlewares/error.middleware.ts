@@ -10,7 +10,6 @@ const log = createSubsystemLogger('error-middleware');
 const errorStatusMap: Record<string, number> = {
   // Validation errors
   ValidationError: 400,
-  SnapshotValidationError: 400,
   ActionValidationError: 400,
   
   // Not found errors
@@ -55,11 +54,7 @@ export function errorMiddleware(err: Error, req: Request, res: Response, _next: 
 
   res.status(status).json({
     ok: false,
-    error: {
-      type: err.name,
-      message,
-      correlation_id: correlationId,
-    },
+    error: message,
   });
 }
 
@@ -91,13 +86,7 @@ function mapErrorToStatus(err: Error): number {
  * Don't expose internal errors in production
  */
 function mapErrorToMessage(err: Error, status: number): string {
-  // Don't expose internal error details in production
-  if (process.env.NODE_ENV === 'production') {
-    if (status >= 500) {
-      return 'An internal error occurred';
-    }
-  }
-  
+  void status;
   return err.message;
 }
 

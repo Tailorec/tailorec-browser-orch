@@ -1,12 +1,37 @@
 import { z } from 'zod';
 
+function coerceNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function coerceBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === '1' || value === 1) return true;
+  if (value === 'false' || value === '0' || value === 0) return false;
+  return undefined;
+}
+
+const OptionalNumberSchema =
+  z.preprocess(coerceNumber, z.number().optional()) as unknown as z.ZodType<number | undefined>;
+const RequiredNumberSchema =
+  z.preprocess(coerceNumber, z.number()) as unknown as z.ZodType<number>;
+const OptionalBooleanSchema =
+  z.preprocess(coerceBoolean, z.boolean().optional()) as unknown as z.ZodType<boolean | undefined>;
+const RequiredBooleanSchema =
+  z.preprocess(coerceBoolean, z.boolean()) as unknown as z.ZodType<boolean>;
+
 /**
  * Base action schema with common fields
  * Extracted from src/browser/routes/agent.act.ts
  */
 const BaseActionSchema = z.object({
   targetId: z.string().optional(),
-  timeoutMs: z.number().optional(),
+  timeoutMs: OptionalNumberSchema,
 });
 
 /**
@@ -15,7 +40,7 @@ const BaseActionSchema = z.object({
 const ClickActionSchema = BaseActionSchema.extend({
   kind: z.literal('click'),
   ref: z.string(),
-  doubleClick: z.boolean().default(false),
+  doubleClick: OptionalBooleanSchema.default(false),
   button: z.enum(['left', 'right', 'middle']).optional(),
   modifiers: z.array(z.enum(['Alt', 'Control', 'Meta', 'Shift', 'ControlOrMeta'])).optional(),
 });
@@ -27,8 +52,8 @@ const TypeActionSchema = BaseActionSchema.extend({
   kind: z.literal('type'),
   ref: z.string(),
   text: z.string(),
-  submit: z.boolean().default(false),
-  slowly: z.boolean().default(false),
+  submit: OptionalBooleanSchema.default(false),
+  slowly: OptionalBooleanSchema.default(false),
 });
 
 /**
@@ -37,7 +62,7 @@ const TypeActionSchema = BaseActionSchema.extend({
 const PressActionSchema = BaseActionSchema.extend({
   kind: z.literal('press'),
   key: z.string(),
-  delayMs: z.number().optional(),
+  delayMs: OptionalNumberSchema,
 });
 
 /**
@@ -96,8 +121,8 @@ const FillActionSchema = BaseActionSchema.extend({
  */
 const ResizeActionSchema = BaseActionSchema.extend({
   kind: z.literal('resize'),
-  width: z.number(),
-  height: z.number(),
+  width: RequiredNumberSchema,
+  height: RequiredNumberSchema,
 });
 
 /**
@@ -105,12 +130,12 @@ const ResizeActionSchema = BaseActionSchema.extend({
  */
 const WaitActionSchema = BaseActionSchema.extend({
   kind: z.literal('wait'),
-  timeMs: z.number().optional(),
+  timeMs: OptionalNumberSchema,
   text: z.string().optional(),
   textGone: z.string().optional(),
   selector: z.string().optional(),
   url: z.string().optional(),
-  loadState: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
+  loadState: z.string().optional(),
   fn: z.string().optional(),
 });
 
@@ -213,7 +238,9 @@ export type PressActionDTO = z.infer<typeof PressActionSchema>;
 export type HoverActionDTO = z.infer<typeof HoverActionSchema>;
 export type FillActionDTO = z.infer<typeof FillActionSchema>;
 export type NavigateActionDTO = z.infer<typeof NavigateActionSchema>;
-export type WaitActionDTO = z.infer<typeof WaitActionSchema>;
+export type WaitActionDTO = Omit<z.infer<typeof WaitActionSchema>, 'loadState'> & {
+  loadState?: 'load' | 'domcontentloaded' | 'networkidle';
+};
 export type ScrollIntoViewActionDTO = z.infer<typeof ScrollIntoViewActionSchema>;
 export type DragActionDTO = z.infer<typeof DragActionSchema>;
 export type SelectActionDTO = z.infer<typeof SelectActionSchema>;
@@ -234,7 +261,7 @@ export const FileChooserRequestSchema = z.object({
   inputRef: z.string().optional(),
   element: z.string().optional(),
   paths: z.array(z.string()),
-  timeoutMs: z.number().optional(),
+  timeoutMs: OptionalNumberSchema,
 });
 
 export type FileChooserRequestDTO = z.infer<typeof FileChooserRequestSchema>;
@@ -244,9 +271,9 @@ export type FileChooserRequestDTO = z.infer<typeof FileChooserRequestSchema>;
  */
 export const DialogRequestSchema = z.object({
   targetId: z.string().optional(),
-  accept: z.boolean(),
+  accept: RequiredBooleanSchema,
   promptText: z.string().optional(),
-  timeoutMs: z.number().optional(),
+  timeoutMs: OptionalNumberSchema,
 });
 
 export type DialogRequestDTO = z.infer<typeof DialogRequestSchema>;
@@ -257,7 +284,7 @@ export type DialogRequestDTO = z.infer<typeof DialogRequestSchema>;
 export const DownloadWaitRequestSchema = z.object({
   targetId: z.string().optional(),
   path: z.string().optional(),
-  timeoutMs: z.number().optional(),
+  timeoutMs: OptionalNumberSchema,
 });
 
 export type DownloadWaitRequestDTO = z.infer<typeof DownloadWaitRequestSchema>;
@@ -269,7 +296,7 @@ export const DownloadRequestSchema = z.object({
   targetId: z.string().optional(),
   ref: z.string(),
   path: z.string(),
-  timeoutMs: z.number().optional(),
+  timeoutMs: OptionalNumberSchema,
 });
 
 export type DownloadRequestDTO = z.infer<typeof DownloadRequestSchema>;
@@ -354,13 +381,19 @@ export class ActionValidator {
    */
   validateWait(payload: unknown): WaitActionDTO {
     const parsed = this.validate(payload, WaitActionSchema);
+    const loadState =
+      parsed.loadState === 'load' ||
+      parsed.loadState === 'domcontentloaded' ||
+      parsed.loadState === 'networkidle'
+        ? parsed.loadState
+        : undefined;
     if (
       parsed.timeMs === undefined &&
       !parsed.text &&
       !parsed.textGone &&
       !parsed.selector &&
       !parsed.url &&
-      !parsed.loadState &&
+      !loadState &&
       !parsed.fn
     ) {
       throw new ActionValidationError([
@@ -370,7 +403,7 @@ export class ActionValidator {
         },
       ]);
     }
-    return parsed;
+    return { ...parsed, loadState };
   }
 
   validateEvaluate(payload: unknown): EvaluateActionDTO {

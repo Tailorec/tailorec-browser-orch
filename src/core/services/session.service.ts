@@ -183,7 +183,7 @@ export class SessionService {
       });
     }
 
-    await this.sessionStore.storeRoleRefs(session, refs, mode);
+    await this.sessionStore.storeRoleRefs(session, refs, mode, frameSelector);
   }
 
   /**
@@ -204,11 +204,20 @@ export class SessionService {
       }
     }
 
-    const refs = await this.sessionStore.restoreRoleRefs(session);
-    if (refs) {
-      session.setRoleRefs(refs);
+    const stored = await this.sessionStore.restoreRoleRefs(session);
+    if (stored) {
+      session.setRoleRefs(stored.refs);
+      session.setRoleRefsMode(stored.mode);
+      session.setRoleRefsFrameSelector(stored.frameSelector);
+      const state = this.pageStates.get(session.page);
+      if (state) {
+        state.roleRefs = stored.refs;
+        state.roleRefsMode = stored.mode;
+        state.roleRefsFrameSelector = stored.frameSelector;
+      }
+      return stored.refs;
     }
-    return refs;
+    return null;
   }
 
   /**
@@ -219,7 +228,8 @@ export class SessionService {
     if (!session) {
       throw new Error(`Session not found: ${targetId}`);
     }
-    return this.browserDriver.refLocator(session.page, ref);
+    const state = this.pageStates.get(session.page);
+    return this.resolveRefLocator(session.page, ref, state);
   }
 
   /**
@@ -556,6 +566,48 @@ export class SessionService {
    */
   private normalizeCdpUrl(raw: string): string {
     return raw.replace(/\/$/, '');
+  }
+
+  private resolveRefLocator(page: Page, ref: string, state?: InternalPageState): Locator {
+    const normalized = ref.startsWith('@')
+      ? ref.slice(1)
+      : ref.startsWith('ref=')
+        ? ref.slice(4)
+        : ref;
+
+    if (/^e\d+$/.test(normalized)) {
+      if (state?.roleRefsMode === 'aria') {
+        const scope = state.roleRefsFrameSelector
+          ? page.frameLocator(state.roleRefsFrameSelector)
+          : page;
+        return scope.locator(`aria-ref=${normalized}`);
+      }
+
+      const info = state?.roleRefs?.[normalized];
+      if (!info) {
+        throw new Error(`Unknown ref "${normalized}". Run a new snapshot and use a ref from that snapshot.`);
+      }
+
+      const scope = state?.roleRefsFrameSelector
+        ? page.frameLocator(state.roleRefsFrameSelector)
+        : page;
+      const scoped = scope as unknown as {
+        getByRole: (
+          role: never,
+          opts?: { name?: string; exact?: boolean },
+        ) => ReturnType<Page['getByRole']>;
+      };
+      const locator = info.name
+        ? scoped.getByRole(info.role as never, { name: info.name, exact: true })
+        : scoped.getByRole(info.role as never);
+      return info.nth !== undefined ? locator.nth(info.nth) : locator;
+    }
+
+    if (normalized.startsWith('d')) {
+      return page.locator(`[aria-ref="${normalized}"]`);
+    }
+
+    return page.locator(`aria-ref=${normalized}`);
   }
 
   /**

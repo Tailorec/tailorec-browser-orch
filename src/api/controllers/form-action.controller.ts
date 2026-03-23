@@ -46,11 +46,18 @@ export class FormActionController {
 
   async handleResize(req: Request, res: Response): Promise<void> {
     const dto = this.validator.validateResize(req.body || {});
-    await this.handleAction(req, res, dto.targetId, {
-      kind: 'resize',
-      width: dto.width,
-      height: dto.height,
-    });
+    await this.handleAction(
+      req,
+      res,
+      dto.targetId,
+      {
+        kind: 'resize',
+        width: dto.width,
+        height: dto.height,
+      },
+      false,
+      true,
+    );
   }
 
   async handleWait(req: Request, res: Response): Promise<void> {
@@ -74,6 +81,7 @@ export class FormActionController {
     targetId: string | undefined,
     action: Parameters<ExecuteActionUseCase['execute']>[0]['action'],
     includeFillResponse = false,
+    includeUrl = false,
   ): Promise<void> {
     const started = Date.now();
     try {
@@ -123,7 +131,7 @@ export class FormActionController {
         res.json({
           ok: true,
           targetId: result.targetId ?? tab.targetId,
-          url: result.url ?? tab.url,
+          ...(includeUrl ? { url: result.url ?? tab.url } : {}),
         });
       }
 

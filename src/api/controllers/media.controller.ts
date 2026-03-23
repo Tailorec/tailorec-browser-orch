@@ -19,11 +19,11 @@ export class MediaController {
     try {
       const body = req.body || {};
       const targetId = typeof body.targetId === 'string' ? body.targetId : undefined;
-      const quality = typeof body.quality === 'number' ? body.quality : undefined;
+      const quality = this.toNumber(body.quality);
       const type = normalizeScreenshotType(body.type, quality !== undefined);
       const ref = typeof body.ref === 'string' ? body.ref.trim() : '';
       const element = typeof body.element === 'string' ? body.element.trim() : '';
-      const fullPage = body.fullPage === true;
+      const fullPage = this.toBoolean(body.fullPage) === true;
 
       if (ref && element) {
         sendErrorResponse(res, 400, 'ref and element are mutually exclusive');
@@ -33,9 +33,15 @@ export class MediaController {
         sendErrorResponse(res, 400, 'fullPage is only allowed for full-page screenshots');
         return;
       }
-      if (quality !== undefined && (type !== 'jpeg' || !Number.isInteger(quality) || quality < 0 || quality > 100)) {
-        sendErrorResponse(res, 400, 'quality must be an integer between 0 and 100');
-        return;
+      if (quality !== undefined) {
+        if (type !== 'jpeg') {
+          sendErrorResponse(res, 400, 'quality is only allowed for jpeg screenshots');
+          return;
+        }
+        if (!Number.isInteger(quality) || quality < 0 || quality > 100) {
+          sendErrorResponse(res, 400, 'quality must be an integer between 0 and 100');
+          return;
+        }
       }
 
       const profileCtx = getProfileContext(this.browserContext, req);
@@ -243,5 +249,21 @@ export class MediaController {
         document.querySelectorAll('[data-openclaw-labels]').forEach((el) => el.remove());
       }).catch(() => undefined);
     }
+  }
+
+  private toBoolean(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === '1' || value === 1) return true;
+    if (value === 'false' || value === '0' || value === 0) return false;
+    return undefined;
+  }
+
+  private toNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return undefined;
   }
 }

@@ -91,19 +91,13 @@ export class PlaywrightSnapshotAdapter {
         truncated = true;
       }
 
-      // Build role refs from the snapshot
-      const refs = this.buildRoleRefsFromSnapshot(snapshot);
+      const built = buildRoleSnapshotFromAiSnapshot(snapshot, {});
 
       const response: SnapshotResult = {
-        snapshot,
-        refs,
+        snapshot: built.snapshot,
+        refs: built.refs,
         truncated,
-        stats: {
-          lines: snapshot.split('\n').length,
-          chars: snapshot.length,
-          refs: Object.keys(refs).length,
-          interactive: this.countInteractiveElements(refs),
-        },
+        stats: getRoleSnapshotStats(built.snapshot, built.refs),
       };
 
       log.info('captureSnapshot succeeded', {
@@ -254,44 +248,4 @@ export class PlaywrightSnapshotAdapter {
     return out;
   }
 
-  private buildRoleRefsFromSnapshot(
-    snapshot: string,
-  ): RoleRefMap {
-    const refs: RoleRefMap = {};
-    const refPattern = /\[ref=(e\d+)\]/g;
-    const lines = snapshot.split('\n');
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const refMatch = line.match(refPattern);
-      if (refMatch) {
-        const ref = refMatch[0].match(/e\d+/)?.[0];
-        if (ref) {
-          const roleMatch = line.match(/^- (\w+)/);
-          const nameMatch = line.match(/"([^"]+)"/);
-
-          refs[ref] = {
-            role: roleMatch?.[1] ?? 'unknown',
-            name: nameMatch?.[1],
-            nth: 0,
-          };
-        }
-      }
-    }
-
-    return refs;
-  }
-
-  private countInteractiveElements(refs: RoleRefMap): number {
-    const interactiveRoles = [
-      'button',
-      'link',
-      'textbox',
-      'combobox',
-      'listbox',
-      'checkbox',
-      'radio',
-    ];
-    return Object.values(refs).filter((r) => interactiveRoles.includes(r.role)).length;
-  }
 }
