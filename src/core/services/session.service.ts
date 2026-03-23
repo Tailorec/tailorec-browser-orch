@@ -70,6 +70,7 @@ type ContextState = {
 export class SessionService {
   private sessions = new Map<string, BrowserSession>();
   private browser: Browser | null = null;
+  private browserCdpUrl: string | null = null;
 
   // WeakMap state tracking (from legacy pw-session.ts)
   private pageStates = new WeakMap<Page, InternalPageState>();
@@ -144,9 +145,30 @@ export class SessionService {
   async closeSession(targetId: string): Promise<void> {
     const session = this.sessions.get(targetId);
     if (session) {
-      await this.browserDriver.closePage(session.page);
+      const key = this.roleRefsKey(session.cdpUrl, targetId);
+      try {
+        await this.browserDriver.closePage(session.page);
+      } catch {
+        // Ignore close failures for already-closed pages; cleanup still matters.
+      }
       this.sessions.delete(targetId);
+      this.roleRefsByTarget.delete(key);
+      this.pageStates.delete(session.page);
     }
+  }
+
+  /**
+   * Forget session state for a page that was already closed elsewhere.
+   */
+  forgetSession(targetId: string): void {
+    const session = this.sessions.get(targetId);
+    if (!session) {
+      return;
+    }
+    const key = this.roleRefsKey(session.cdpUrl, targetId);
+    this.sessions.delete(targetId);
+    this.roleRefsByTarget.delete(key);
+    this.pageStates.delete(session.page);
   }
 
   /**
@@ -346,8 +368,20 @@ export class SessionService {
    * Get browser instance
    */
   private async getBrowser(cdpUrl?: string): Promise<Browser> {
-    if (!this.browser && cdpUrl) {
-      this.browser = await this.browserDriver.connect(cdpUrl);
+    const normalizedCdpUrl = cdpUrl?.replace(/\/$/, '') ?? null;
+
+    if (
+      this.browser &&
+      (!this.browser.isConnected() ||
+        (normalizedCdpUrl !== null && this.browserCdpUrl !== null && this.browserCdpUrl !== normalizedCdpUrl))
+    ) {
+      this.browser = null;
+      this.browserCdpUrl = null;
+    }
+
+    if (!this.browser && normalizedCdpUrl) {
+      this.browser = await this.browserDriver.connect(normalizedCdpUrl);
+      this.browserCdpUrl = normalizedCdpUrl;
     }
     if (!this.browser) {
       throw new Error('Browser not connected. Provide cdpUrl to connect.');
@@ -375,6 +409,8 @@ export class SessionService {
       }
     }
     this.sessions.clear();
+    this.browser = null;
+    this.browserCdpUrl = null;
   }
 
   /**

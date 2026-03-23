@@ -133,8 +133,12 @@ export class ExecuteActionUseCase {
       // Execute action via interaction service
       const result = await this.interactionService.executeAction(page, request.action, locateRef);
 
+      if (result.ok && request.action.kind === 'close' && request.targetId) {
+        this.sessionService.forgetSession(request.targetId);
+      }
+
       // Store updated refs if action modified DOM
-      if (request.targetId && refs) {
+      if (request.targetId && refs && request.action.kind !== 'close') {
         await this.sessionService.storeRoleRefs(request.targetId, refs, session.getRoleRefsMode() ?? 'aria');
       }
 
