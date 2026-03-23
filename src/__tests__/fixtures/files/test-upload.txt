@@ -1,0 +1,9 @@
+This is a test file for upload testing.
+
+Content:
+- Line 1: Test content for file upload
+- Line 2: This file is used in integration tests
+- Line 3: To verify file upload functionality
+
+Generated at: 2026-02-28
+Test ID: upload-test-001

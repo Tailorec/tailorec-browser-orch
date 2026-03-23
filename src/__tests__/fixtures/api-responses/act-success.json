@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "action": "click",
+  "ref": "d2",
+  "results": {
+    "clicked": true,
+    "visible": true,
+    "enabled": true
+  },
+  "warnings": [],
+  "durationMs": 85
+}

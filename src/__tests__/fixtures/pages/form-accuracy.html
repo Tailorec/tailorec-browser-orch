@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Form Accuracy Test Page</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+    .form-section { margin-bottom: 25px; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+    .form-section h2 { margin-top: 0; color: #333; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+    input, select, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+    .checkbox-group, .radio-group { margin: 10px 0; }
+    .checkbox-group label, .radio-group label { display: inline-flex; align-items: center; margin-right: 15px; font-weight: normal; }
+    .checkbox-group input, .radio-group input { width: auto; margin-right: 5px; }
+    button { padding: 10px 20px; margin-right: 10px; cursor: pointer; }
+    .btn-primary { background: #007bff; color: white; border: none; }
+    .btn-primary:hover { background: #0056b3; }
+    #result { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; display: none; }
+  </style>
+</head>
+<body>
+  <h1>Form Accuracy Test Page</h1>
+  <form id="accuracyForm">
+    <!-- Text Fields -->
+    <div class="form-section">
+      <h2>Text Fields</h2>
+      <div class="form-group">
+        <label for="textField">Single-line Text</label>
+        <input type="text" id="textField" name="textField" placeholder="Enter text">
+      </div>
+      <div class="form-group">
+        <label for="specialChars">Special Characters</label>
+        <input type="text" id="specialChars" name="specialChars" placeholder="Enter special chars">
+      </div>
+      <div class="form-group">
+        <label for="unicodeField">Unicode (Emojis, Accented)</label>
+        <input type="text" id="unicodeField" name="unicodeField" placeholder="Enter unicode">
+      </div>
+    </div>
+
+    <!-- Email Fields -->
+    <div class="form-section">
+      <h2>Email Fields</h2>
+      <div class="form-group">
+        <label for="emailValid">Valid Email</label>
+        <input type="email" id="emailValid" name="emailValid" placeholder="valid@example.com">
+      </div>
+      <div class="form-group">
+        <label for="emailPlus">Email with Plus Addressing</label>
+        <input type="email" id="emailPlus" name="emailPlus" placeholder="user+tag@example.com">
+      </div>
+      <div class="form-group">
+        <label for="emailSubdomain">Email with Subdomain</label>
+        <input type="email" id="emailSubdomain" name="emailSubdomain" placeholder="user@mail.sub.example.com">
+      </div>
+    </div>
+
+    <!-- Phone Fields -->
+    <div class="form-section">
+      <h2>Phone Fields</h2>
+      <div class="form-group">
+        <label for="phone1">Phone Format 1</label>
+        <input type="tel" id="phone1" name="phone1" placeholder="(123) 456-7890">
+      </div>
+      <div class="form-group">
+        <label for="phone2">Phone Format 2</label>
+        <input type="tel" id="phone2" name="phone2" placeholder="+1-123-456-7890">
+      </div>
+      <div class="form-group">
+        <label for="phone3">Phone Format 3</label>
+        <input type="tel" id="phone3" name="phone3" placeholder="1234567890">
+      </div>
+    </div>
+
+    <!-- Date Fields -->
+    <div class="form-section">
+      <h2>Date Fields</h2>
+      <div class="form-group">
+        <label for="dateISO">Date (ISO Format)</label>
+        <input type="date" id="dateISO" name="dateISO">
+      </div>
+      <div class="form-group">
+        <label for="dateText">Date (Text Input)</label>
+        <input type="text" id="dateText" name="dateText" placeholder="MM/DD/YYYY">
+      </div>
+    </div>
+
+    <!-- Dropdown -->
+    <div class="form-section">
+      <h2>Dropdown Selection</h2>
+      <div class="form-group">
+        <label for="dropdown">Select Option</label>
+        <select id="dropdown" name="dropdown">
+          <option value="">-- Select --</option>
+          <option value="option1">Option 1</option>
+          <option value="option2">Option 2</option>
+          <option value="option3">Option 3</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="dropdownOptgroup">Select with Optgroup</label>
+        <select id="dropdownOptgroup" name="dropdownOptgroup">
+          <optgroup label="Fruits">
+            <option value="apple">Apple</option>
+            <option value="banana">Banana</option>
+          </optgroup>
+          <optgroup label="Vegetables">
+            <option value="carrot">Carrot</option>
+            <option value="broccoli">Broccoli</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
+    <!-- Radio Buttons -->
+    <div class="form-section">
+      <h2>Radio Buttons</h2>
+      <div class="form-group radio-group">
+        <label><input type="radio" name="radioGroup" value="radio1"> Radio 1</label>
+        <label><input type="radio" name="radioGroup" value="radio2"> Radio 2</label>
+        <label><input type="radio" name="radioGroup" value="radio3"> Radio 3</label>
+      </div>
+    </div>
+
+    <!-- Checkboxes -->
+    <div class="form-section">
+      <h2>Checkboxes</h2>
+      <div class="form-group checkbox-group">
+        <label><input type="checkbox" id="check1" name="checks" value="check1"> Checkbox 1</label>
+        <label><input type="checkbox" id="check2" name="checks" value="check2"> Checkbox 2</label>
+        <label><input type="checkbox" id="check3" name="checks" value="check3"> Checkbox 3</label>
+        <label><input type="checkbox" id="check4" name="checks" value="check4"> Checkbox 4</label>
+      </div>
+    </div>
+
+    <!-- Textarea -->
+    <div class="form-section">
+      <h2>Textarea</h2>
+      <div class="form-group">
+        <label for="textarea">Multiline Text</label>
+        <textarea id="textarea" name="textarea" rows="5" placeholder="Enter multiline text with special chars..."></textarea>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-primary" id="submitBtn">Submit Form</button>
+    <button type="reset" class="btn-primary" style="background: #6c757d;" id="resetBtn">Reset</button>
+  </form>
+
+  <div id="result">
+    <h3>Submitted Data:</h3>
+    <pre id="resultData"></pre>
+  </div>
+
+  <script>
+    document.getElementById('accuracyForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const formData = {
+        textField: document.getElementById('textField').value,
+        specialChars: document.getElementById('specialChars').value,
+        unicodeField: document.getElementById('unicodeField').value,
+        emailValid: document.getElementById('emailValid').value,
+        emailPlus: document.getElementById('emailPlus').value,
+        emailSubdomain: document.getElementById('emailSubdomain').value,
+        phone1: document.getElementById('phone1').value,
+        phone2: document.getElementById('phone2').value,
+        phone3: document.getElementById('phone3').value,
+        dateISO: document.getElementById('dateISO').value,
+        dateText: document.getElementById('dateText').value,
+        dropdown: document.getElementById('dropdown').value,
+        dropdownOptgroup: document.getElementById('dropdownOptgroup').value,
+        radioGroup: document.querySelector('input[name="radioGroup"]:checked')?.value || '',
+        checks: Array.from(document.querySelectorAll('input[name="checks"]:checked')).map(cb => cb.value),
+        textarea: document.getElementById('textarea').value
+      };
+
+      document.getElementById('resultData').textContent = JSON.stringify(formData, null, 2);
+      document.getElementById('result').style.display = 'block';
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', function() {
+      document.getElementById('result').style.display = 'none';
+    });
+  </script>
+</body>
+</html>

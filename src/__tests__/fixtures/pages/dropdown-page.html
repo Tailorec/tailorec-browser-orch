@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dropdown Test Page</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+    select { width: 100%; padding: 10px; font-size: 16px; }
+    .result { margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px; }
+    .dropdown-options { margin-top: 10px; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+    .dropdown-options h4 { margin: 0 0 10px 0; }
+    .dropdown-options ul { list-style: none; padding: 0; margin: 0; }
+    .dropdown-options li { padding: 5px 0; }
+  </style>
+</head>
+<body>
+  <h1>Dropdown Selection Test</h1>
+
+  <div class="form-group">
+    <label for="singleSelect">Single Select Dropdown</label>
+    <select id="singleSelect" name="singleSelect">
+      <option value="">-- Select an option --</option>
+      <option value="option1">Option 1</option>
+      <option value="option2">Option 2</option>
+      <option value="option3">Option 3</option>
+      <option value="option4">Option 4</option>
+      <option value="option5">Option 5</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="multiSelect">Multi-Select Dropdown</label>
+    <select id="multiSelect" name="multiSelect" multiple size="5">
+      <option value="multi1">Multi Option 1</option>
+      <option value="multi2">Multi Option 2</option>
+      <option value="multi3">Multi Option 3</option>
+      <option value="multi4">Multi Option 4</option>
+      <option value="multi5">Multi Option 5</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="optgroupSelect">Dropdown with Option Groups</label>
+    <select id="optgroupSelect" name="optgroupSelect">
+      <optgroup label="Fruits">
+        <option value="apple">Apple</option>
+        <option value="banana">Banana</option>
+        <option value="orange">Orange</option>
+      </optgroup>
+      <optgroup label="Vegetables">
+        <option value="carrot">Carrot</option>
+        <option value="broccoli">Broccoli</option>
+        <option value="spinach">Spinach</option>
+      </optgroup>
+      <optgroup label="Grains">
+        <option value="rice">Rice</option>
+        <option value="wheat">Wheat</option>
+        <option value="oats">Oats</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="disabledSelect">Disabled Dropdown</label>
+    <select id="disabledSelect" name="disabledSelect" disabled>
+      <option value="disabled1">Disabled Option 1</option>
+      <option value="disabled2">Disabled Option 2</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="dynamicSelect">Dynamic Dropdown</label>
+    <select id="dynamicSelect" name="dynamicSelect">
+      <option value="">-- Select to load options --</option>
+    </select>
+  </div>
+
+  <button id="loadDynamic" onclick="loadDynamicOptions()">Load Dynamic Options</button>
+  <button id="clearDynamic" onclick="clearDynamicOptions()">Clear Options</button>
+
+  <div class="result" id="result">
+    <strong>Selected Values:</strong>
+    <div id="selectedValues">None selected</div>
+  </div>
+
+  <div class="dropdown-options" id="dropdownOptions" style="display: none;">
+    <h4>Available Options:</h4>
+    <ul id="optionsList"></ul>
+  </div>
+
+  <script>
+    const singleSelect = document.getElementById('singleSelect');
+    const multiSelect = document.getElementById('multiSelect');
+    const resultDiv = document.getElementById('selectedValues');
+    const optionsDiv = document.getElementById('dropdownOptions');
+    const optionsList = document.getElementById('optionsList');
+
+    function updateResult() {
+      const single = singleSelect.value || 'None';
+      const multi = Array.from(multiSelect.selectedOptions).map(o => o.value) || [];
+      resultDiv.innerHTML = `
+        <div><strong>Single Select:</strong> ${single}</div>
+        <div><strong>Multi Select:</strong> ${multi.length > 0 ? multi.join(', ') : 'None'}</div>
+      `;
+    }
+
+    singleSelect.addEventListener('change', updateResult);
+    multiSelect.addEventListener('change', updateResult);
+
+    function loadDynamicOptions() {
+      const select = document.getElementById('dynamicSelect');
+      select.innerHTML = '';
+      for (let i = 1; i <= 10; i++) {
+        const option = document.createElement('option');
+        option.value = `dynamic${i}`;
+        option.textContent = `Dynamic Option ${i}`;
+        select.appendChild(option);
+      }
+      showOptions(select);
+    }
+
+    function clearDynamicOptions() {
+      const select = document.getElementById('dynamicSelect');
+      select.innerHTML = '<option value="">-- Cleared --</option>';
+      optionsDiv.style.display = 'none';
+    }
+
+    function showOptions(select) {
+      optionsList.innerHTML = '';
+      for (const option of select.options) {
+        if (option.value) {
+          const li = document.createElement('li');
+          li.textContent = `${option.textContent} (${option.value})`;
+          optionsList.appendChild(li);
+        }
+      }
+      optionsDiv.style.display = 'block';
+    }
+
+    singleSelect.addEventListener('focus', () => showOptions(singleSelect));
+    singleSelect.addEventListener('blur', () => { optionsDiv.style.display = 'none'; });
+  </script>
+</body>
+</html>

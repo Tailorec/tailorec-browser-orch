@@ -1,0 +1,9 @@
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "port": 4000,
+  "profiles": ["default", "secondary"],
+  "browserConnected": true,
+  "uptime": 3600,
+  "timestamp": "2026-02-28T12:00:00.000Z"
+}
