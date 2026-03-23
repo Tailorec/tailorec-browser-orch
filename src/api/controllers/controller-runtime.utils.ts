@@ -13,7 +13,8 @@ export function getProfileContext(ctx: BrowserRouteContext, req: Request) {
   try {
     return ctx.forProfile(getProfileName(req));
   } catch (error) {
-    const wrapped = new Error(getErrorMessage(error));
+    const message = getErrorMessage(error).replace(/^Error:\s*/, '');
+    const wrapped = new Error(message);
     (wrapped as Error & { status?: number }).status = 404;
     throw wrapped;
   }

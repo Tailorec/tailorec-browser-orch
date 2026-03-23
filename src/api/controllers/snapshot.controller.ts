@@ -5,7 +5,7 @@ import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js'
 import { DiscoveryService } from '../../core/services/discovery.service.js';
 import { SessionService } from '../../core/services/session.service.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
-import { getProfileContext, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
@@ -55,7 +55,8 @@ export class SnapshotController {
         stats: result.stats,
       });
     } catch (error) {
-      sendErrorResponse(res, 500, String(error));
+      const mapped = mapRouteError(this.browserContext, error, 'Snapshot failed');
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 
@@ -86,7 +87,8 @@ export class SnapshotController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
       log.info('snapshot delta completed', { target_id: tab.targetId, action });
     } catch (error) {
-      sendErrorResponse(res, 500, String(error));
+      const mapped = mapRouteError(this.browserContext, error, 'Snapshot delta failed');
+      sendErrorResponse(res, mapped.status, mapped.message);
     }
   }
 

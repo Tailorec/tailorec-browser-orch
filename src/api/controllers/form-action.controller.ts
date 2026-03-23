@@ -16,12 +16,33 @@ export class FormActionController {
   ) {}
 
   async handleFill(req: Request, res: Response): Promise<void> {
-    const dto = this.validator.validateFill(req.body || {});
-    await this.handleAction(req, res, dto.targetId, {
-      kind: 'fill',
-      fields: dto.fields as Array<{ ref: string; type: string; value?: string | number | boolean }>,
-      timeoutMs: dto.timeoutMs,
-    }, true);
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const record = body as Record<string, unknown>;
+    const targetId =
+      typeof record.targetId === 'string' && record.targetId.trim() ? record.targetId.trim() : undefined;
+    const timeoutMs = typeof record.timeoutMs === 'number'
+      ? record.timeoutMs
+      : typeof record.timeoutMs === 'string' && record.timeoutMs.trim()
+        ? Number(record.timeoutMs)
+        : undefined;
+
+    const fields = this.parseFillFields(record.fields);
+    if (!fields.length) {
+      sendErrorResponse(res, 400, 'fields are required');
+      return;
+    }
+
+    await this.handleAction(
+      req,
+      res,
+      targetId,
+      {
+        kind: 'fill',
+        fields,
+        timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+      },
+      true,
+    );
   }
 
   async handleSelect(req: Request, res: Response): Promise<void> {
@@ -156,49 +177,66 @@ export class FormActionController {
     }
   }
 
+  private parseFillFields(
+    value: unknown,
+  ): Array<{ ref: string; type: string; value?: string | number | boolean }> {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          return null;
+        }
+
+        const record = entry as Record<string, unknown>;
+        const ref = typeof record.ref === 'string' ? record.ref.trim() : '';
+        const type = typeof record.type === 'string' ? record.type.trim() : '';
+
+        if (!ref || !type) {
+          return null;
+        }
+
+        const rawValue = record.value;
+        const normalized =
+          typeof rawValue === 'string' || typeof rawValue === 'number' || typeof rawValue === 'boolean'
+            ? rawValue
+            : undefined;
+
+        return normalized === undefined ? { ref, type } : { ref, type, value: normalized };
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          ref: string;
+          type: string;
+          value?: string | number | boolean;
+        } => entry !== null,
+      );
+  }
+
   private buildWaitLoadStateTimeoutResponse(
     kind: Parameters<ExecuteActionUseCase['execute']>[0]['action']['kind'],
     error: unknown,
-    targetId: string | undefined,
-    timeoutMs: number | undefined,
-    loadState: 'load' | 'domcontentloaded' | 'networkidle' | undefined,
-  ):
-    | {
-        ok: false;
-        error: string;
-        code: 'WAIT_LOAD_STATE_TIMEOUT';
-        details: {
-          kind: string;
-          targetId: string | null;
-          loadState: string | null;
-          timeoutMs: number | null;
-          hint: string;
-          raw: string;
-        };
-      }
-    | null {
+    _targetId: string | undefined,
+    _timeoutMs: number | undefined,
+    _loadState: 'load' | 'domcontentloaded' | 'networkidle' | undefined,
+  ): { ok: false; error: string } | null {
     const rawMessage = error instanceof Error ? error.message : String(error ?? '');
-    if (kind !== 'wait' || !rawMessage.includes('waitForLoadState') || !rawMessage.includes('Timeout')) {
+    if (kind !== 'wait' || !rawMessage.includes('Timeout')) {
       return null;
     }
 
-    const hint =
-      loadState === 'networkidle'
-        ? 'networkidle can hang on pages with long-polling/analytics; prefer load or domcontentloaded'
-        : 'increase timeoutMs or use a less strict wait condition';
-
-    return {
-      ok: false,
-      error: 'Browser wait action timed out',
-      code: 'WAIT_LOAD_STATE_TIMEOUT',
-      details: {
-        kind: 'wait',
-        targetId: targetId ?? null,
-        loadState: loadState ?? null,
-        timeoutMs: timeoutMs ?? null,
-        hint,
-        raw: rawMessage.slice(0, 1000),
-      },
-    };
+    if (
+      !rawMessage.includes('waitForLoadState') &&
+      !rawMessage.includes('waitForFunction') &&
+      !rawMessage.includes('waitForURL') &&
+      !rawMessage.includes('locator.evaluate')
+    ) {
+      return { ok: false, error: 'Browser action timed out' };
+    }
+    return { ok: false, error: 'Browser action timed out' };
   }
 }
