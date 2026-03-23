@@ -260,7 +260,7 @@ export const FileChooserRequestSchema = z.object({
   ref: z.string().optional(),
   inputRef: z.string().optional(),
   element: z.string().optional(),
-  paths: z.array(z.string()),
+  paths: z.array(z.string()).optional().default([]),
   timeoutMs: OptionalNumberSchema,
 });
 

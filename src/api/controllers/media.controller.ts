@@ -2,7 +2,6 @@ import type { Request, Response } from 'express';
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { SessionService } from '../../core/services/session.service.js';
 import { PlaywrightNavigationAdapter } from '../../adapters/playwright/playwright.navigation.adapter.js';
-import { PlaywrightInteractionsAdapter } from '../../adapters/playwright/playwright.interactions.adapter.js';
 import { getProfileContext, mapRouteError, normalizeScreenshotType, sendErrorResponse } from './controller-runtime.utils.js';
 
 type LabeledRef = { role: string; name?: string; nth?: number };
@@ -11,7 +10,6 @@ export class MediaController {
   constructor(
     private sessionService: SessionService,
     private navigationAdapter: PlaywrightNavigationAdapter,
-    private interactionsAdapter: PlaywrightInteractionsAdapter,
     private browserContext: BrowserRouteContext,
   ) {}
 
@@ -20,7 +18,13 @@ export class MediaController {
       const body = req.body || {};
       const targetId = typeof body.targetId === 'string' ? body.targetId : undefined;
       const quality = this.toNumber(body.quality);
-      const type = normalizeScreenshotType(body.type, quality !== undefined);
+      let type: 'png' | 'jpeg';
+      try {
+        type = normalizeScreenshotType(body.type, quality !== undefined);
+      } catch (error) {
+        sendErrorResponse(res, 400, error);
+        return;
+      }
       const ref = typeof body.ref === 'string' ? body.ref.trim() : '';
       const element = typeof body.element === 'string' ? body.element.trim() : '';
       const fullPage = this.toBoolean(body.fullPage) === true;
@@ -47,9 +51,10 @@ export class MediaController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
 
       const result = ref
-        ? await this.navigationAdapter.screenshotElement(page, ref, { type })
+        ? { buffer: await this.sessionService.refLocator(tab.targetId, ref).screenshot({ type }) }
         : element
           ? { buffer: await page.locator(element).screenshot({ type }) }
           : await this.navigationAdapter.takeScreenshot(page, { type, quality, fullPage });
@@ -70,13 +75,24 @@ export class MediaController {
   async handleLabeledScreenshot(req: Request, res: Response): Promise<void> {
     try {
       const body = req.body || {};
+      if (!body.refs || typeof body.refs !== 'object' || Array.isArray(body.refs)) {
+        sendErrorResponse(res, 400, 'refs object is required');
+        return;
+      }
+
       const refs = this.parseRefs(body.refs);
       if (!Object.keys(refs).length) {
         sendErrorResponse(res, 400, 'refs must include at least one valid {role,name?,nth?} entry');
         return;
       }
 
-      const type = normalizeScreenshotType(body.type, false);
+      let type: 'png' | 'jpeg';
+      try {
+        type = normalizeScreenshotType(body.type, false);
+      } catch (error) {
+        sendErrorResponse(res, 400, error);
+        return;
+      }
       const maxLabels =
         typeof body.maxLabels === 'number' && Number.isFinite(body.maxLabels)
           ? Math.max(1, Math.floor(body.maxLabels))
@@ -86,7 +102,14 @@ export class MediaController {
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      const labeled = await this.takeLabeledScreenshot(page, Object.keys(refs), maxLabels, type);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const labeled = await this.takeLabeledScreenshot(
+        tab.targetId,
+        page,
+        Object.keys(refs),
+        maxLabels,
+        type,
+      );
 
       res.json({
         ok: true,
@@ -116,7 +139,8 @@ export class MediaController {
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      await this.interactionsAdapter.highlight(page, body.ref);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.refLocator(tab.targetId, body.ref).highlight();
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Highlight failed');
@@ -147,6 +171,7 @@ export class MediaController {
   }
 
   private async takeLabeledScreenshot(
+    targetId: string,
     page: Awaited<ReturnType<SessionService['getPage']>>,
     refs: string[],
     maxLabels: number,
@@ -168,7 +193,7 @@ export class MediaController {
         continue;
       }
       try {
-        const box = await page.locator(`[aria-ref="${ref}"]`).boundingBox();
+        const box = await this.sessionService.refLocator(targetId, ref).boundingBox();
         if (!box) {
           skipped += 1;
           continue;

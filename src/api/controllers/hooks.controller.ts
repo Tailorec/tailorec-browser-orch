@@ -48,13 +48,20 @@ export class HooksController {
 
       if (dto.inputRef || dto.element) {
         const locator = dto.inputRef
-          ? page.locator(`[aria-ref="${dto.inputRef}"]`)
+          ? this.sessionService.refLocator(tab.targetId, dto.inputRef)
           : page.locator(dto.element!);
         await locator.setInputFiles(resolved.resolved);
       } else {
-        await armFileUpload(page, { paths: resolved.resolved, timeoutMs: dto.timeoutMs });
+        const armId = this.sessionService.bumpUploadArmId(tab.targetId);
+        await armFileUpload(page, {
+          paths: resolved.resolved,
+          timeoutMs: dto.timeoutMs,
+          isActive: () => this.sessionService.getUploadArmId(tab.targetId) === armId,
+        });
         if (dto.ref) {
-          await page.locator(`[aria-ref="${dto.ref}"]`).click({ timeout: dto.timeoutMs ?? 8000 });
+          await this.sessionService.refLocator(tab.targetId, dto.ref).click({
+            timeout: dto.timeoutMs ?? 8000,
+          });
         }
       }
 
@@ -76,10 +83,12 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      const armId = this.sessionService.bumpDialogArmId(tab.targetId);
       await armDialog(page, {
         accept: dto.accept,
         promptText: dto.promptText,
         timeoutMs: dto.timeoutMs,
+        isActive: () => this.sessionService.getDialogArmId(tab.targetId) === armId,
       });
       res.json({ ok: true });
     } catch (error) {
@@ -94,9 +103,11 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await waitForDownload(page, {
         path: dto.path,
         timeoutMs: dto.timeoutMs,
+        isActive: () => this.sessionService.getDownloadArmId(tab.targetId) === armId,
       });
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
@@ -111,11 +122,14 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await download(page, {
         ref: dto.ref,
         path: dto.path,
         timeoutMs: dto.timeoutMs,
-        refLocator: (_page, ref) => _page.locator(`[aria-ref="${ref}"]`),
+        refLocator: (_page, ref) => this.sessionService.refLocator(tab.targetId, ref),
+        isActive: () => this.sessionService.getDownloadArmId(tab.targetId) === armId,
       });
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {

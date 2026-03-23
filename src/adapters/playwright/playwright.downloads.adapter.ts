@@ -95,6 +95,7 @@ export async function armFileUpload(
   opts: {
     paths?: string[];
     timeoutMs?: number;
+    isActive?: () => boolean;
   },
 ): Promise<void> {
   const started = Date.now();
@@ -104,11 +105,12 @@ export async function armFileUpload(
   });
 
   const timeout = Math.max(500, Math.min(120_000, opts.timeoutMs ?? 120_000));
-  const armId = Date.now();
-
   void page
     .waitForEvent('filechooser', { timeout })
     .then(async (fileChooser) => {
+      if (opts.isActive && !opts.isActive()) {
+        return;
+      }
       if (!opts.paths?.length) {
         // Playwright removed `FileChooser.cancel()`; best-effort close the chooser instead.
         try {
@@ -157,6 +159,7 @@ export async function armDialog(
     accept: boolean;
     promptText?: string;
     timeoutMs?: number;
+    isActive?: () => boolean;
   },
 ): Promise<void> {
   const started = Date.now();
@@ -166,11 +169,12 @@ export async function armDialog(
   });
 
   const timeout = Math.max(500, Math.min(120_000, opts.timeoutMs ?? 120_000));
-  const armId = Date.now();
-
   void page
     .waitForEvent('dialog', { timeout })
     .then(async (dialog) => {
+      if (opts.isActive && !opts.isActive()) {
+        return;
+      }
       if (opts.accept) {
         await dialog.accept(opts.promptText);
       } else {
@@ -199,6 +203,7 @@ export async function waitForDownload(
   opts: {
     path?: string;
     timeoutMs?: number;
+    isActive?: () => boolean;
   },
 ): Promise<DownloadResult> {
   const started = Date.now();
@@ -216,6 +221,9 @@ export async function waitForDownload(
       suggestedFilename?: () => string;
       saveAs?: (outPath: string) => Promise<void>;
     };
+    if (opts.isActive && !opts.isActive()) {
+      throw new Error('Download was superseded by another waiter');
+    }
 
     const suggested = download.suggestedFilename?.() || 'download.bin';
     const outPath = opts.path?.trim() || buildTempDownloadPath(suggested);
@@ -259,6 +267,7 @@ export async function download(
     path: string;
     refLocator: (page: Page, ref: string) => any;
     timeoutMs?: number;
+    isActive?: () => boolean;
   },
 ): Promise<DownloadResult> {
   const started = Date.now();
@@ -293,6 +302,9 @@ export async function download(
       suggestedFilename?: () => string;
       saveAs?: (outPath: string) => Promise<void>;
     };
+    if (opts.isActive && !opts.isActive()) {
+      throw new Error('Download was superseded by another waiter');
+    }
 
     const suggested = download.suggestedFilename?.() || 'download.bin';
     await fs.mkdir(path.dirname(outPath), { recursive: true });

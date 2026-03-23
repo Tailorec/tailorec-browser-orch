@@ -69,7 +69,6 @@ async function main() {
     executeActionUseCase,
     takeSnapshotUseCase,
     navigationAdapter,
-    interactionsAdapter,
   } = container;
 
   const configuredProfiles = new Map();
@@ -146,7 +145,6 @@ async function main() {
   const mediaController = new MediaController(
     sessionService,
     navigationAdapter,
-    interactionsAdapter,
     browserContext,
   );
   const compatController = new ActionCompatController(
