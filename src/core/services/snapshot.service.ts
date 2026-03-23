@@ -6,7 +6,7 @@
  */
 
 import type { Page } from 'playwright-core';
-import { buildRoleSnapshotFromAiSnapshot, getRoleSnapshotStats } from '../../adapters/playwright/playwright.role-snapshot.adapter.js';
+import { buildRoleSnapshotFromAiSnapshot } from '../../adapters/playwright/playwright.role-snapshot.adapter.js';
 import type { RoleRefMap } from '../ports/session-store.port.js';
 
 /**
@@ -136,12 +136,16 @@ export class SnapshotService {
       maxDepth: options.maxDepth,
     });
 
-    return {
-      snapshot: built.snapshot,
-      refs: built.refs,
-      truncated,
-      stats: getRoleSnapshotStats(built.snapshot, built.refs),
-    };
+    return truncated
+      ? {
+          snapshot,
+          refs: built.refs,
+          truncated,
+        }
+      : {
+          snapshot,
+          refs: built.refs,
+        };
   }
 
   /**

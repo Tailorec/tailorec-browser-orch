@@ -4,7 +4,6 @@ import { formatAriaSnapshot, type AriaSnapshotNode, type RawAXNode } from '../ut
 import {
   buildRoleSnapshotFromAiSnapshot,
   buildRoleSnapshotFromAriaSnapshot,
-  getRoleSnapshotStats,
   type RoleSnapshotOptions,
   type RoleRefMap,
 } from './playwright.role-snapshot.adapter.js';
@@ -25,7 +24,7 @@ export type SnapshotResult = {
   snapshot: string;
   refs: RoleRefMap;
   truncated?: boolean;
-  stats: {
+  stats?: {
     lines: number;
     chars: number;
     refs: number;
@@ -92,18 +91,21 @@ export class PlaywrightSnapshotAdapter {
       }
 
       const built = buildRoleSnapshotFromAiSnapshot(snapshot, {});
-
-      const response: SnapshotResult = {
-        snapshot: built.snapshot,
-        refs: built.refs,
-        truncated,
-        stats: getRoleSnapshotStats(built.snapshot, built.refs),
-      };
+      const response: SnapshotResult = truncated
+        ? {
+            snapshot,
+            refs: built.refs,
+            truncated,
+          }
+        : {
+            snapshot,
+            refs: built.refs,
+          };
 
       log.info('captureSnapshot succeeded', {
         url: page.url(),
         chars: snapshot.length,
-        refs: Object.keys(refs).length,
+        refs: Object.keys(built.refs).length,
         duration_ms: Date.now() - started,
       });
 
