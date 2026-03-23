@@ -175,7 +175,7 @@ async function main() {
     profiles: new Map(),
   };
 
-  installControlLiveWebSocketServer(started.server, browserContext, browserDriver);
+  installControlLiveWebSocketServer(started.server, browserContext, sessionService);
   log.info('Service ready', { port: started.port, profiles: Array.from(configuredProfiles.keys()) });
 }
 

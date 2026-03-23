@@ -4,7 +4,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { createSubsystemLogger } from '../logging/logger.adapter.js';
 import type { BrowserRouteContext } from '../../api/context/browser.context.js';
 import { verifyControlToken, type ControlTokenClaims } from '../../shared/utils/control-token.js';
-import type { IBrowserDriver } from '../../core/ports/browser-driver.port.js';
+import type { SessionService } from '../../core/services/session.service.js';
 
 const log = createSubsystemLogger('control-live-server');
 const FRAME_INTERVAL_MS = Math.max(200, Number(process.env.CONTROL_FRAME_INTERVAL_MS || 350));
@@ -52,7 +52,7 @@ function parseClientMessage(raw: WebSocket.RawData): ControlClientMessage | null
 export function installControlLiveWebSocketServer(
   server: Server,
   ctx: BrowserRouteContext,
-  browserDriver: IBrowserDriver,
+  sessionService: SessionService,
 ): void {
   const wss = new WebSocketServer({ noServer: true });
   const activeByRunId = new Map<string, WebSocket>();
@@ -112,8 +112,7 @@ export function installControlLiveWebSocketServer(
     const resolvePage = async () => {
       const tab = await profileCtx.ensureTabAvailable(targetId);
       targetId = tab.targetId;
-      const browser = await browserDriver.connect(profileCtx.profile.cdpUrl);
-      const page = await browserDriver.getPage(browser, tab.targetId);
+      const page = await sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
       return { page, tab };
     };
 
@@ -143,9 +142,9 @@ export function installControlLiveWebSocketServer(
 
     sendJson({
       type: 'hello',
-      run_id: claims.run_id ?? null,
-      browser_session_id: claims.browser_session_id ?? null,
-      targetId: targetId ?? null,
+      run_id: String(claims.run_id || ''),
+      browser_session_id: String(claims.browser_session_id || ''),
+      targetId,
       frame_interval_ms: FRAME_INTERVAL_MS,
     });
 
@@ -203,7 +202,6 @@ export function installControlLiveWebSocketServer(
             sendJson({ type: 'ack', action: 'type', size: message.text.length });
             break;
         }
-        await pushFrame();
       } catch (error) {
         sendJson({ type: 'error', error: error instanceof Error ? error.message : String(error) });
       }
