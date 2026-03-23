@@ -70,6 +70,13 @@ function parseClickModifiers(raw: string[]): { modifiers?: ClickModifier[]; erro
   return { modifiers: raw.length ? (raw as ClickModifier[]) : undefined };
 }
 
+function parseWaitLoadState(raw: string): 'load' | 'domcontentloaded' | 'networkidle' | undefined {
+  if (raw === 'load' || raw === 'domcontentloaded' || raw === 'networkidle') {
+    return raw;
+  }
+  return undefined;
+}
+
 export class ActionCompatController {
   constructor(
     private simpleController: SimpleActionController,
@@ -181,21 +188,24 @@ export class ActionCompatController {
           );
           return;
         }
-        if (
-          toNumber(body.timeMs) === undefined &&
-          !toStringOrEmpty(body.text) &&
-          !toStringOrEmpty(body.textGone) &&
-          !toStringOrEmpty(body.selector) &&
-          !toStringOrEmpty(body.url) &&
-          !toStringOrEmpty(body.loadState) &&
-          !toStringOrEmpty(body.fn)
-        ) {
-          sendErrorResponse(
-            res,
-            400,
-            'wait requires at least one of: timeMs, text, textGone, selector, url, loadState, fn',
-          );
-          return;
+        {
+          const loadState = parseWaitLoadState(toStringOrEmpty(body.loadState));
+          if (
+            toNumber(body.timeMs) === undefined &&
+            !toStringOrEmpty(body.text) &&
+            !toStringOrEmpty(body.textGone) &&
+            !toStringOrEmpty(body.selector) &&
+            !toStringOrEmpty(body.url) &&
+            !loadState &&
+            !toStringOrEmpty(body.fn)
+          ) {
+            sendErrorResponse(
+              res,
+              400,
+              'wait requires at least one of: timeMs, text, textGone, selector, url, loadState, fn',
+            );
+            return;
+          }
         }
         return this.formController.handleWait(req, res);
       case 'evaluate':
