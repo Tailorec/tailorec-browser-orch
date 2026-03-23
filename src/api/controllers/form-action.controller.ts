@@ -115,7 +115,6 @@ export class FormActionController {
         res.json({
           ok: true,
           targetId: result.targetId ?? tab.targetId,
-          url: result.url ?? tab.url,
           results: result.results ?? [],
           allMatched: result.allMatched ?? false,
           mismatched: (result.results ?? [])

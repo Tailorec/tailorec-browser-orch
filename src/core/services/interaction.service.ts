@@ -306,7 +306,33 @@ export class InteractionService {
 
     for (const field of action.fields) {
       const locator = this.refLocator(page, field.ref, locateRef);
+      const type = field.type.trim();
+      const rawValue = field.value;
       const value = String(field.value ?? '');
+
+      if (type === 'checkbox' || type === 'radio') {
+        const checked =
+          rawValue === true || rawValue === 1 || rawValue === '1' || rawValue === 'true';
+        try {
+          await locator.setChecked(checked, { timeout });
+          results.push({
+            ref: field.ref,
+            requestedValue: String(checked),
+            actualValue: String(checked),
+            matched: true,
+            strategy: 'fill',
+          });
+        } catch {
+          results.push({
+            ref: field.ref,
+            requestedValue: String(checked),
+            actualValue: '',
+            matched: false,
+            strategy: 'fill',
+          });
+        }
+        continue;
+      }
 
       // Try fill
       try {
@@ -357,9 +383,9 @@ export class InteractionService {
    * Handle navigate action
    */
   private async handleNavigate(page: Page, action: NavigateAction): Promise<InteractionResult> {
+    const timeout = Math.max(1000, Math.min(120_000, action.timeoutMs ?? 20_000));
     await page.goto(action.url, {
-      waitUntil: 'networkidle',
-      timeout: action.timeoutMs ?? 30000,
+      timeout,
     });
     return { ok: true, targetId: undefined, url: page.url() };
   }

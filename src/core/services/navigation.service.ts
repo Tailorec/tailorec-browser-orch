@@ -67,8 +67,8 @@ export class NavigationService {
    * @returns Navigation result
    */
   async navigate(page: Page, url: string, options?: NavigationOptions): Promise<NavigationResult> {
-    const timeout = options?.timeoutMs ?? 30000;
-    const waitUntil = options?.waitUntil ?? 'networkidle';
+    const timeout = Math.max(1000, Math.min(120_000, options?.timeoutMs ?? 20_000));
+    const waitUntil = options?.waitUntil;
 
     const normalizedUrl = url.trim();
     if (!normalizedUrl) {
@@ -88,7 +88,7 @@ export class NavigationService {
     // Navigate to URL
     const response = await page.goto(normalizedUrl, {
       timeout,
-      waitUntil,
+      ...(waitUntil ? { waitUntil } : {}),
     });
 
     // Record history
@@ -144,10 +144,13 @@ export class NavigationService {
    * @returns Navigation result
    */
   async reload(page: Page, options?: NavigationOptions): Promise<NavigationResult> {
-    const timeout = options?.timeoutMs ?? 30000;
-    const waitUntil = options?.waitUntil ?? 'networkidle';
+    const timeout = Math.max(1000, Math.min(120_000, options?.timeoutMs ?? 20_000));
+    const waitUntil = options?.waitUntil;
 
-    const response = await page.reload({ timeout, waitUntil });
+    const response = await page.reload({
+      timeout,
+      ...(waitUntil ? { waitUntil } : {}),
+    });
 
     return {
       url: page.url(),

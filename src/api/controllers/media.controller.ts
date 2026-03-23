@@ -52,11 +52,15 @@ export class MediaController {
       const tab = await profileCtx.ensureTabAvailable(targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
       await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const screenshotOptions = {
+        type,
+        ...(type === 'jpeg' && typeof quality === 'number' ? { quality } : {}),
+      };
 
       const result = ref
-        ? { buffer: await this.sessionService.refLocator(tab.targetId, ref).screenshot({ type }) }
+        ? { buffer: await this.sessionService.refLocator(tab.targetId, ref).screenshot(screenshotOptions) }
         : element
-          ? { buffer: await page.locator(element).screenshot({ type }) }
+          ? { buffer: await page.locator(element).first().screenshot(screenshotOptions) }
           : await this.navigationAdapter.takeScreenshot(page, { type, quality, fullPage });
 
       res.json({
