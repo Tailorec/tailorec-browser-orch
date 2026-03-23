@@ -75,6 +75,8 @@ export function createBrowserRouteContext(opts: {
   focusPage: (cdpUrl: string, targetId: string) => Promise<void>;
   createPage: (cdpUrl: string, url?: string) => Promise<{ targetId: string; url: string }>;
 }): BrowserRouteContext {
+  const launchInFlight = new Map<string, Promise<RunningProfile['chrome']>>();
+
   return {
     state() {
       const s = opts.getState();
@@ -111,7 +113,15 @@ export function createBrowserRouteContext(opts: {
             }
 
             if (!running || !running.chrome) {
-              const chrome = await opts.launchChrome(resolvedProfile);
+              let launchPromise = launchInFlight.get(name);
+              if (!launchPromise) {
+                launchPromise = opts.launchChrome(resolvedProfile).finally(() => {
+                  launchInFlight.delete(name);
+                });
+                launchInFlight.set(name, launchPromise);
+              }
+
+              const chrome = await launchPromise;
               running = { name, config: resolvedProfile, chrome };
               s.profiles.set(name, running);
               log.info('browser launched on demand', {
@@ -182,6 +192,7 @@ export function createBrowserRouteContext(opts: {
         },
 
         async stopRunningBrowser() {
+          launchInFlight.delete(name);
           const running = s.profiles.get(name);
           if (running?.chrome) {
             try {
