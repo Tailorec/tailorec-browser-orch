@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import type { Locator } from 'playwright-core';
 import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.use-case.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { ActionValidator } from '../validators/action.validator.js';
@@ -24,10 +25,12 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateQueryState(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
 
       if (dto.refs?.length) {
         const states = await Promise.all(
-          dto.refs.map(async (ref) => this.discoveryService.queryElementState(page, ref)),
+          dto.refs.map(async (ref) => this.discoveryService.queryElementState(page, ref, resolveRef)),
         );
         res.json({ ok: true, targetId: tab.targetId, states });
         return;
@@ -38,7 +41,7 @@ export class AdvancedActionController {
         return;
       }
 
-      const state = await this.discoveryService.queryElementState(page, dto.ref);
+      const state = await this.discoveryService.queryElementState(page, dto.ref, resolveRef);
       res.json({ ok: true, targetId: tab.targetId, state });
       log.debug('query_state completed', { profile: profileCtx.profile.name, target_id: tab.targetId });
     } catch (error) {
@@ -93,12 +96,15 @@ export class AdvancedActionController {
   async handleDiscoverDropdown(req: Request, res: Response): Promise<void> {
     try {
       const dto = this.validator.validateDiscoverDropdown(req.body || {});
-      const { tab, page } = await this.resolvePage(req, dto.targetId);
+      const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
       const result = await this.discoveryService.discoverDropdownOptions(
         page,
         dto.ref,
         dto.searchText,
         dto.timeoutMs,
+        resolveRef,
       );
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
@@ -110,8 +116,13 @@ export class AdvancedActionController {
   async handleCloseDropdown(req: Request, res: Response): Promise<void> {
     try {
       const dto = this.validator.validateCloseDropdown(req.body || {});
-      const { tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.discoveryService.closeDropdown(page, dto.ref);
+      const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.discoveryService.closeDropdown(
+        page,
+        dto.ref,
+        (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref),
+      );
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Close dropdown failed');
@@ -122,8 +133,13 @@ export class AdvancedActionController {
   async handleDetectBlocker(req: Request, res: Response): Promise<void> {
     try {
       const dto = this.validator.validateDetectBlocker(req.body || {});
-      const { tab, page } = await this.resolvePage(req, dto.targetId);
-      const result = await this.discoveryService.detectBlockingElement(page, dto.ref);
+      const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const result = await this.discoveryService.detectBlockingElement(
+        page,
+        dto.ref,
+        (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref),
+      );
       res.json({ ok: true, targetId: tab.targetId, ...(result ?? { isBlocked: false }) });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Detect blocker failed');
@@ -134,12 +150,14 @@ export class AdvancedActionController {
   async handleDismissBlocker(req: Request, res: Response): Promise<void> {
     try {
       const dto = this.validator.validateDismissBlocker(req.body || {});
-      const { tab, page } = await this.resolvePage(req, (req.body || {}).targetId);
+      const { profileCtx, tab, page } = await this.resolvePage(req, (req.body || {}).targetId);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
       const result = await this.discoveryService.dismissBlocker(
         page,
         dto.targetRef,
         dto.strategy as any,
         dto.closeButtonRef,
+        (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref),
       );
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {

@@ -5,7 +5,7 @@
  * This is a domain use case that coordinates services to perform an action.
  */
 
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 import { InteractionService, type BrowserAction, type InteractionResult } from '../services/interaction.service.js';
 import { SessionService } from '../services/session.service.js';
 import { DiscoveryService } from '../services/discovery.service.js';
@@ -115,20 +115,23 @@ export class ExecuteActionUseCase {
 
       // Restore role refs for element lookup
       if (request.targetId) {
-        await this.sessionService.restoreRoleRefs(request.targetId);
+        await this.sessionService.restoreRoleRefs(request.targetId, request.cdpUrl);
       }
 
       // Get refs from session for element lookup
       const session = await this.sessionService.getSession(request.targetId, request.cdpUrl ?? '');
       const refs = session.getRoleRefs();
+      const locateRef = request.targetId
+        ? (ref: string) => this.sessionService.refLocator(request.targetId!, ref)
+        : undefined;
 
       // Handle special action types that need discovery service
       if (this.requiresDiscovery(request.action)) {
-        return await this.executeWithDiscovery(page, request.action, refs);
+        return await this.executeWithDiscovery(page, request.action, locateRef);
       }
 
       // Execute action via interaction service
-      const result = await this.interactionService.executeAction(page, request.action, refs);
+      const result = await this.interactionService.executeAction(page, request.action, locateRef);
 
       // Store updated refs if action modified DOM
       if (request.targetId && refs) {
@@ -184,12 +187,12 @@ export class ExecuteActionUseCase {
   private async executeWithDiscovery(
     page: Page,
     action: BrowserAction,
-    refs?: Record<string, { role: string; name?: string; nth?: number }>,
+    locateRef?: (ref: string) => Locator,
   ): Promise<ExecuteActionResponse> {
     // Handle dropdown discovery
     if (action.kind === 'click' || action.kind === 'type') {
       // First try to detect if this might be a dropdown
-      const blockerInfo = await this.discoveryService.detectBlockingElement(page, action.ref);
+      const blockerInfo = await this.discoveryService.detectBlockingElement(page, action.ref, locateRef);
 
       // If blocked, try to dismiss blocker first
       if (blockerInfo?.isBlocked && blockerInfo.dismissStrategy) {
@@ -197,6 +200,8 @@ export class ExecuteActionUseCase {
           page,
           action.ref,
           blockerInfo.dismissStrategy === 'click_close' ? 'click_close' : undefined,
+          undefined,
+          locateRef,
         );
 
         if (!dismissResult.dismissed) {
@@ -209,7 +214,7 @@ export class ExecuteActionUseCase {
     }
 
     // Execute the action normally
-    const result = await this.interactionService.executeAction(page, action, refs);
+    const result = await this.interactionService.executeAction(page, action, locateRef);
 
     return {
       ok: result.ok,

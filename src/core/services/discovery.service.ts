@@ -5,7 +5,7 @@
  * Extracted from: src/browser/pw-tools-core.dom-observer.ts
  */
 
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 
 /**
  * Incremental element detected by the MutationObserver
@@ -249,19 +249,27 @@ const OBSERVER_JS = `
  * Discovers and analyzes DOM elements, dropdowns, and blocking elements.
  */
 export class DiscoveryService {
+  private resolveLocator(page: Page, ref: string, resolveRef?: (ref: string) => Locator): Locator {
+    return resolveRef ? resolveRef(ref) : page.locator(`[aria-ref="${ref}"]`);
+  }
+
   /**
    * Start DOM delta observation
    * @param page - Page to observe
    * @param anchorRef - Optional anchor reference for scoped observation
    * @returns Observer status
    */
-  async startDomObserver(page: Page, anchorRef?: string): Promise<{ observing: true }> {
+  async startDomObserver(
+    page: Page,
+    anchorRef?: string,
+    resolveRef?: (ref: string) => Locator,
+  ): Promise<{ observing: true }> {
     await page.evaluate(OBSERVER_JS);
 
     let anchorElement = null;
     if (anchorRef) {
       try {
-        const locator = page.locator(`[aria-ref="${anchorRef}"]`);
+        const locator = this.resolveLocator(page, anchorRef, resolveRef);
         anchorElement = await locator.elementHandle();
       } catch {
         // Fallback to body if anchor not found
@@ -310,12 +318,13 @@ export class DiscoveryService {
     ref: string,
     searchText?: string,
     timeoutMs?: number,
+    resolveRef?: (ref: string) => Locator,
   ): Promise<{
     options: IncrementalElement[];
     dropdownOpen: boolean;
     triggerMethod: 'click' | 'arrowdown' | 'typeahead' | 'none';
   }> {
-    const locator = page.locator(`[aria-ref="${ref}"]`);
+    const locator = this.resolveLocator(page, ref, resolveRef);
     let triggerMethod: 'click' | 'arrowdown' | 'typeahead' | 'none' = 'none';
     let options: IncrementalElement[] = [];
 
@@ -323,7 +332,7 @@ export class DiscoveryService {
 
     // Try click
     triggerMethod = 'click';
-    await this.startDomObserver(page);
+    await this.startDomObserver(page, undefined, resolveRef);
     await locator.click({ timeout: 5000 });
     await page.waitForTimeout(500);
     let incremental = await this.stopDomObserver(page);
@@ -332,7 +341,7 @@ export class DiscoveryService {
     // Try ArrowDown if no new elements
     if (options.length === 0) {
       triggerMethod = 'arrowdown';
-      await this.startDomObserver(page);
+      await this.startDomObserver(page, undefined, resolveRef);
       await page.keyboard.press('ArrowDown');
       await page.waitForTimeout(500);
       incremental = await this.stopDomObserver(page);
@@ -342,7 +351,7 @@ export class DiscoveryService {
     // Try typing if still no new elements
     if (options.length === 0 && searchText) {
       triggerMethod = 'typeahead';
-      await this.startDomObserver(page);
+      await this.startDomObserver(page, undefined, resolveRef);
       await locator.pressSequentially(searchText, { delay: 50 });
       await page.waitForTimeout(500);
       incremental = await this.stopDomObserver(page);
@@ -368,8 +377,8 @@ export class DiscoveryService {
    * @param page - Page containing dropdown
    * @param ref - Dropdown element reference
    */
-  async closeDropdown(page: Page, ref: string): Promise<void> {
-    const locator = page.locator(`[aria-ref="${ref}"]`);
+  async closeDropdown(page: Page, ref: string, resolveRef?: (ref: string) => Locator): Promise<void> {
+    const locator = this.resolveLocator(page, ref, resolveRef);
     await page.keyboard.press('Escape');
     await locator.blur().catch(() => {});
   }
@@ -380,8 +389,12 @@ export class DiscoveryService {
    * @param ref - Target element reference
    * @returns Blocking element info or null
    */
-  async detectBlockingElement(page: Page, ref: string): Promise<BlockingElementInfo | null> {
-    const locator = page.locator(`[aria-ref="${ref}"]`);
+  async detectBlockingElement(
+    page: Page,
+    ref: string,
+    resolveRef?: (ref: string) => Locator,
+  ): Promise<BlockingElementInfo | null> {
+    const locator = this.resolveLocator(page, ref, resolveRef);
 
     const result = await locator.evaluate((target: Element) => {
       const rect = target.getBoundingClientRect();
@@ -500,6 +513,7 @@ export class DiscoveryService {
     targetRef: string,
     strategy?: 'click_close' | 'press_escape' | 'click_outside',
     closeButtonRef?: string,
+    resolveRef?: (ref: string) => Locator,
   ): Promise<{ dismissed: boolean; strategy: string }> {
     const strategies = strategy
       ? [strategy]
@@ -508,7 +522,7 @@ export class DiscoveryService {
     for (const strat of strategies) {
       try {
         if (strat === 'click_close' && closeButtonRef) {
-          await page.locator(`[aria-ref="${closeButtonRef}"]`).click({ timeout: 3000 });
+          await this.resolveLocator(page, closeButtonRef, resolveRef).click({ timeout: 3000 });
         } else if (strat === 'press_escape') {
           await page.keyboard.press('Escape');
         } else if (strat === 'click_outside') {
@@ -517,7 +531,7 @@ export class DiscoveryService {
 
         await page.waitForTimeout(500);
 
-        const check = await this.detectBlockingElement(page, targetRef);
+        const check = await this.detectBlockingElement(page, targetRef, resolveRef);
         if (!check?.isBlocked) {
           return { dismissed: true, strategy: strat };
         }
@@ -535,8 +549,12 @@ export class DiscoveryService {
    * @param ref - Element reference
    * @returns Element state
    */
-  async queryElementState(page: Page, ref: string): Promise<ElementState> {
-    const locator = page.locator(`[aria-ref="${ref}"]`);
+  async queryElementState(
+    page: Page,
+    ref: string,
+    resolveRef?: (ref: string) => Locator,
+  ): Promise<ElementState> {
+    const locator = this.resolveLocator(page, ref, resolveRef);
 
     const exists = (await locator.count()) > 0;
     if (!exists) {

@@ -5,8 +5,7 @@
  * Extracted from: src/browser/pw-tools-core.interactions.ts
  */
 
-import type { Page } from 'playwright-core';
-import type { RoleRefMap } from '../ports/session-store.port.js';
+import type { Locator, Page } from 'playwright-core';
 
 /**
  * Browser form field
@@ -205,23 +204,23 @@ export class InteractionService {
    * Execute browser action
    * @param page - Page to interact with
    * @param action - Action to execute
-   * @param refs - Role references for element lookup
+   * @param locateRef - Resolver for stable ref lookups
    * @returns Interaction result
    */
   async executeAction(
     page: Page,
     action: BrowserAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
     switch (action.kind) {
       case 'click':
-        return this.handleClick(page, action, refs);
+        return this.handleClick(page, action, locateRef);
       case 'type':
-        return this.handleType(page, action, refs);
+        return this.handleType(page, action, locateRef);
       case 'fill':
-        return this.handleFill(page, action, refs);
+        return this.handleFill(page, action, locateRef);
       case 'hover':
-        return this.handleHover(page, action, refs);
+        return this.handleHover(page, action, locateRef);
       case 'press':
         return this.handlePress(page, action);
       case 'navigate':
@@ -229,13 +228,13 @@ export class InteractionService {
       case 'wait':
         return this.handleWait(page, action);
       case 'evaluate':
-        return this.handleEvaluate(page, action, refs);
+        return this.handleEvaluate(page, action, locateRef);
       case 'drag':
-        return this.handleDrag(page, action, refs);
+        return this.handleDrag(page, action, locateRef);
       case 'select':
-        return this.handleSelect(page, action, refs);
+        return this.handleSelect(page, action, locateRef);
       case 'scrollIntoView':
-        return this.handleScroll(page, action, refs);
+        return this.handleScroll(page, action, locateRef);
       case 'resize':
         return this.handleResize(page, action);
       case 'close':
@@ -251,9 +250,9 @@ export class InteractionService {
   private async handleClick(
     page: Page,
     action: ClickAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
-    const locator = this.refLocator(page, action.ref, refs);
+    const locator = this.refLocator(page, action.ref, locateRef);
     const timeout = action.timeoutMs ?? 8000;
 
     if (action.doubleClick) {
@@ -271,9 +270,9 @@ export class InteractionService {
   private async handleType(
     page: Page,
     action: TypeAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
-    const locator = this.refLocator(page, action.ref, refs);
+    const locator = this.refLocator(page, action.ref, locateRef);
     const timeout = action.timeoutMs ?? 8000;
 
     if (action.clear) {
@@ -300,13 +299,13 @@ export class InteractionService {
   private async handleFill(
     page: Page,
     action: FillAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
     const results: FillResult[] = [];
     const timeout = action.timeoutMs ?? 8000;
 
     for (const field of action.fields) {
-      const locator = this.refLocator(page, field.ref, refs);
+      const locator = this.refLocator(page, field.ref, locateRef);
       const value = String(field.value ?? '');
 
       // Try fill
@@ -339,9 +338,9 @@ export class InteractionService {
   private async handleHover(
     page: Page,
     action: HoverAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
-    const locator = this.refLocator(page, action.ref, refs);
+    const locator = this.refLocator(page, action.ref, locateRef);
     await locator.hover({ timeout: action.timeoutMs ?? 8000 });
     return { ok: true, targetId: undefined, url: page.url() };
   }
@@ -402,10 +401,10 @@ export class InteractionService {
   private async handleEvaluate(
     page: Page,
     action: EvaluateAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
     if (action.ref) {
-      const locator = this.refLocator(page, action.ref, refs);
+      const locator = this.refLocator(page, action.ref, locateRef);
       const result = await locator.evaluate((el, fnBody) => {
         // eslint-disable-next-line @typescript-eslint/no-implied-eval
         const fn = new Function('el', `return (${fnBody})(el)`);
@@ -429,10 +428,10 @@ export class InteractionService {
   private async handleDrag(
     page: Page,
     action: DragAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
-    const startLocator = this.refLocator(page, action.startRef, refs);
-    const endLocator = this.refLocator(page, action.endRef, refs);
+    const startLocator = this.refLocator(page, action.startRef, locateRef);
+    const endLocator = this.refLocator(page, action.endRef, locateRef);
     await startLocator.dragTo(endLocator, { timeout: action.timeoutMs ?? 8000 });
     return { ok: true, targetId: undefined, url: page.url() };
   }
@@ -443,9 +442,9 @@ export class InteractionService {
   private async handleSelect(
     page: Page,
     action: SelectAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
-    const locator = this.refLocator(page, action.ref, refs);
+    const locator = this.refLocator(page, action.ref, locateRef);
     await locator.selectOption(action.values, { timeout: action.timeoutMs ?? 8000 });
     return { ok: true, targetId: undefined, url: page.url() };
   }
@@ -456,9 +455,9 @@ export class InteractionService {
   private async handleScroll(
     page: Page,
     action: ScrollAction,
-    refs?: RoleRefMap,
+    locateRef?: (ref: string) => Locator,
   ): Promise<InteractionResult> {
-    const locator = this.refLocator(page, action.ref, refs);
+    const locator = this.refLocator(page, action.ref, locateRef);
     await locator.scrollIntoViewIfNeeded({ timeout: action.timeoutMs ?? 8000 });
     return { ok: true, targetId: undefined, url: page.url() };
   }
@@ -485,26 +484,17 @@ export class InteractionService {
   /**
    * Create locator from reference
    */
-  private refLocator(page: Page, ref: string, refs?: RoleRefMap) {
+  private refLocator(page: Page, ref: string, locateRef?: (ref: string) => Locator) {
     const normalized = ref.startsWith('@')
       ? ref.slice(1)
       : ref.startsWith('ref=')
         ? ref.slice(4)
         : ref;
 
-    // Handle e-style refs (e1, e2, etc.)
-    if (/^e\d+$/.test(normalized) && refs) {
-      const info = refs[normalized];
-      if (!info) {
-        throw new Error(`Unknown ref "${normalized}". Run a new snapshot first.`);
-      }
-      const locator = info.name
-        ? page.getByRole(info.role as any, { name: info.name, exact: true })
-        : page.getByRole(info.role as any);
-      return info.nth !== undefined ? locator.nth(info.nth) : locator;
+    if (locateRef) {
+      return locateRef(normalized);
     }
 
-    // Dynamic refs (d1, d2, etc.) or aria-ref
     return page.locator(`[aria-ref="${normalized}"]`);
   }
 }

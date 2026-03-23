@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import type { Locator } from 'playwright-core';
 import type { TakeSnapshotUseCase } from '../../core/use-cases/take-snapshot.use-case.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { DiscoveryService } from '../../core/services/discovery.service.js';
@@ -71,10 +72,15 @@ export class SnapshotController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
 
       const result =
         action === 'start'
-          ? await this.discoveryService.startDomObserver(page, anchorRef)
+          ? await this.discoveryService.startDomObserver(
+              page,
+              anchorRef,
+              (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref),
+            )
           : await this.discoveryService.stopDomObserver(page);
 
       res.json({ ok: true, targetId: tab.targetId, ...result });
