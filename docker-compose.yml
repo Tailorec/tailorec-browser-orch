@@ -1,0 +1,20 @@
+services:
+  openclaw-browser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-browser
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${OPENCLAW_BROWSER_HOST_PORT:-4000}:4000"
+    shm_size: "1gb"
+    networks:
+      - default
+      - shared
+
+networks:
+  shared:
+    external: true
+    name: ${SHARED_DOCKER_NETWORK:-tailorec-shared}
