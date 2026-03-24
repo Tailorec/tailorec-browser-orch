@@ -1,29 +1,44 @@
-import { describe, expect, it } from "vitest";
-import {
-  ACT_KINDS,
-  isActKind,
-  parseClickButton,
-  parseClickModifiers,
-} from "../../browser/routes/agent.act.shared.js";
+import { describe, expect, it, vi } from 'vitest';
+import { ActionCompatController } from '../../api/controllers/action-compat.controller.js';
+import { createMockReq, createMockRes } from '../helpers/test-helpers.js';
 
-describe("agent.act.shared", () => {
-  it("validates action kinds", () => {
-    expect(ACT_KINDS.length).toBeGreaterThan(5);
-    expect(isActKind("click")).toBe(true);
-    expect(isActKind("unknown")).toBe(false);
-    expect(isActKind(undefined)).toBe(false);
+describe('ActionCompatController', () => {
+  it('dispatches valid click requests to the simple controller', async () => {
+    const simple = { handleClick: vi.fn(async () => undefined) };
+    const controller = new ActionCompatController(simple as any, {} as any, {} as any, true);
+    const req = createMockReq({
+      body: { kind: 'click', ref: 'e1', button: 'left', modifiers: ['Alt'] },
+    });
+    const res = createMockRes();
+
+    await controller.handleAct(req, res);
+
+    expect(simple.handleClick).toHaveBeenCalledWith(req, res);
+    expect(res.statusCode).toBe(200);
   });
 
-  it("parses click button", () => {
-    expect(parseClickButton("left")).toBe("left");
-    expect(parseClickButton("middle")).toBe("middle");
-    expect(parseClickButton("right")).toBe("right");
-    expect(parseClickButton("bad")).toBeUndefined();
+  it('rejects click requests without a ref', async () => {
+    const controller = new ActionCompatController({} as any, {} as any, {} as any, true);
+    const req = createMockReq({ body: { kind: 'click' } });
+    const res = createMockRes();
+
+    await controller.handleAct(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.payload).toEqual({ ok: false, error: 'ref is required' });
   });
 
-  it("parses click modifiers and rejects invalid values", () => {
-    expect(parseClickModifiers(["Alt", "Shift"]).modifiers).toEqual(["Alt", "Shift"]);
-    expect(parseClickModifiers([])).toEqual({ modifiers: undefined });
-    expect(parseClickModifiers(["Bad"]).error).toContain("modifiers must be");
+  it('dispatches wait requests with selector support to the form controller', async () => {
+    const form = { handleWait: vi.fn(async () => undefined) };
+    const controller = new ActionCompatController({} as any, form as any, {} as any, true);
+    const req = createMockReq({
+      body: { kind: 'wait', selector: '.ready', timeoutMs: 1000 },
+    });
+    const res = createMockRes();
+
+    await controller.handleAct(req, res);
+
+    expect(form.handleWait).toHaveBeenCalledWith(req, res);
+    expect(res.statusCode).toBe(200);
   });
 });

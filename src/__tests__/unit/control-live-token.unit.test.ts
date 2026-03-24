@@ -1,75 +1,41 @@
-import { createHmac } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
-import { verifyControlToken } from "../../browser/routes/control-live.js";
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createControlToken, verifyControlToken } from '../../shared/utils/control-token.js';
 
-const backupEnv = { ...process.env };
+describe('control token utilities', () => {
+  const originalEnv = { ...process.env };
 
-function b64url(data: string) {
-  return Buffer.from(data).toString("base64url");
-}
-
-function signJwt(payload: Record<string, unknown>, secret: string) {
-  const header = { alg: "HS256", typ: "JWT" };
-  const encodedHeader = b64url(JSON.stringify(header));
-  const encodedPayload = b64url(JSON.stringify(payload));
-  const body = `${encodedHeader}.${encodedPayload}`;
-  const sig = createHmac("sha256", secret).update(body).digest("base64url");
-  return `${body}.${sig}`;
-}
-
-afterEach(() => {
-  process.env = { ...backupEnv };
-});
-
-describe("verifyControlToken", () => {
-  it("accepts valid token", () => {
-    process.env.AGENT_RUNTIME_JWT_SECRET = "secret";
-
-    const now = Math.floor(Date.now() / 1000);
-    const token = signJwt(
-      {
-        exp: now + 600,
-        iat: now,
-        iss: "tailorec-backend",
-        aud: "tailorec-agent-runtime",
-        scope: ["browser:control"],
-        token_type: "agent_browser_control",
-        run_id: "run-1",
-      },
-      "secret",
-    );
-
-    const claims = verifyControlToken(token);
-    expect(claims.run_id).toBe("run-1");
+  beforeEach(() => {
+    process.env.AGENT_RUNTIME_JWT_SECRET = 'top-secret';
+    process.env.AGENT_RUNTIME_JWT_ISSUER = 'issuer';
+    process.env.AGENT_RUNTIME_JWT_AUDIENCE = 'audience';
   });
 
-  it("rejects expired token", () => {
-    process.env.AGENT_RUNTIME_JWT_SECRET = "secret";
-    const now = Math.floor(Date.now() / 1000);
-    const token = signJwt(
-      {
-        exp: now - 1,
-        scope: ["browser:control"],
-        token_type: "agent_browser_control",
-      },
-      "secret",
-    );
-
-    expect(() => verifyControlToken(token)).toThrow("jwt_expired");
+  afterEach(() => {
+    process.env = { ...originalEnv };
   });
 
-  it("rejects missing scope", () => {
-    process.env.AGENT_RUNTIME_JWT_SECRET = "secret";
-    const now = Math.floor(Date.now() / 1000);
-    const token = signJwt(
-      {
-        exp: now + 10,
-        scope: ["other:scope"],
-        token_type: "agent_browser_control",
-      },
-      "secret",
-    );
+  it('creates and verifies a valid token', () => {
+    const { token, expiresIn } = createControlToken({
+      runId: 'run-1',
+      browserSessionId: 'session-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    });
 
-    expect(() => verifyControlToken(token)).toThrow("jwt_missing_scope");
+    expect(expiresIn).toBeGreaterThanOrEqual(30);
+    expect(verifyControlToken(token)).toMatchObject({
+      run_id: 'run-1',
+      browser_session_id: 'session-1',
+      tenant_id: 'tenant-1',
+      user_id: 'user-1',
+      token_type: 'agent_browser_control',
+    });
+  });
+
+  it('rejects tokens when the secret is missing', () => {
+    delete process.env.AGENT_RUNTIME_JWT_SECRET;
+    delete process.env.JWT_SECRET_KEY;
+
+    expect(() => verifyControlToken('bad.token.value')).toThrow('missing_jwt_secret');
   });
 });

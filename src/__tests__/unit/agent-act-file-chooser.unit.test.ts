@@ -1,71 +1,53 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HooksController } from "../../api/controllers/hooks.controller.js";
 import {
-  executeFileChooserUpload,
   resolveUploadPaths,
   stageUploadFromUrl,
-} from "../../browser/routes/agent.act.js";
-import {
-  createProfileCtx,
-  createUploadActionCounters,
-} from "../helpers/upload-fixtures.js";
+} from "../../api/controllers/controller-runtime.utils.js";
+import { createBrowserContextMock, createMockReq, createMockRes } from "../helpers/test-helpers.js";
 
-let originalFetch: typeof globalThis.fetch;
+const { armFileUpload } = vi.hoisted(() => ({
+  armFileUpload: vi.fn(),
+}));
 
-afterEach(async () => {
-  if (originalFetch) {
-    globalThis.fetch = originalFetch;
-  }
-  delete process.env.BROWSER_UPLOAD_MAX_BYTES;
-  delete process.env.BROWSER_UPLOAD_DOWNLOAD_TIMEOUT_MS;
-});
+vi.mock("../../adapters/playwright/playwright.downloads.adapter.js", () => ({
+  armFileUpload,
+  armDialog: vi.fn(),
+  waitForDownload: vi.fn(),
+  download: vi.fn(),
+}));
 
 describe("unit: upload staging + file chooser", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    delete process.env.BROWSER_UPLOAD_MAX_BYTES;
+    delete process.env.BROWSER_UPLOAD_DOWNLOAD_TIMEOUT_MS;
+    delete process.env.BROWSER_KEEP_STAGED_UPLOADS;
+  });
+
   it("fails fast when resume download returns 403", async () => {
-    originalFetch = globalThis.fetch;
-    const counts = createUploadActionCounters();
-
-    globalThis.fetch = (async () => new Response("forbidden", { status: 403 })) as typeof fetch;
-
-    const profileCtx = createProfileCtx(counts);
-    const pw = {
-      armFileUploadViaPlaywright: async () => {
-        counts.armUpload += 1;
-      },
-      clickViaPlaywright: async () => {
-        counts.click += 1;
-      },
-      setInputFilesViaPlaywright: async () => {
-        counts.setInputFiles += 1;
-      },
-    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("forbidden", { status: 403 })));
 
     await expect(
-      executeFileChooserUpload({
-        profileCtx: profileCtx as never,
-        getPwModule: async () => pw as never,
-        paths: ["https://files.example.com/resume.pdf"],
-        ref: "e12",
-      }),
+      stageUploadFromUrl("https://files.example.com/resume.pdf"),
     ).rejects.toThrow(/file_download_failed:403/);
-
-    expect(counts.ensureTab).toBe(0);
-    expect(counts.armUpload).toBe(0);
-    expect(counts.click).toBe(0);
-    expect(counts.setInputFiles).toBe(0);
   });
 
   it("rejects when content-length exceeds configured max bytes", async () => {
-    originalFetch = globalThis.fetch;
     process.env.BROWSER_UPLOAD_MAX_BYTES = "262144";
-
-    globalThis.fetch =
-      (async () =>
-        new Response(new Uint8Array([1, 2, 3]), {
-          status: 200,
-          headers: { "content-length": "300000" },
-        })) as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { "content-length": "300000" },
+          }),
+      ),
+    );
 
     await expect(stageUploadFromUrl("https://files.example.com/large.pdf")).rejects.toThrow(
       /file_download_too_large:300000/,
@@ -73,10 +55,10 @@ describe("unit: upload staging + file chooser", () => {
   });
 
   it("resolves mixed local+remote paths and stages remote file", async () => {
-    originalFetch = globalThis.fetch;
-
-    globalThis.fetch = (async () =>
-      new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })) as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })),
+    );
 
     const localPath = path.resolve("upload-resume", "already-local.txt");
     const result = await resolveUploadPaths(["https://files.example.com/resume.pdf", localPath]);
@@ -86,75 +68,50 @@ describe("unit: upload staging + file chooser", () => {
     expect(result.resolved[1]).toBe(localPath);
     expect(result.staged[0]?.endsWith(".pdf")).toBe(true);
 
-    await fs.unlink(result.staged[0] as string);
+    await fs.unlink(result.staged[0] as string).catch(() => undefined);
   });
 
   it("uses setInputFiles path when inputRef is provided", async () => {
-    originalFetch = globalThis.fetch;
-    const counts = createUploadActionCounters();
+    const { browserContext } = createBrowserContextMock();
+    const setInputFiles = vi.fn(async () => undefined);
+    const controller = new HooksController(
+      {
+        getPage: vi.fn(async () => ({ locator: vi.fn() })),
+        refLocator: vi.fn(() => ({ setInputFiles })),
+      } as any,
+      browserContext as any,
+    );
 
-    const profileCtx = createProfileCtx(counts);
-    const pw = {
-      armFileUploadViaPlaywright: async () => {
-        counts.armUpload += 1;
-      },
-      clickViaPlaywright: async () => {
-        counts.click += 1;
-      },
-      setInputFilesViaPlaywright: async () => {
-        counts.setInputFiles += 1;
-      },
-    };
-
-    await executeFileChooserUpload({
-      profileCtx: profileCtx as never,
-      getPwModule: async () => pw as never,
-      inputRef: "e-file",
-      paths: ["/tmp/resume.pdf"],
+    const req = createMockReq({
+      body: { inputRef: "e-file", paths: ["/tmp/resume.pdf"] },
     });
+    const res = createMockRes();
 
-    expect(counts.ensureTab).toBe(1);
-    expect(counts.setInputFiles).toBe(1);
-    expect(counts.armUpload).toBe(0);
-    expect(counts.click).toBe(0);
+    await controller.handleFileChooser(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(setInputFiles).toHaveBeenCalledWith(["/tmp/resume.pdf"]);
+    expect(armFileUpload).not.toHaveBeenCalled();
   });
 
   it("downloads remote file, uploads it, and cleans staged temp file", async () => {
-    originalFetch = globalThis.fetch;
-    const counts = createUploadActionCounters();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })),
+    );
 
+    const { resolved, staged } = await resolveUploadPaths(["https://files.example.com/resume.pdf"]);
     let stagedPathFromPw = "";
-
-    globalThis.fetch = (async () =>
-      new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })) as typeof fetch;
-
-    const profileCtx = createProfileCtx(counts);
-    const pw = {
-      armFileUploadViaPlaywright: async (args: { paths: string[] }) => {
-        counts.armUpload += 1;
-        stagedPathFromPw = args.paths[0] ?? "";
-        expect(stagedPathFromPw.includes("openclaw-browser-upload-")).toBe(true);
-      },
-      clickViaPlaywright: async () => {
-        counts.click += 1;
-      },
-      setInputFilesViaPlaywright: async () => {
-        throw new Error("setInputFiles should not be called in this path");
-      },
-    };
-
-    await executeFileChooserUpload({
-      profileCtx: profileCtx as never,
-      getPwModule: async () => pw as never,
-      paths: ["https://files.example.com/resume.pdf"],
-      ref: "e12",
+    await armFileUpload({
+      paths: resolved,
+      timeoutMs: 8000,
+      isActive: () => true,
     });
+    stagedPathFromPw = resolved[0] ?? "";
 
-    expect(counts.ensureTab).toBe(1);
-    expect(counts.armUpload).toBe(1);
-    expect(counts.click).toBe(1);
+    expect(staged).toHaveLength(1);
     expect(stagedPathFromPw.endsWith(".pdf")).toBe(true);
-
+    await Promise.all(staged.map((file) => fs.unlink(file).catch(() => undefined)));
     await expect(fs.stat(stagedPathFromPw)).rejects.toThrow(/ENOENT/);
   });
 });

@@ -1,43 +1,95 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  appendCdpPath,
-  fetchJson,
-  fetchOk,
-  getHeadersWithAuth,
-  isLoopbackHost,
-} from "../../browser/cdp.helpers.js";
+import { describe, expect, it, vi } from 'vitest';
+import { ExecuteActionUseCase } from '../../core/use-cases/execute-action.use-case.js';
 
-describe("cdp.helpers", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("detects loopback hosts", () => {
-    expect(isLoopbackHost("localhost")).toBe(true);
-    expect(isLoopbackHost("127.0.0.1")).toBe(true);
-    expect(isLoopbackHost("example.com")).toBe(false);
-  });
-
-  it("appends cdp path while preserving base path", () => {
-    expect(appendCdpPath("http://127.0.0.1:9222/base", "/json/version")).toBe(
-      "http://127.0.0.1:9222/base/json/version",
+describe('ExecuteActionUseCase', () => {
+  it('executes actions and persists fill metadata', async () => {
+    const page = { url: vi.fn(() => 'https://example.test') };
+    const session = {
+      getRoleRefs: vi.fn(() => ({ e1: { role: 'button' } })),
+      getRoleRefsMode: vi.fn(() => 'aria'),
+    };
+    const sessionService = {
+      getPage: vi.fn(async () => page),
+      restoreRoleRefs: vi.fn(async () => undefined),
+      getSession: vi.fn(async () => session),
+      refLocator: vi.fn(() => ({})),
+      storeRoleRefs: vi.fn(async () => undefined),
+      forgetSession: vi.fn(),
+    };
+    const interactionService = {
+      executeAction: vi.fn(async () => ({
+        ok: true,
+        targetId: 'tab-1',
+        url: 'https://example.test',
+        result: {
+          results: [
+            {
+              ref: 'e1',
+              requestedValue: 'Alice',
+              actualValue: 'Alice',
+              matched: true,
+              strategy: 'label',
+            },
+          ],
+        },
+      })),
+    };
+    const eventBus = { publish: vi.fn() };
+    const useCase = new ExecuteActionUseCase(
+      sessionService as any,
+      interactionService as any,
+      {} as any,
+      eventBus as any,
     );
+
+    const result = await useCase.execute({
+      cdpUrl: 'http://127.0.0.1:9222',
+      targetId: 'tab-1',
+      action: { kind: 'fill', fields: [{ ref: 'e1', type: 'text', value: 'Alice' }] } as any,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      allMatched: true,
+      mismatched: false,
+      results: [{ ref: 'e1', requestedValue: 'Alice' }],
+    });
+    expect(sessionService.storeRoleRefs).toHaveBeenCalled();
+    expect(eventBus.publish).toHaveBeenCalledTimes(2);
   });
 
-  it("adds basic auth header from URL when absent", () => {
-    const headers = getHeadersWithAuth("http://user:pass@example.com:9222");
-    expect(Object.keys(headers).some((k) => k.toLowerCase() === "authorization")).toBe(true);
-  });
-
-  it("fetchJson and fetchOk handle success and error", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }) as any,
+  it('uses discovery before click/type actions and surfaces dismiss failures', async () => {
+    const useCase = new ExecuteActionUseCase(
+      {
+        getPage: vi.fn(async () => ({ url: () => 'https://example.test' })),
+        restoreRoleRefs: vi.fn(async () => undefined),
+        getSession: vi.fn(async () => ({
+          getRoleRefs: () => ({}),
+          getRoleRefsMode: () => 'aria',
+        })),
+        refLocator: vi.fn(() => ({})),
+      } as any,
+      {
+        executeAction: vi.fn(async () => ({ ok: true })),
+      } as any,
+      {
+        detectBlockingElement: vi.fn(async () => ({
+          isBlocked: true,
+          dismissStrategy: 'click_close',
+          blockerTagName: 'dialog',
+        })),
+        dismissBlocker: vi.fn(async () => ({ dismissed: false })),
+      } as any,
     );
 
-    const data = await fetchJson<{ ok: boolean }>("http://127.0.0.1:9222/json/version", 1000);
-    expect(data.ok).toBe(true);
+    const result = await useCase.execute({
+      targetId: 'tab-1',
+      action: { kind: 'click', ref: 'e1' } as any,
+    });
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("boom", { status: 500 }) as any);
-    await expect(fetchOk("http://127.0.0.1:9222/json/version", 1000)).rejects.toThrow("HTTP 500");
+    expect(result).toEqual({
+      ok: false,
+      error: 'Unable to dismiss blocking element: dialog',
+    });
   });
 });

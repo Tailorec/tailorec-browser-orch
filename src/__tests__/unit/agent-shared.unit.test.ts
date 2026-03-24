@@ -1,58 +1,65 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  handleRouteError,
-  readBody,
-  resolveProfileContext,
-  SELECTOR_UNSUPPORTED_MESSAGE,
-} from "../../browser/routes/agent.shared.js";
+  getProfileContext,
+  getProfileName,
+  mapRouteError,
+  normalizeScreenshotType,
+  sendErrorResponse,
+} from '../../api/controllers/controller-runtime.utils.js';
+import { ActionValidationError } from '../../api/validators/action.validator.js';
+import { createBrowserContextMock, createMockReq, createMockRes } from '../helpers/test-helpers.js';
 
-describe("unit: agent shared helpers", () => {
-  it("readBody returns empty object for invalid body payloads", () => {
-    expect(readBody({ body: null } as any)).toEqual({});
-    expect(readBody({ body: "x" } as any)).toEqual({});
-    expect(readBody({ body: [1, 2] } as any)).toEqual({});
+describe('controller-runtime utils', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("readBody returns object payload as-is", () => {
-    expect(readBody({ body: { kind: "click" } } as any)).toEqual({ kind: "click" });
+  it('derives the profile name from the query string', () => {
+    expect(getProfileName(createMockReq({ query: { profile: ' team-a ' } }))).toBe('team-a');
+    expect(getProfileName(createMockReq())).toBe('default');
   });
 
-  it("handleRouteError maps known tab errors", () => {
-    const status = vi.fn().mockReturnThis();
-    const json = vi.fn();
-    const res = { status, json } as any;
+  it('wraps missing profiles as a 404', () => {
+    const { browserContext } = createBrowserContextMock();
+    browserContext.forProfile.mockImplementation(() => {
+      throw new Error('Profile missing');
+    });
 
-    const ctx = {
-      mapTabError: () => ({ status: 404, message: "tab not found" }),
-    } as any;
-
-    handleRouteError(ctx, res, new Error("ignored"));
-
-    expect(status).toHaveBeenCalledWith(404);
-    expect(json).toHaveBeenCalledWith({ ok: false, error: "tab not found" });
+    expect(() => getProfileContext(browserContext as any, createMockReq())).toThrowError('Profile missing');
+    try {
+      getProfileContext(browserContext as any, createMockReq());
+    } catch (error) {
+      expect((error as Error & { status?: number }).status).toBe(404);
+    }
   });
 
-  it("resolveProfileContext writes 404 response when profile cannot be resolved", () => {
-    const status = vi.fn().mockReturnThis();
-    const json = vi.fn();
-    const res = { status, json } as any;
+  it('maps validation and tab errors to HTTP responses', () => {
+    const { browserContext } = createBrowserContextMock();
+    browserContext.mapTabError.mockReturnValue({ status: 409, message: 'Tab conflict' });
 
-    const ctx = {
-      forProfile: () => {
-        throw new Error("missing profile");
-      },
-    } as any;
+    expect(
+      mapRouteError(
+        browserContext as any,
+        new ActionValidationError([{ field: 'ref', message: 'Required' }]),
+        'fallback',
+      ),
+    ).toEqual({ status: 400, message: 'ref is required' });
 
-    const result = resolveProfileContext({ query: { profile: "missing" } } as any, res, ctx);
-
-    expect(result).toBeNull();
-    expect(status).toHaveBeenCalledWith(404);
-    expect(json).toHaveBeenCalledWith({ ok: false, error: "Error: missing profile" });
+    expect(mapRouteError(browserContext as any, new Error('stale tab'), 'fallback')).toEqual({
+      status: 409,
+      message: 'Tab conflict',
+    });
   });
 
-  it("selector unsupported guidance stays stable", () => {
-    expect(SELECTOR_UNSUPPORTED_MESSAGE).toContain("'selector' is not supported");
-    expect(SELECTOR_UNSUPPORTED_MESSAGE).toContain("snapshot");
-    expect(SELECTOR_UNSUPPORTED_MESSAGE).toContain("act with ref");
+  it('normalizes screenshot type and writes error responses', () => {
+    expect(normalizeScreenshotType(undefined, false)).toBe('png');
+    expect(normalizeScreenshotType(undefined, true)).toBe('jpeg');
+    expect(normalizeScreenshotType('jpg', false)).toBe('jpeg');
+    expect(() => normalizeScreenshotType('gif', false)).toThrow('type must be png|jpeg');
+
+    const res = createMockRes();
+    sendErrorResponse(res, 422, new Error('bad request'));
+    expect(res.statusCode).toBe(422);
+    expect(res.payload).toEqual({ ok: false, error: 'bad request' });
   });
 });

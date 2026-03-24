@@ -1,1148 +1,291 @@
-import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// Mock the pw-ai-module to avoid real browser calls
-const hoverViaPlaywright = vi.fn();
-const scrollIntoViewViaPlaywright = vi.fn();
-const dragViaPlaywright = vi.fn();
-const selectOptionViaPlaywright = vi.fn();
-const queryElementStateViaPlaywright = vi.fn();
-const queryElementStatesViaPlaywright = vi.fn();
-const discoverDropdownOptionsViaPlaywright = vi.fn();
-const closeDropdownViaPlaywright = vi.fn();
-const detectBlockingElementViaPlaywright = vi.fn();
-const dismissBlockerViaPlaywright = vi.fn();
-
-vi.mock("../../../browser/pw-ai-module.js", () => ({
-  getPwAiModule: async () => ({
-    hoverViaPlaywright,
-    scrollIntoViewViaPlaywright,
-    dragViaPlaywright,
-    selectOptionViaPlaywright,
-    queryElementStateViaPlaywright,
-    queryElementStatesViaPlaywright,
-    discoverDropdownOptionsViaPlaywright,
-    closeDropdownViaPlaywright,
-    detectBlockingElementViaPlaywright,
-    dismissBlockerViaPlaywright,
-  }),
-}));
-
-import { registerBrowserAgentActRoutes } from "../../../browser/routes/agent.act.js";
+import { describe, expect, it } from "vitest";
+import { createActionRouteHarness } from "./helpers/route-harness.js";
 
 describe("integration: /act - advanced actions", () => {
-  beforeEach(() => {
-    hoverViaPlaywright.mockReset();
-    scrollIntoViewViaPlaywright.mockReset();
-    dragViaPlaywright.mockReset();
-    selectOptionViaPlaywright.mockReset();
-    queryElementStateViaPlaywright.mockReset();
-    queryElementStatesViaPlaywright.mockReset();
-    discoverDropdownOptionsViaPlaywright.mockReset();
-    closeDropdownViaPlaywright.mockReset();
-    detectBlockingElementViaPlaywright.mockReset();
-    dismissBlockerViaPlaywright.mockReset();
+  describe("hover, scroll, drag, and select", () => {
+    for (const body of [
+      { kind: "hover", ref: "e1" },
+      { kind: "hover", ref: "e1", timeoutMs: 5000 },
+      { kind: "hover", ref: "e1", targetId: "tab-hover" },
+      { kind: "scrollIntoView", ref: "e1" },
+      { kind: "scrollIntoView", ref: "e1", timeoutMs: 5000 },
+      { kind: "scrollIntoView", ref: "e1", targetId: "tab-scroll" },
+      { kind: "drag", startRef: "e1", endRef: "e2" },
+      { kind: "drag", startRef: "e1", endRef: "e2", timeoutMs: 5000 },
+      { kind: "drag", startRef: "e1", endRef: "e2", targetId: "tab-drag" },
+      { kind: "select", ref: "e1", values: ["a"] },
+      { kind: "select", ref: "e1", values: ["a", "b"] },
+      { kind: "select", ref: "e1", values: ["a"], timeoutMs: 5000 },
+      { kind: "select", ref: "e1", values: ["a"], targetId: "tab-select" },
+    ] as const) {
+      it(`forwards ${body.kind} payload ${JSON.stringify(body)}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(200);
+        const expected = { ...body } as Record<string, unknown>;
+        const expectedTargetId = typeof expected.targetId === "string" ? expected.targetId : undefined;
+        delete expected.targetId;
+        expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ...(expectedTargetId ? { targetId: expectedTargetId } : {}),
+            action: expect.objectContaining(expected),
+          }),
+        );
+      });
+    }
+
+    for (const body of [
+      { kind: "hover" },
+      { kind: "scrollIntoView" },
+      { kind: "drag", endRef: "e2" },
+      { kind: "drag", startRef: "e1" },
+      { kind: "select", values: ["a"] },
+      { kind: "select", ref: "e1" },
+      { kind: "select", ref: "e1", values: [] },
+    ]) {
+      it(`rejects invalid payload ${JSON.stringify(body)}`, async () => {
+        const { app } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(400);
+      });
+    }
+
+    for (const [kind, message] of [
+      ["hover", "element not found"],
+      ["scrollIntoView", "element not found"],
+      ["drag", "element not found"],
+      ["select", "element not found"],
+    ] as const) {
+      it(`surfaces ${kind} execution failure`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: message });
+        const payload =
+          kind === "drag"
+            ? { kind, startRef: "e1", endRef: "e2" }
+            : kind === "select"
+              ? { kind, ref: "e1", values: ["a"] }
+              : { kind, ref: "e1" };
+        const res = await request(app).post("/act").send(payload);
+        expect(res.status).toBe(500);
+        expect(res.body.error).toContain("element");
+      });
+    }
   });
 
-  /**
-   * Helper to create test Express app with act routes
-   */
-  function makeApp(options?: {
-    profileName?: string;
-    cdpUrl?: string;
-    targetId?: string;
-    pageUrl?: string;
-    evaluateEnabled?: boolean;
-  }) {
-    const app = express();
-    app.use(express.json());
-
-    const ctx = {
-      state: () => ({
-        resolved: { evaluateEnabled: options?.evaluateEnabled ?? true },
-      }),
-      forProfile: () => ({
-        profile: {
-          name: options?.profileName ?? "default",
-          cdpUrl: options?.cdpUrl ?? "http://127.0.0.1:9222",
-        },
-        ensureTabAvailable: async (targetId?: string) => ({
-          targetId: targetId ?? "tab-default",
-          url: options?.pageUrl ?? "https://example.org",
-        }),
-        stopRunningBrowser: async () => undefined,
-      }),
-      mapTabError: () => null,
-    } as any;
-
-    registerBrowserAgentActRoutes(app as any, ctx);
-    return app;
-  }
-
-  describe("POST /act (hover) - Basic Functionality", () => {
-    it("basic hover over element", async () => {
-      hoverViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-      });
-
+  describe("query_state", () => {
+    it("queries a single ref", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.queryElementState.mockResolvedValueOnce({ ref: "e1", exists: true, visible: true });
+      const res = await request(app).post("/act").send({ kind: "query_state", ref: "e1" });
       expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(hoverViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-        })
-      );
+      expect(res.body.state).toEqual({ ref: "e1", exists: true, visible: true });
     });
 
-    it("hover with timeoutMs", async () => {
-      hoverViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-        timeoutMs: 5000,
-      });
-
+    it("queries multiple refs", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.queryElementState
+        .mockResolvedValueOnce({ ref: "e1", exists: true })
+        .mockResolvedValueOnce({ ref: "e2", exists: false });
+      const res = await request(app).post("/act").send({ kind: "query_state", refs: ["e1", "e2"] });
       expect(res.status).toBe(200);
-      expect(hoverViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 5000,
-        })
-      );
+      expect(res.body.states).toHaveLength(2);
     });
 
-    it("response structure verification", async () => {
-      hoverViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-      });
+    it("returns response structure", async () => {
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "query_state", ref: "e1" });
+      expect(res.body).toMatchObject({ ok: true, targetId: expect.any(String), state: expect.any(Object) });
     });
 
-    it("hover with explicit targetId", async () => {
-      hoverViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-        targetId: "tab-hover",
-      });
-
+    it("supports explicit targetId", async () => {
+      const { app, sessionService } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "query_state", ref: "e1", targetId: "tab-state" });
       expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-hover");
+      expect(sessionService.getPage).toHaveBeenCalledWith("tab-state", expect.any(String));
     });
 
-    it("logging verification - hover request logged", async () => {
-      hoverViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(hoverViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (hover) - Error Handling", () => {
-    it("error: missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref is required");
-    });
-
-    it("error: element not found", async () => {
-      hoverViaPlaywright.mockRejectedValue(new Error("Element not found: e1"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-
-    it("error: browser unavailable", async () => {
-      hoverViaPlaywright.mockRejectedValue(new Error("Browser unavailable"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "hover",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Browser unavailable");
-    });
-  });
-
-  describe("POST /act (scrollIntoView) - Basic Functionality", () => {
-    it("basic scroll into view", async () => {
-      scrollIntoViewViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(scrollIntoViewViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-        })
-      );
-    });
-
-    it("scroll with timeoutMs", async () => {
-      scrollIntoViewViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-        ref: "e1",
-        timeoutMs: 5000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(scrollIntoViewViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 5000,
-        })
-      );
-    });
-
-    it("response structure verification", async () => {
-      scrollIntoViewViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-        ref: "e1",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-      });
-    });
-
-    it("scroll with explicit targetId", async () => {
-      scrollIntoViewViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-        ref: "e1",
-        targetId: "tab-scroll",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-scroll");
-    });
-
-    it("logging verification - scroll request logged", async () => {
-      scrollIntoViewViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(scrollIntoViewViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (scrollIntoView) - Error Handling", () => {
-    it("error: missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref is required");
-    });
-
-    it("error: element not found", async () => {
-      scrollIntoViewViaPlaywright.mockRejectedValue(new Error("Element not found"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "scrollIntoView",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-  });
-
-  describe("POST /act (drag) - Basic Functionality", () => {
-    it("basic drag from start to end", async () => {
-      dragViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-        endRef: "e2",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(dragViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          startRef: "e1",
-          endRef: "e2",
-        })
-      );
-    });
-
-    it("drag with timeoutMs", async () => {
-      dragViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-        endRef: "e2",
-        timeoutMs: 5000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(dragViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 5000,
-        })
-      );
-    });
-
-    it("response structure verification", async () => {
-      dragViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-        endRef: "e2",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-      });
-    });
-
-    it("drag with explicit targetId", async () => {
-      dragViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-        endRef: "e2",
-        targetId: "tab-drag",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-drag");
-    });
-
-    it("logging verification - drag request logged", async () => {
-      dragViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-        endRef: "e2",
-      });
-
-      expect(res.status).toBe(200);
-      expect(dragViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (drag) - Error Handling", () => {
-    it("error: missing startRef", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        endRef: "e2",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("startRef and endRef are required");
-    });
-
-    it("error: missing endRef", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("startRef and endRef are required");
-    });
-
-    it("error: element not found", async () => {
-      dragViaPlaywright.mockRejectedValue(new Error("Element not found"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "drag",
-        startRef: "e1",
-        endRef: "e2",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-  });
-
-  describe("POST /act (select) - Basic Functionality", () => {
-    it("basic select option", async () => {
-      selectOptionViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1"],
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(selectOptionViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-          values: ["option1"],
-        })
-      );
-    });
-
-    it("select multiple options", async () => {
-      selectOptionViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1", "option2", "option3"],
-      });
-
-      expect(res.status).toBe(200);
-      expect(selectOptionViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          values: ["option1", "option2", "option3"],
-        })
-      );
-    });
-
-    it("select with timeoutMs", async () => {
-      selectOptionViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1"],
-        timeoutMs: 5000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(selectOptionViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 5000,
-        })
-      );
-    });
-
-    it("response structure verification", async () => {
-      selectOptionViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1"],
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-      });
-    });
-
-    it("select with explicit targetId", async () => {
-      selectOptionViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1"],
-        targetId: "tab-select",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-select");
-    });
-
-    it("logging verification - select request logged", async () => {
-      selectOptionViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1"],
-      });
-
-      expect(res.status).toBe(200);
-      expect(selectOptionViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (select) - Error Handling", () => {
-    it("error: missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        values: ["option1"],
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref and values are required");
-    });
-
-    it("error: missing values", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref and values are required");
-    });
-
-    it("error: empty values array", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: [],
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref and values are required");
-    });
-
-    it("error: element not found", async () => {
-      selectOptionViaPlaywright.mockRejectedValue(new Error("Element not found"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "select",
-        ref: "e1",
-        values: ["option1"],
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-  });
-
-  describe("POST /act (query_state) - Basic Functionality", () => {
-    it("query element visible", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ visible: true });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(res.body.state.visible).toBe(true);
-      expect(queryElementStateViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-        })
-      );
-    });
-
-    it("query element hidden", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ visible: false });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.state.visible).toBe(false);
-    });
-
-    it("query element disabled", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ disabled: true });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.state.disabled).toBe(true);
-    });
-
-    it("query element text", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ text: "Button Text" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.state.text).toBe("Button Text");
-    });
-
-    it("query element value", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ value: "input value" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.state.value).toBe("input value");
-    });
-
-    it("query multiple states with refs", async () => {
-      queryElementStatesViaPlaywright.mockResolvedValue({
-        states: {
-          e1: { visible: true },
-          e2: { visible: false },
-        },
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        refs: ["e1", "e2"],
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.states.e1.visible).toBe(true);
-      expect(res.body.states.e2.visible).toBe(false);
-      expect(queryElementStatesViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          refs: ["e1", "e2"],
-        })
-      );
-    });
-
-    it("response structure verification", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ visible: true });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-        state: expect.any(Object),
-      });
-    });
-
-    it("query with explicit targetId", async () => {
-      queryElementStateViaPlaywright.mockResolvedValue({ visible: true });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-        targetId: "tab-query",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-query");
-    });
-  });
-
-  describe("POST /act (query_state) - Error Handling", () => {
-    it("error: missing ref and refs", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-      });
-
+    it("rejects missing ref and refs", async () => {
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "query_state" });
       expect(res.status).toBe(400);
       expect(res.body.error).toContain("ref or refs is required");
     });
 
-    it("error: element not found", async () => {
-      queryElementStateViaPlaywright.mockRejectedValue(new Error("Element not found"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
+    it("surfaces query_state failures", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.queryElementState.mockRejectedValueOnce(new Error("browser unavailable"));
+      const res = await request(app).post("/act").send({ kind: "query_state", ref: "e1" });
       expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-
-    it("error: browser unavailable", async () => {
-      queryElementStateViaPlaywright.mockRejectedValue(new Error("Browser unavailable"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "query_state",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Browser unavailable");
+      expect(res.body.error).toContain("browser unavailable");
     });
   });
 
-  describe("POST /act (discover_dropdown) - Basic Functionality", () => {
-    it("discover dropdown options", async () => {
-      discoverDropdownOptionsViaPlaywright.mockResolvedValue({
-        options: [
-          { value: "1", text: "Option 1" },
-          { value: "2", text: "Option 2" },
-        ],
+  describe("discover_dropdown and close_dropdown", () => {
+    for (const body of [
+      { kind: "discover_dropdown", ref: "e1" },
+      { kind: "discover_dropdown", ref: "e1", searchText: "abc" },
+      { kind: "discover_dropdown", ref: "e1", timeoutMs: 5000 },
+      { kind: "close_dropdown", ref: "e1" },
+      { kind: "close_dropdown", ref: "e1", targetId: "tab-close" },
+    ] as const) {
+      it(`supports dropdown action ${body.kind}`, async () => {
+        const { app, discoveryService } = createActionRouteHarness();
+        if (body.kind === "discover_dropdown") {
+          discoveryService.discoverDropdownOptions.mockResolvedValueOnce({
+            options: [{ ref: "d1", text: "One" }],
+            dropdownOpen: true,
+            triggerMethod: "click",
+          });
+        }
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(200);
       });
+    }
 
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
+    it("returns discover_dropdown response structure", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.discoverDropdownOptions.mockResolvedValueOnce({
+        options: [],
+        dropdownOpen: false,
+        triggerMethod: "none",
       });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(res.body.options).toHaveLength(2);
-      expect(discoverDropdownOptionsViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-        })
-      );
-    });
-
-    it("discover dropdown with searchText", async () => {
-      discoverDropdownOptionsViaPlaywright.mockResolvedValue({
-        options: [{ value: "1", text: "Matching Option" }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
-        searchText: "Matching",
-      });
-
-      expect(res.status).toBe(200);
-      expect(discoverDropdownOptionsViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          searchText: "Matching",
-        })
-      );
-    });
-
-    it("discover dropdown with timeoutMs", async () => {
-      discoverDropdownOptionsViaPlaywright.mockResolvedValue({ options: [] });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
-        timeoutMs: 5000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(discoverDropdownOptionsViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 5000,
-        })
-      );
-    });
-
-    it("empty dropdown", async () => {
-      discoverDropdownOptionsViaPlaywright.mockResolvedValue({ options: [] });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.options).toEqual([]);
-    });
-
-    it("response structure verification", async () => {
-      discoverDropdownOptionsViaPlaywright.mockResolvedValue({ options: [] });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
-      });
-
+      const res = await request(app).post("/act").send({ kind: "discover_dropdown", ref: "e1" });
       expect(res.body).toMatchObject({
         ok: true,
         targetId: expect.any(String),
         options: expect.any(Array),
+        dropdownOpen: expect.any(Boolean),
       });
     });
 
-    it("logging verification - discover_dropdown request logged", async () => {
-      discoverDropdownOptionsViaPlaywright.mockResolvedValue({ options: [] });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
+    for (const body of [{ kind: "discover_dropdown" }, { kind: "close_dropdown" }]) {
+      it(`rejects invalid dropdown payload ${JSON.stringify(body)}`, async () => {
+        const { app } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain("ref is required");
       });
+    }
 
-      expect(res.status).toBe(200);
-      expect(discoverDropdownOptionsViaPlaywright).toHaveBeenCalled();
-    });
+    for (const [kind, message] of [
+      ["discover_dropdown", "Element is not a dropdown"],
+      ["discover_dropdown", "Element not found"],
+      ["close_dropdown", "Element not found"],
+    ] as const) {
+      it(`surfaces ${kind} failure: ${message}`, async () => {
+        const { app, discoveryService } = createActionRouteHarness();
+        if (kind === "discover_dropdown") {
+          discoveryService.discoverDropdownOptions.mockRejectedValueOnce(new Error(message));
+        } else {
+          discoveryService.closeDropdown.mockRejectedValueOnce(new Error(message));
+        }
+        const res = await request(app).post("/act").send({ kind, ref: "e1" });
+        expect(res.status).toBe(500);
+        expect(res.body.error).toContain(message.split(":")[0]!);
+      });
+    }
   });
 
-  describe("POST /act (discover_dropdown) - Error Handling", () => {
-    it("error: missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
+  describe("detect_blocker and dismiss_blocker", () => {
+    it("detects blocker", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.detectBlockingElement.mockResolvedValueOnce({
+        isBlocked: true,
+        blockerRole: "dialog",
+        dismissStrategy: "click_close",
       });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref is required");
-    });
-
-    it("error: element not dropdown", async () => {
-      discoverDropdownOptionsViaPlaywright.mockRejectedValue(new Error("Element is not a dropdown"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("not a dropdown");
-    });
-
-    it("error: element not found", async () => {
-      discoverDropdownOptionsViaPlaywright.mockRejectedValue(new Error("Element not found"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "discover_dropdown",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-  });
-
-  describe("POST /act (close_dropdown) - Basic Functionality", () => {
-    it("close open dropdown", async () => {
-      closeDropdownViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-        ref: "e1",
-      });
-
+      const res = await request(app).post("/act").send({ kind: "detect_blocker", ref: "e1" });
       expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(closeDropdownViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-        })
-      );
+      expect(res.body.isBlocked).toBe(true);
     });
 
-    it("close with no dropdown (no error)", async () => {
-      closeDropdownViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-        ref: "e1",
-      });
-
+    it("handles no blocker detected", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.detectBlockingElement.mockResolvedValueOnce({ isBlocked: false });
+      const res = await request(app).post("/act").send({ kind: "detect_blocker", ref: "e1" });
       expect(res.status).toBe(200);
+      expect(res.body.isBlocked).toBe(false);
     });
 
-    it("response structure verification", async () => {
-      closeDropdownViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-        ref: "e1",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-      });
-    });
-
-    it("close_dropdown with explicit targetId", async () => {
-      closeDropdownViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-        ref: "e1",
-        targetId: "tab-close",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-close");
-    });
-
-    it("logging verification - close_dropdown request logged", async () => {
-      closeDropdownViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(closeDropdownViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (close_dropdown) - Error Handling", () => {
-    it("error: missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref is required");
-    });
-
-    it("error: element not found", async () => {
-      closeDropdownViaPlaywright.mockRejectedValue(new Error("Element not found"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "close_dropdown",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-  });
-
-  describe("POST /act (detect_blocker) - Basic Functionality", () => {
-    it("detect cookie banner", async () => {
-      detectBlockingElementViaPlaywright.mockResolvedValue({
-        detected: true,
-        type: "cookie-banner",
-        ref: "blocker-1",
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.detected).toBe(true);
-      expect(res.body.type).toBe("cookie-banner");
-      expect(detectBlockingElementViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ref: "e1",
-        })
-      );
-    });
-
-    it("detect popup", async () => {
-      detectBlockingElementViaPlaywright.mockResolvedValue({
-        detected: true,
-        type: "popup",
-        ref: "blocker-2",
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.type).toBe("popup");
-    });
-
-    it("no blocker detected", async () => {
-      detectBlockingElementViaPlaywright.mockResolvedValue({ detected: false });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.detected).toBe(false);
-    });
-
-    it("response structure verification", async () => {
-      detectBlockingElementViaPlaywright.mockResolvedValue({ detected: false });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-        ref: "e1",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-        detected: expect.any(Boolean),
-      });
-    });
-
-    it("logging verification - detect_blocker request logged", async () => {
-      detectBlockingElementViaPlaywright.mockResolvedValue({ detected: false });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(detectBlockingElementViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (detect_blocker) - Error Handling", () => {
-    it("error: missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("ref is required");
-    });
-
-    it("error: detection fails", async () => {
-      detectBlockingElementViaPlaywright.mockRejectedValue(new Error("Detection failed"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "detect_blocker",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Detection failed");
-    });
-  });
-
-  describe("POST /act (dismiss_blocker) - Basic Functionality", () => {
-    it("dismiss cookie banner", async () => {
-      dismissBlockerViaPlaywright.mockResolvedValue({ dismissed: true, strategy: "click" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "dismiss_blocker",
-        targetRef: "e1",
-      });
-
+    it("dismisses blocker with defaults", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.dismissBlocker.mockResolvedValueOnce({ dismissed: true, strategy: "click_close" });
+      const res = await request(app).post("/act").send({ kind: "dismiss_blocker", targetRef: "e1" });
       expect(res.status).toBe(200);
       expect(res.body.dismissed).toBe(true);
-      expect(dismissBlockerViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          targetRef: "e1",
-        })
-      );
     });
 
-    it("dismiss with custom strategy", async () => {
-      dismissBlockerViaPlaywright.mockResolvedValue({ dismissed: true, strategy: "custom" });
-
-      const res = await request(makeApp()).post("/act").send({
+    it("dismisses blocker with custom strategy", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      discoveryService.dismissBlocker.mockResolvedValueOnce({ dismissed: true, strategy: "press_escape" });
+      const res = await request(app).post("/act").send({
         kind: "dismiss_blocker",
         targetRef: "e1",
-        strategy: "custom",
+        strategy: "press_escape",
       });
-
       expect(res.status).toBe(200);
-      expect(dismissBlockerViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          strategy: "custom",
-        })
+      expect(discoveryService.dismissBlocker).toHaveBeenCalledWith(
+        expect.anything(),
+        "e1",
+        "press_escape",
+        undefined,
+        expect.any(Function),
       );
     });
 
-    it("dismiss with closeButtonRef", async () => {
-      dismissBlockerViaPlaywright.mockResolvedValue({ dismissed: true });
-
-      const res = await request(makeApp()).post("/act").send({
+    it("dismisses blocker with closeButtonRef", async () => {
+      const { app, discoveryService } = createActionRouteHarness();
+      await request(app).post("/act").send({
         kind: "dismiss_blocker",
         targetRef: "e1",
         closeButtonRef: "e2",
       });
-
-      expect(res.status).toBe(200);
-      expect(dismissBlockerViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          closeButtonRef: "e2",
-        })
+      expect(discoveryService.dismissBlocker).toHaveBeenCalledWith(
+        expect.anything(),
+        "e1",
+        undefined,
+        "e2",
+        expect.any(Function),
       );
     });
 
-    it("no blocker to dismiss", async () => {
-      dismissBlockerViaPlaywright.mockResolvedValue({ dismissed: false, reason: "no-blocker" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "dismiss_blocker",
-        targetRef: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.dismissed).toBe(false);
+    it("returns detect_blocker response structure", async () => {
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "detect_blocker", ref: "e1" });
+      expect(res.body).toMatchObject({ ok: true, targetId: expect.any(String), isBlocked: expect.any(Boolean) });
     });
 
-    it("response structure verification", async () => {
-      dismissBlockerViaPlaywright.mockResolvedValue({ dismissed: true });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "dismiss_blocker",
-        targetRef: "e1",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-        dismissed: expect.any(Boolean),
-      });
+    it("returns dismiss_blocker response structure", async () => {
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "dismiss_blocker", targetRef: "e1" });
+      expect(res.body).toMatchObject({ ok: true, targetId: expect.any(String), dismissed: expect.any(Boolean) });
     });
 
-    it("logging verification - dismiss_blocker request logged", async () => {
-      dismissBlockerViaPlaywright.mockResolvedValue({ dismissed: true });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "dismiss_blocker",
-        targetRef: "e1",
+    for (const body of [{ kind: "detect_blocker" }, { kind: "dismiss_blocker" }]) {
+      it(`rejects invalid blocker payload ${JSON.stringify(body)}`, async () => {
+        const { app } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(400);
       });
+    }
 
-      expect(res.status).toBe(200);
-      expect(dismissBlockerViaPlaywright).toHaveBeenCalled();
-    });
-  });
-
-  describe("POST /act (dismiss_blocker) - Error Handling", () => {
-    it("error: missing targetRef", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "dismiss_blocker",
+    for (const [kind, message] of [
+      ["detect_blocker", "Detection failed"],
+      ["dismiss_blocker", "Dismiss failed"],
+    ] as const) {
+      it(`surfaces ${kind} failure`, async () => {
+        const { app, discoveryService } = createActionRouteHarness();
+        if (kind === "detect_blocker") {
+          discoveryService.detectBlockingElement.mockRejectedValueOnce(new Error(message));
+          const res = await request(app).post("/act").send({ kind, ref: "e1" });
+          expect(res.status).toBe(500);
+        } else {
+          discoveryService.dismissBlocker.mockRejectedValueOnce(new Error(message));
+          const res = await request(app).post("/act").send({ kind, targetRef: "e1" });
+          expect(res.status).toBe(500);
+        }
       });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("targetRef is required");
-    });
-
-    it("error: dismiss fails", async () => {
-      dismissBlockerViaPlaywright.mockRejectedValue(new Error("Dismiss failed"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "dismiss_blocker",
-        targetRef: "e1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Dismiss failed");
-    });
+    }
   });
 });

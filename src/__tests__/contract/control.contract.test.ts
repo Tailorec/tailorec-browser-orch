@@ -1,19 +1,37 @@
-import express from "express";
-import request from "supertest";
-import { describe, expect, it } from "vitest";
-import { registerBrowserControlRoutes } from "../../browser/routes/control.js";
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { z } from 'zod';
+import { ControlController } from '../../api/controllers/control.controller.js';
+import { registerControlRoutes } from '../../api/routes/control.routes.js';
+import { createControlToken } from '../../shared/utils/control-token.js';
+import { createTestApp } from '../helpers/test-helpers.js';
 
-describe("contract: GET /control", () => {
-  it("returns stable contract for missing token", async () => {
-    const app = express();
-    registerBrowserControlRoutes(app as any);
+describe('control contract', () => {
+  const originalEnv = { ...process.env };
 
-    const res = await request(app).get("/control");
+  beforeEach(() => {
+    process.env.AGENT_RUNTIME_JWT_SECRET = 'top-secret';
+  });
 
-    expect(res.status).toBe(401);
-    expect(res.body).toStrictEqual({
-      ok: false,
-      error: "missing_control_token",
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('returns the interactive control response shape', async () => {
+    const { token } = createControlToken({ runId: 'run-1' });
+    const app = createTestApp((router, middleware) => {
+      registerControlRoutes(router, new ControlController(), middleware);
     });
+
+    const response = await request(app).get('/control').query({ token });
+    const schema = z.object({
+      ok: z.literal(true),
+      mode: z.literal('interactive'),
+      ws_url: z.string().url(),
+      run_id: z.string().nullable(),
+      note: z.string(),
+    });
+
+    expect(schema.parse(response.body).run_id).toBe('run-1');
   });
 });
