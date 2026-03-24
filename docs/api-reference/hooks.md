@@ -1,297 +1,108 @@
-# Hooks API
+# Hooks And Downloads API
 
-The Hooks API handles special browser events like file uploads and JavaScript dialogs.
+## `POST /hooks/file-chooser`
 
----
+Stages files and arms a browser upload flow.
 
-## File Chooser Hook
-
-Handle file upload dialogs.
-
-### Endpoint
-
-```
-POST /hooks/file-chooser
-```
-
-### Request
-
-**Parameters:**
+### Request Body
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `paths` | array | **Required.** File paths to upload |
-| `targetId` | string | Browser tab identifier |
-| `ref` | string | Element to click to trigger dialog |
-| `inputRef` | string | Direct file input reference |
-| `element` | string | CSS selector for file input |
-| `timeoutMs` | number | Timeout in milliseconds |
+| `paths` | array | required local paths or URLs |
+| `targetId` | string | optional tab |
+| `ref` | string | click this ref to trigger chooser |
+| `inputRef` | string | direct file input ref |
+| `element` | string | direct selector target |
+| `timeoutMs` | number | optional timeout |
 
-### Example: Upload File by Clicking Button
+### Modes
 
-```bash
-curl -X POST http://localhost:4000/hooks/file-chooser \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": ["/path/to/resume.pdf"],
-    "ref": "e12",
-    "timeoutMs": 10000
-  }'
-```
-
-**Flow:**
-1. Clicks element `e12` (triggers file dialog)
-2. Selects file `/path/to/resume.pdf`
-3. Confirms upload
-
-### Example: Upload File to Direct Input
-
-```bash
-curl -X POST http://localhost:4000/hooks/file-chooser \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": ["/path/to/resume.pdf"],
-    "inputRef": "e15"
-  }'
-```
-
-**Flow:**
-1. Directly sets file on input element `e15`
-2. No dialog triggered
-
-### Example: Upload from URL
-
-```bash
-curl -X POST http://localhost:4000/hooks/file-chooser \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": ["https://example.com/resume.pdf"],
-    "ref": "e12"
-  }'
-```
-
-**Flow:**
-1. Downloads file from URL
-2. Stages in `upload-resume/` directory
-3. Uploads to browser
-4. Cleans up staged file
-
-### Example: Multiple Files
-
-```bash
-curl -X POST http://localhost:4000/hooks/file-chooser \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": [
-      "/path/to/resume.pdf",
-      "/path/to/cover-letter.pdf"
-    ],
-    "ref": "e12"
-  }'
-```
-
-### Response
+#### Click-triggered chooser
 
 ```json
 {
-  "ok": true
+  "paths": ["/path/to/resume.pdf"],
+  "ref": "e12",
+  "timeoutMs": 10000
 }
 ```
 
-### Error Responses
-
-**File Not Found:**
+#### Direct file input
 
 ```json
 {
-  "ok": false,
-  "error": "File not found: /path/to/missing.pdf",
-  "code": "FILE_NOT_FOUND"
+  "paths": ["/path/to/resume.pdf"],
+  "inputRef": "e15"
 }
 ```
 
-**Download Failed:**
+#### URL-backed upload
 
 ```json
 {
-  "ok": false,
-  "error": "file_download_failed:404",
-  "code": "DOWNLOAD_FAILED"
+  "paths": ["https://example.com/resume.pdf"],
+  "ref": "e12"
 }
 ```
 
----
+Behavior:
 
-## Dialog Hook
+1. URL inputs are downloaded and staged locally first
+2. staged files are uploaded into the browser context
+3. staged temporary files are cleaned up unless `BROWSER_KEEP_STAGED_UPLOADS=true`
 
-Handle JavaScript alerts, confirms, and prompts.
+### Success Response
 
-### Endpoint
-
+```json
+{ "ok": true }
 ```
-POST /hooks/dialog
-```
 
-### Request
+### Validation Errors
 
-**Parameters:**
+- `paths are required`
+- `ref cannot be combined with inputRef/element`
+
+## `POST /hooks/dialog`
+
+Arms handling for alert, confirm, and prompt dialogs.
+
+### Request Body
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `accept` | boolean | **Required.** Accept or dismiss dialog |
-| `promptText` | string | Text for prompt dialogs |
-| `targetId` | string | Browser tab identifier |
-| `timeoutMs` | number | Timeout in milliseconds |
-
-### Example: Accept Alert
-
-```bash
-curl -X POST http://localhost:4000/hooks/dialog \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accept": true
-  }'
-```
-
-### Example: Accept Confirm
-
-```bash
-curl -X POST http://localhost:4000/hooks/dialog \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accept": true
-  }'
-```
-
-### Example: Dismiss Confirm
-
-```bash
-curl -X POST http://localhost:4000/hooks/dialog \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accept": false
-  }'
-```
-
-### Example: Respond to Prompt
-
-```bash
-curl -X POST http://localhost:4000/hooks/dialog \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accept": true,
-    "promptText": "John Doe"
-  }'
-```
-
-### Response
-
-```json
-{
-  "ok": true
-}
-```
-
-### Usage Pattern
-
-```bash
-# 1. Arm dialog handler
-curl -X POST http://localhost:4000/hooks/dialog \
-  -H "Content-Type: application/json" \
-  -d '{"accept": true}'
-
-# 2. Trigger dialog (e.g., click button that shows alert)
-curl -X POST http://localhost:4000/act \
-  -H "Content-Type: application/json" \
-  -d '{"kind": "click", "ref": "e12"}'
-
-# Dialog is automatically handled
-```
-
----
-
-## Wait Download
-
-Wait for file download to complete.
-
-### Endpoint
-
-```
-POST /wait/download
-```
-
-### Request
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `path` | string | Output file path |
-| `targetId` | string | Browser tab identifier |
-| `timeoutMs` | number | Timeout in milliseconds |
+| `accept` | boolean | required accept or dismiss flag |
+| `promptText` | string | optional prompt response |
+| `targetId` | string | optional tab |
+| `timeoutMs` | number | optional timeout |
 
 ### Example
 
-```bash
-curl -X POST http://localhost:4000/wait/download \
-  -H "Content-Type: application/json" \
-  -d '{
-    "path": "/downloads/file.pdf",
-    "timeoutMs": 60000
-  }'
-```
-
-### Response
-
 ```json
 {
-  "ok": true,
-  "targetId": "ABC123.1",
-  "download": {
-    "path": "/downloads/file.pdf",
-    "suggestedFilename": "report.pdf",
-    "mimeType": "application/pdf",
-    "totalBytes": 102400
-  }
+  "accept": true,
+  "promptText": "John Doe"
 }
 ```
 
----
+Usage pattern:
 
-## Download
+1. arm `/hooks/dialog`
+2. trigger the UI action that opens the dialog
+3. the armed handler resolves the dialog when it appears
 
-Download file by clicking element.
+## `POST /wait/download`
 
-### Endpoint
+Waits for an expected browser download.
 
-```
-POST /download
-```
-
-### Request
-
-**Parameters:**
+### Request Body
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `ref` | string | **Required.** Download link/button |
-| `path` | string | **Required.** Output file path |
-| `targetId` | string | Browser tab identifier |
-| `timeoutMs` | number | Timeout in milliseconds |
+| `targetId` | string | optional tab |
+| `path` | string | optional output path |
+| `timeoutMs` | number | optional timeout |
 
-### Example
-
-```bash
-curl -X POST http://localhost:4000/download \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ref": "e12",
-    "path": "/downloads/file.pdf",
-    "timeoutMs": 60000
-  }'
-```
-
-### Response
+### Success Response
 
 ```json
 {
@@ -304,115 +115,28 @@ curl -X POST http://localhost:4000/download \
 }
 ```
 
----
+## `POST /download`
 
-## Configuration
+Clicks a ref-backed download element and waits for the resulting file.
 
-### Upload Configuration
+### Request Body
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BROWSER_UPLOAD_MAX_BYTES` | 15728640 | Max file size (15MB) |
-| `BROWSER_UPLOAD_DOWNLOAD_TIMEOUT_MS` | 45000 | Download timeout |
-| `BROWSER_KEEP_STAGED_UPLOADS` | false | Keep temp files |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ref` | string | required download trigger ref |
+| `path` | string | required output path |
+| `targetId` | string | optional tab |
+| `timeoutMs` | number | optional timeout |
 
-### Keep Staged Files for Debugging
+### Success Response
 
-```env
-BROWSER_KEEP_STAGED_UPLOADS=true
+```json
+{
+  "ok": true,
+  "targetId": "ABC123.1",
+  "download": {
+    "path": "/downloads/file.pdf",
+    "suggestedFilename": "report.pdf"
+  }
+}
 ```
-
-Staged files are stored in `upload-resume/` directory.
-
----
-
-## Best Practices
-
-### 1. Upload Resume to Job Application
-
-```bash
-# Find upload button in snapshot
-# Click upload button and handle file chooser
-curl -X POST http://localhost:4000/hooks/file-chooser \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": ["/path/to/resume.pdf"],
-    "ref": "e12"
-  }'
-
-# Wait for upload to complete
-curl -X POST http://localhost:4000/act \
-  -H "Content-Type: application/json" \
-  -d '{"kind": "wait", "timeMs": 3000}'
-
-# Verify upload succeeded (check for filename)
-curl -X POST http://localhost:4000/snapshot \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-### 2. Handle Alert on Form Submit
-
-```bash
-# Arm dialog handler
-curl -X POST http://localhost:4000/hooks/dialog \
-  -H "Content-Type: application/json" \
-  -d '{"accept": true}'
-
-# Submit form (triggers alert)
-curl -X POST http://localhost:4000/act \
-  -H "Content-Type: application/json" \
-  -d '{"kind": "click", "ref": "e20"}'
-```
-
-### 3. Download File from Link
-
-```bash
-# Click download link and wait
-curl -X POST http://localhost:4000/download \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ref": "e15",
-    "path": "./downloads/report.pdf",
-    "timeoutMs": 60000
-  }'
-```
-
----
-
-## Troubleshooting
-
-### File Not Found
-
-**Problem:** Upload file doesn't exist
-
-**Solution:** Verify file path is correct and accessible
-
-### Download Timeout
-
-**Problem:** Download times out
-
-**Solutions:**
-1. Increase timeout: `"timeoutMs": 120000`
-2. Check network connection
-3. Verify download link is valid
-
-### Dialog Not Handled
-
-**Problem:** Dialog appears but isn't handled
-
-**Solution:** Arm dialog handler BEFORE triggering action:
-
-```bash
-# ✅ Correct order
-curl -X POST http://localhost:4000/hooks/dialog -d '{"accept": true}'
-curl -X POST http://localhost:4000/act -d '{"kind": "click", "ref": "e12"}'
-
-# ❌ Wrong order (dialog appears before handler is armed)
-curl -X POST http://localhost:4000/act -d '{"kind": "click", "ref": "e12"}'
-curl -X POST http://localhost:4000/hooks/dialog -d '{"accept": true}'
-```
-
----
-
-**Last Updated:** 2026-03-03

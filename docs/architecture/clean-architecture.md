@@ -1,338 +1,86 @@
-# Clean Architecture Implementation
+# Clean Architecture
 
-**Status:** In Progress (Worktree E Integration)  
-**Date:** 2026-03-04
+The refactor is complete. The runtime now runs entirely through the clean-architecture layout instead of the old migration split.
 
----
+## Layer Rule
 
-## Overview
+Dependencies point inward:
 
-This document describes the Clean Architecture implementation in Tailorec Browser Service.
-
----
-
-## Architecture Layers
-
-### Layer Diagram
-
-```
-                    ┌─────────────────┐
-                    │     API Layer   │  (Outermost)
-                    │  Controllers,   │
-                    │   Routes, DTOs  │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  Adapters Layer │
-                    │  Infrastructure │
-                    │  Implementations│
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   Core Layer    │  (Innermost)
-                    │  Entities, Use  │
-                    │   Cases, Ports  │
-                    └─────────────────┘
+```text
+api -> core
+adapters -> core
+container -> api + adapters + core + config
+shared -> consumed where needed
 ```
 
-### Directory Structure
-
-```
-src/
-├── core/                    # Domain layer (business logic)
-│   ├── entities/            # Business entities
-│   │   ├── browser-session.entity.ts
-│   │   ├── tab.entity.ts
-│   │   └── profile.entity.ts
-│   ├── services/            # Domain services
-│   │   ├── session.service.ts
-│   │   ├── interaction.service.ts
-│   │   ├── snapshot.service.ts
-│   │   ├── discovery.service.ts
-│   │   └── navigation.service.ts
-│   ├── ports/               # Interface definitions
-│   │   ├── browser-driver.port.ts
-│   │   ├── session-store.port.ts
-│   │   └── event-bus.port.ts
-│   └── use-cases/           # Application use cases
-│       ├── execute-action.use-case.ts
-│       ├── take-snapshot.use-case.ts
-│       └── start-session.use-case.ts
-│
-├── adapters/                # Infrastructure layer
-│   ├── playwright/          # Playwright implementations
-│   │   ├── playwright.browser-driver.adapter.ts
-│   │   ├── playwright.snapshot.adapter.ts
-│   │   ├── playwright.interactions.adapter.ts
-│   │   ├── playwright.discovery.adapter.ts
-│   │   └── playwright.navigation.adapter.ts
-│   ├── chrome/              # Chrome browser implementations
-│   │   ├── chrome-launcher.adapter.ts
-│   │   ├── chrome-executables.adapter.ts
-│   │   └── extension-relay.server.ts
-│   ├── http/                # HTTP server adapters
-│   │   ├── express.server.adapter.ts
-│   │   └── express.middleware.adapter.ts
-│   └── logging/             # Logging adapters
-│       └── logger.adapter.ts
-│
-├── api/                     # Interface layer
-│   ├── controllers/         # HTTP request handlers
-│   │   ├── simple-action.controller.ts
-│   │   ├── form-action.controller.ts
-│   │   ├── advanced-action.controller.ts
-│   │   ├── snapshot.controller.ts
-│   │   ├── hooks.controller.ts
-│   │   ├── basic.controller.ts
-│   │   └── control.controller.ts
-│   ├── routes/              # Route definitions
-│   │   ├── action.routes.ts
-│   │   ├── snapshot.routes.ts
-│   │   ├── hooks.routes.ts
-│   │   ├── basic.routes.ts
-│   │   └── control.routes.ts
-│   ├── validators/          # Request validators
-│   │   └── action.validator.ts
-│   └── middlewares/         # Express middlewares
-│       ├── correlation.middleware.ts
-│       ├── logging.middleware.ts
-│       └── error.middleware.ts
-│
-├── config/                  # Configuration
-│   ├── config.ts
-│   ├── config.types.ts
-│   ├── config.validators.ts
-│   └── index.ts
-│
-├── container/               # Dependency injection
-│   ├── container.ts
-│   ├── container.types.ts
-│   └── index.ts
-│
-├── shared/                  # Cross-cutting utilities
-│   ├── errors/              # Error classes
-│   │   ├── browser.error.ts
-│   │   ├── domain.error.ts
-│   │   └── validation.error.ts
-│   ├── types/               # Type utilities
-│   │   ├── optional.type.ts
-│   │   └── result.type.ts
-│   └── utils/               # Helper functions
-│       ├── number.utils.ts
-│       ├── string.utils.ts
-│       ├── object.utils.ts
-│       └── timeout.utils.ts
-│
-└── server.ts                # Entry point
-```
-
----
-
-## Dependency Rule
-
-Dependencies always point **inward**:
-
-```
-API → Adapters → Core
-     Config → Core
-     Container → All layers
-```
+The runtime composition itself lives in `container` and `main.ts`, not in the domain layer.
 
-**Core layer has NO dependencies on outer layers.**
+## Layer Breakdown
 
----
+### Core
 
-## Layer Responsibilities
+`src/core/` contains the domain-facing browser logic:
 
-### Core Layer (Domain)
+- entities: browser session, tab, profile
+- ports: browser driver, event bus, session store
+- services: session, interaction, discovery, navigation, snapshot
+- use cases: execute action, take snapshot, start session, generate control token
 
-**Purpose:** Business logic, domain rules
+### Adapters
 
-**Components:**
-- **Entities:** Business objects (BrowserSession, Tab, Profile)
-- **Services:** Domain operations (SessionService, InteractionService)
-- **Ports:** Interface contracts (IBrowserDriver, ISessionStore)
-- **Use Cases:** Application operations (ExecuteActionUseCase)
+`src/adapters/` contains concrete implementations:
 
-**Dependencies:** None (innermost layer)
+- `playwright/` for browser/page automation, snapshots, navigation, activity, downloads, DOM observation
+- `chrome/` for launching and managing Chrome-based profiles and relay support
+- `http/` for Express server setup and `/control/live` websocket installation
+- `logging/` for structured logging
+- `utils/` for in-memory infra pieces
 
-**Testing:** Pure unit tests, no mocks needed for domain logic
+### API
 
-### Adapters Layer (Infrastructure)
+`src/api/` owns the transport contract:
 
-**Purpose:** External system implementations
+- route registration
+- request handling via controllers
+- middleware for correlation, logging, and errors
+- request validation and compatibility handling for `/act`
 
-**Components:**
-- **Playwright Adapters:** Browser automation via Playwright
-- **Chrome Adapters:** Chrome browser launcher
-- **HTTP Adapters:** Express server implementation
-- **Logging Adapters:** Pino logger implementation
+### Config
 
-**Dependencies:** Core ports (implements IBrowserDriver, etc.)
+`src/config/` loads environment-backed configuration and validates defaults.
 
-**Testing:** Integration tests, mock external systems
+### Container
 
-### API Layer (Interface)
+`src/container/` wires concrete adapters into the services and use cases used by the controllers.
 
-**Purpose:** HTTP API, request/response handling
+### Shared
 
-**Components:**
-- **Controllers:** Request handlers
-- **Routes:** Endpoint definitions
-- **Validators:** Request validation (Zod schemas)
-- **Middlewares:** Cross-cutting HTTP concerns
+`src/shared/` contains reusable errors, types, constants, and utility functions used across layers.
 
-**Dependencies:** Core use cases, adapters
+## Runtime Entry
 
-**Testing:** Contract tests, integration tests
+`src/main.ts` does all runtime assembly:
 
-### Config Layer
+1. `import 'dotenv/config'`
+2. `loadConfig()`
+3. `createContainer(config)`
+4. create route context and controller instances
+5. register route modules
+6. start HTTP server
+7. install `/control/live`
 
-**Purpose:** Configuration management
+The package entrypoint matches that runtime:
 
-**Components:**
-- Config loader
-- Type definitions
-- Validators
+- source entry: `src/main.ts`
+- built entry: `dist/main.js`
 
-**Dependencies:** None (shared utility)
+## What Changed From Migration-Era Docs
 
-### Container Layer
+These statements are no longer true and have been removed from the docs set:
 
-**Purpose:** Dependency injection
+- the project is no longer "in progress"
+- the refactor is no longer split across worktrees
+- the runtime entry is not `server.ts`
+- the current docs should not describe a pending merge or dual-path architecture as the primary model
 
-**Components:**
-- DI container factory
-- Service registration
-
-**Dependencies:** All layers (wires everything together)
-
-### Shared Layer
-
-**Purpose:** Cross-cutting utilities
-
-**Components:**
-- Error classes
-- Type utilities
-- Helper functions
-
-**Dependencies:** None (shared utility)
-
----
-
-## Key Design Patterns
-
-### Dependency Injection
-
-```typescript
-import { createContainer } from './container/container.js';
-
-const container = createContainer(config);
-
-// Access services
-const sessionService = container.sessionService;
-const snapshotService = container.snapshotService;
-```
-
-### Port-Adapter Pattern
-
-```typescript
-// Port (Core)
-export interface IBrowserDriver {
-  connect(cdpUrl: string): Promise<Browser>;
-  disconnect(browser: Browser): Promise<void>;
-}
-
-// Adapter (Infrastructure)
-export class PlaywrightBrowserDriverAdapter implements IBrowserDriver {
-  async connect(cdpUrl: string): Promise<Browser> {
-    // Playwright implementation
-  }
-
-  async disconnect(browser: Browser): Promise<void> {
-    // Playwright implementation
-  }
-}
-```
-
-### Use Case Pattern
-
-```typescript
-export class ExecuteActionUseCase {
-  constructor(
-    private sessionService: SessionService,
-    private interactionService: InteractionService,
-    private discoveryService: DiscoveryService,
-  ) {}
-
-  async execute(request: ExecuteActionRequest): Promise<ExecuteActionResponse> {
-    // Orchestrate services to perform action
-  }
-}
-```
-
----
-
-## Migration Status
-
-| Layer | Status | Notes |
-|-------|--------|-------|
-| Core | ✅ Complete | Worktree A |
-| Adapters | ✅ Complete | Worktree B |
-| API | ⚠️ Partial | Worktree C - type mismatches |
-| Config | ✅ Complete | Worktree D |
-| Container | ⚠️ Partial | Worktree D - needs wiring |
-| Shared | ✅ Complete | Worktree D |
-
----
-
-## Benefits
-
-### Testability
-
-- Core logic isolated from infrastructure
-- Easy to mock external dependencies
-- Fast unit tests
-
-### Maintainability
-
-- Clear separation of concerns
-- Changes localized to layers
-- Reduced coupling
-
-### Flexibility
-
-- Swap adapters without changing business logic
-- Multiple implementations of same port
-- Easy to add new features
-
----
-
-## Challenges
-
-### Integration Complexity
-
-Merging separately developed worktrees creates type mismatches that need resolution.
-
-### Runtime Composition
-
-The runtime now starts from `src/main.ts` and composes only the clean-architecture layers:
-`api`, `adapters`, `core`, `config`, `container`, and `shared`.
-
-### Test Migration
-
-Tests still reference legacy code - gradual migration required.
-
----
-
-## Next Steps
-
-1. **Fix Type Mismatches:** Align API controllers with Core types
-2. **Complete DI Wiring:** Wire all services in container
-3. **Migrate Tests:** Update test imports to new structure
-4. **Remove Legacy:** Delete old directories after full migration
-
----
-
-**Version:** 1.0  
-**Last Updated:** 2026-03-04
+Legacy compatibility code still exists in some places, especially under `src/browser/`, but the runtime documentation now treats the clean-architecture path as the canonical application path.

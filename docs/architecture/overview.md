@@ -1,515 +1,121 @@
 # Architecture Overview
 
-This document describes the high-level architecture of Tailorec Browser Service.
+Tailorec Browser Service is a browser automation service optimized for semantic, ref-based interaction rather than raw DOM scraping. The service exposes a small HTTP and WebSocket surface over a Playwright-backed browser runtime.
 
----
+## System Model
 
-## System Overview
-
-Tailorec Browser Service is a specialized browser automation service that exposes web pages as **Semantic Accessibility Trees** rather than raw HTML. This approach enables LLM-powered automation with token efficiency and reliable element interaction.
-
----
-
-## Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Client / LLM                         │
-│              (open-agent or custom client)              │
-└────────────────────┬────────────────────────────────────┘
-                     │ HTTP REST API (JSON)
-                     │ Port 4000
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│           Tailorec Browser Service                      │
-│                                                         │
-│  ┌───────────────────────────────────────────────────┐ │
-│  │            Express HTTP Server                    │ │
-│  │                                                   │ │
-│  │  Routes:                                          │ │
-│  │  • /snapshot  - Get page structure                │ │
-│  │  • /act       - Perform actions                   │ │
-│  │  • /screenshot - Capture images                   │ │
-│  │  • /hooks     - Handle dialogs/uploads            │ │
-│  │  • /control   - Browser lifecycle                 │ │
-│  └───────────────────┬───────────────────────────────┘ │
-│                      │                                  │
-│  ┌───────────────────▼───────────────────────────────┐ │
-│  │         Playwright Wrapper Layer                  │ │
-│  │                                                   │ │
-│  │  • pw-tools-core.snapshot.ts  - Snapshots        │ │
-│  │  • pw-tools-core.interactions.ts - Actions       │ │
-│  │  • pw-role-snapshot.ts        - Element refs     │ │
-│  │  • pw-session.ts              - State management │ │
-│  │  • pw-tools-core.dom-observer.ts - Delta tracking│ │
-│  └───────────────────┬───────────────────────────────┘ │
-│                      │                                  │
-│  ┌───────────────────▼───────────────────────────────┐ │
-│  │         Logging & Infrastructure                  │ │
-│  │                                                   │ │
-│  │  • logging/subsystem.ts  - Structured logging    │ │
-│  │  • infra/errors.ts       - Error handling        │ │
-│  │  • infra/ports.ts        - Port management       │ │
-│  └───────────────────────────────────────────────────┘ │
-└────────────────────┬────────────────────────────────────┘
-                     │ Chrome DevTools Protocol (CDP)
-                     │ Port 9229
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Chromium Browser                       │
-│                                                         │
-│  • Renders web pages                                    │
-│  • Exposes accessibility tree                           │
-│  • Executes user interactions                           │
-└─────────────────────────────────────────────────────────┘
+```text
+Client / LLM
+  -> HTTP JSON API on port 4000
+  -> Tailorec Browser Service
+     -> Express transport layer
+     -> Controllers and middleware
+     -> Core use cases and services
+     -> Playwright and Chrome adapters
+     -> Chromium over CDP
 ```
 
----
+## Runtime Composition
 
-## Core Components
+`src/main.ts` is the runtime entrypoint.
 
-### 1. Express HTTP Server
+Startup flow:
 
-**Location:** `src/main.ts`, `src/api/routes/`, `src/api/controllers/`, `src/adapters/http/`
+1. load env-backed config from `src/config/config.ts`
+2. initialize logging
+3. create the dependency container
+4. create the browser route context
+5. instantiate controllers
+6. register route modules
+7. start the HTTP server
+8. install `/control/live`
 
-**Responsibilities:**
-- HTTP request routing
-- Request/response parsing
-- Error handling
-- Profile management
+## Source Layout
 
-**Key Routes:**
-
-| Route | Method | Handler |
-|-------|--------|---------|
-| `/status` | GET | `registerBasicRoutes` |
-| `/snapshot` | POST | `registerSnapshotRoutes` |
-| `/act` | POST | `registerActionRoutes` |
-| `/screenshot` | POST | `registerMediaRoutes` |
-| `/hooks/*` | POST | `registerHooksRoutes` |
-| `/control` | GET | `registerControlRoutes` |
-
----
-
-### 2. Playwright Wrapper Layer
-
-**Location:** `src/adapters/playwright/`, `src/core/services/`
-
-**Responsibilities:**
-- Browser tab management
-- Accessibility tree extraction
-- Element interaction
-- State synchronization
-
-**Key Modules:**
-
-#### pw-tools-core.snapshot.ts
-
-Generates semantic snapshots:
-
-```typescript
-snapshotAiViaPlaywright({
-  cdpUrl,
-  targetId,
-  options: { interactive: true, compact: true }
-})
+```text
+src/
+├── main.ts
+├── api/
+├── adapters/
+├── config/
+├── container/
+├── core/
+├── shared/
+└── __tests__/
 ```
 
-Returns:
-- `snapshot` - Text representation of page
-- `refs` - Element metadata map
+## Main Responsibilities
 
-#### pw-tools-core.interactions.ts
+### Transport layer
 
-Performs browser actions:
+Implemented by `src/api/` and `src/adapters/http/`.
 
-```typescript
-clickViaPlaywright({ cdpUrl, targetId, ref, button: "left" })
-typeViaPlaywright({ cdpUrl, targetId, ref, text, submit: true })
-```
+Responsibilities:
 
-Supported actions:
-- `click`, `type`, `press`, `hover`
-- `select`, `fill`, `drag`, `scrollIntoView`
-- `navigate`, `wait`, `evaluate`
-- `discover_dropdown`, `close_dropdown`
-- `detect_blocker`, `dismiss_blocker`
+- parse HTTP requests
+- attach correlation and logging middleware
+- route requests to controllers
+- normalize handled errors
+- install interactive control websocket support
 
-#### pw-role-snapshot.ts
+### Core browser behavior
 
-Builds element reference maps:
+Implemented by `src/core/`.
 
-```typescript
-buildRoleSnapshotFromAiSnapshot(snapshot, options)
-```
+Responsibilities:
 
-Returns:
-- `refs` - Map of `e1` → `{ role: "button", name: "Submit" }`
-- `stats` - Snapshot statistics
+- session management
+- browser interactions
+- discovery and DOM observation
+- navigation behavior
+- snapshot orchestration
+- use-case execution
 
-#### pw-session.ts
+### Browser integration
 
-Manages browser state:
+Implemented primarily by `src/adapters/playwright/` and `src/adapters/chrome/`.
 
-```typescript
-getPageForTargetId({ cdpUrl, targetId })
-storeRoleRefsForTarget({ page, cdpUrl, refs })
-restoreRoleRefsForTarget({ page, cdpUrl })
-```
+Responsibilities:
 
-#### pw-tools-core.dom-observer.ts
+- connect to browser targets
+- manage tabs and pages
+- capture snapshots and screenshots
+- perform actions and downloads
+- launch and manage Chrome-backed profiles
 
-Tracks DOM changes:
+## Public API Surface
 
-```typescript
-startDomObserver({ page, anchorRef })
-snapshotDeltaViaPlaywright({ action: "start", anchorRef: "e1" })
-```
+Current public endpoints:
 
-Returns:
-- `added` - New elements
-- `removed` - Removed elements
-- `modified` - Changed elements
+- `GET /`
+- `GET /status`
+- `GET /control`
+- `POST /snapshot`
+- `POST /snapshot/delta`
+- `POST /act`
+- `POST /hooks/file-chooser`
+- `POST /hooks/dialog`
+- `POST /wait/download`
+- `POST /download`
+- `POST /screenshot`
+- `POST /screenshot/labeled`
+- `POST /highlight`
+- `WS /control/live`
 
----
+## Snapshot And Ref Workflow
 
-### 3. Logging Subsystem
+The service is designed around a semantic workflow:
 
-**Location:** `src/adapters/logging/`, `src/shared/utils/correlation.ts`
+1. navigate to a page
+2. request `/snapshot`
+3. read semantic structure and `refs`
+4. act using `ref` values rather than selectors
+5. refresh the snapshot after page changes
 
-**Components:**
+That design reduces selector brittleness and makes the service easier for LLM-driven agents to use.
 
-#### adapters/logging/logger.adapter.ts
+## Profiles And Runtime State
 
-Structured logging with correlation IDs:
+Profiles are resolved from configuration at startup, but the live runtime state separately tracks which profiles are active.
 
-```typescript
-const log = createSubsystemLogger("browser-act");
-log.info("action click started", { ref: "e12" });
-log.exception("action click failed", error, { ref: "e12" });
-```
-
-Features:
-- JSON or console formatting
-- Log rotation
-- Correlation ID tracking
-- Subsystem tagging
-
-#### shared/utils/correlation.ts
-
-Request correlation:
-
-```typescript
-const correlationId = generateCorrelationId();
-```
-
-Ensures logs can be traced across requests.
-
----
-
-### 4. Infrastructure Layer
-
-**Location:** `src/shared/`, `src/adapters/utils/`
-
-**Components:**
-
-#### infra/errors.ts
-
-Error types and handling:
-
-```typescript
-class BrowserError extends Error {
-  constructor(message: string, code: string) {
-    super(message);
-    this.code = code;
-  }
-}
-```
-
-#### infra/ports.ts
-
-Port management:
-
-```typescript
-const port = await findAvailablePort(4000);
-```
-
-#### infra/ws.ts
-
-WebSocket utilities (for future use).
-
----
-
-## Data Flow
-
-### Snapshot Request Flow
-
-```
-Client
-  │
-  │ POST /snapshot
-  │ { interactiveOnly: true }
-  ▼
-Express Server
-  │
-  │ Route to handler
-  ▼
-registerBrowserAgentSnapshotRoutes
-  │
-  │ Extract profile context
-  ▼
-getPwAiModule()
-  │
-  │ Get Playwright instance
-  ▼
-snapshotAiViaPlaywright()
-  │
-  │ Connect via CDP
-  │ Extract accessibility tree
-  │ Build role snapshot
-  │ Store refs
-  ▼
-{ snapshot, refs, truncated }
-  │
-  │ JSON response
-  ▼
-Client
-```
-
-### Action Request Flow
-
-```
-Client
-  │
-  │ POST /act
-  │ { kind: "click", ref: "e12" }
-  ▼
-Express Server
-  │
-  │ Route to handler
-  ▼
-registerBrowserAgentActRoutes
-  │
-  │ Validate request
-  │ Extract profile context
-  ▼
-getPwAiModule()
-  │
-  │ Get Playwright instance
-  ▼
-clickViaPlaywright()
-  │
-  │ Find element by ref
-  │ Perform click
-  │ Wait for completion
-  ▼
-{ ok: true, targetId, url }
-  │
-  │ JSON response
-  ▼
-Client
-```
-
----
-
-## State Management
-
-### Browser State
-
-Browser state is managed per-profile:
-
-```typescript
-interface BrowserState {
-  profiles: Map<string, ProfileConfig>;
-  resolved: ResolvedConfig;
-}
-```
-
-### Tab State
-
-Each tab has a target ID:
-
-```typescript
-interface TabState {
-  targetId: string;
-  url: string;
-  title: string;
-}
-```
-
-### Reference State
-
-Element references are stored per-tab:
-
-```typescript
-interface RefState {
-  refs: RoleRefMap;
-  mode: "role" | "aria";
-  timestamp: number;
-}
-```
-
-Refs are:
-- **Stored** after snapshot
-- **Restored** before action
-- **Cleared** on navigation
-
----
-
-## Security Model
-
-### Isolation
-
-- Each profile has isolated browser context
-- Tabs are isolated by target ID
-- No cross-tab data sharing
-
-### Access Control
-
-- Control token required for `/control` endpoint
-- File uploads restricted to temp directory
-- Evaluate action can be disabled
-
-### Data Protection
-
-- Upload files deleted after use (configurable)
-- Logs rotated and limited
-- No persistent storage of credentials
-
----
-
-## Performance Considerations
-
-### Token Efficiency
-
-Semantic snapshots reduce token usage:
-
-**Raw HTML:** ~50,000 characters  
-**Semantic Snapshot:** ~500 characters  
-**Reduction:** 99%
-
-### Memory Management
-
-- Headless mode reduces memory by ~50%
-- Viewport size affects memory usage
-- Tabs should be closed when not needed
-
-### CDP Connection
-
-- Single CDP session per tab
-- Session reused across requests
-- Detached on tab close
-
----
-
-## Extensibility
-
-### Adding New Actions
-
-1. Add action kind to `agent.act.shared.ts`
-2. Implement in `pw-tools-core.interactions.ts`
-3. Add route handler in `agent.act.ts`
-4. Update documentation
-
-### Adding New Snapshot Modes
-
-1. Implement in `pw-tools-core.snapshot.ts`
-2. Add options to `pw-role-snapshot.ts`
-3. Update route handler in `agent.snapshot.ts`
-4. Update documentation
-
-### Adding New Hooks
-
-1. Add route in `agent.act.ts`
-2. Implement in `pw-tools-core.*.ts`
-3. Update documentation
-
----
-
-## Deployment Architecture
-
-### Single Instance
-
-```
-┌─────────────────────┐
-│  Tailorec Browser   │
-│      Service        │
-│  ┌───────────────┐  │
-│  │   Chromium    │  │
-│  └───────────────┘  │
-└─────────────────────┘
-```
-
-### Multi-Instance (Future)
-
-```
-┌─────────────────┐
-│  Load Balancer  │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-┌───▼───┐ ┌──▼────┐
-│ Inst 1│ │ Inst 2│
-│ ┌───┐ │ │ ┌───┐ │
-│ │Cr │ │ │ │Cr │ │
-│ └───┘ │ │ └───┘ │
-└───────┘ └───────┘
-```
-
----
-
-## Monitoring
-
-### Health Checks
-
-```bash
-curl http://localhost:4000/status
-```
-
-Returns:
-
-```json
-{
-  "ok": true,
-  "profiles": []
-}
-```
-
-### Logging
-
-Logs written to:
-- Console (stdout)
-- File (configurable)
-
-Log format:
-
-```json
-{
-  "level": "info",
-  "subsystem": "browser-act",
-  "message": "action click succeeded",
-  "ref": "e12",
-  "duration_ms": 45,
-  "timestamp": "2026-03-03T12:00:00.000Z"
-}
-```
-
-### Metrics (Future)
-
-- Request count
-- Action latency
-- Error rate
-- Memory usage
-
----
-
-## Next Steps
-
-- **[Components](./components.md)** - Detailed component documentation
-- **[Security](./security.md)** - Security model and best practices
-- **[API Reference](../api-reference/overview.md)** - Complete API docs
-
----
-
-**Last Updated:** 2026-03-03
+This matters for `/status`: the response reflects runtime-tracked profiles, not just declared config keys.
