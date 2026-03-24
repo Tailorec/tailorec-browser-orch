@@ -249,7 +249,63 @@ export class ChromeLauncherAdapter {
       }
     }
 
+    const playwrightChromium = this.findPlaywrightChromiumLinux();
+    if (playwrightChromium) {
+      return playwrightChromium;
+    }
+
     return defaultPath;
+  }
+
+  private firstExisting(paths: string[]): string | null {
+    for (const candidate of paths) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private findPlaywrightChromiumLinux(): string | null {
+    if (process.platform !== 'linux') {
+      return null;
+    }
+
+    const explicitExecutable = process.env.CHROME_EXECUTABLE_PATH?.trim();
+    if (explicitExecutable && fs.existsSync(explicitExecutable)) {
+      return explicitExecutable;
+    }
+
+    const browserRoots = [
+      process.env.PLAYWRIGHT_BROWSERS_PATH,
+      '/ms-playwright',
+      path.join(os.homedir(), '.cache', 'ms-playwright'),
+    ].filter((value): value is string => Boolean(value && value.trim()));
+
+    for (const root of browserRoots) {
+      try {
+        const entries = fs.readdirSync(root, { withFileTypes: true });
+        const chromiumDirs = entries
+          .filter((entry) => entry.isDirectory() && entry.name.startsWith('chromium-'))
+          .map((entry) => entry.name)
+          .sort()
+          .reverse();
+
+        for (const dir of chromiumDirs) {
+          const candidate = this.firstExisting([
+            path.join(root, dir, 'chrome-linux', 'chrome'),
+            path.join(root, dir, 'chrome-linux', 'headless_shell'),
+          ]);
+          if (candidate) {
+            return candidate;
+          }
+        }
+      } catch {
+        // Ignore missing or unreadable browser roots.
+      }
+    }
+
+    return null;
   }
 
   private async waitForChromeReady(
