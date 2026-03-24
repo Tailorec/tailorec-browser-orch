@@ -451,7 +451,7 @@ export class ActionValidator {
    * Validate file chooser request
    */
   validateFileChooser(payload: unknown): FileChooserRequestDTO {
-    return this.validate(payload, FileChooserRequestSchema);
+    return this.validate(payload, FileChooserRequestSchema) as FileChooserRequestDTO;
   }
 
   /**

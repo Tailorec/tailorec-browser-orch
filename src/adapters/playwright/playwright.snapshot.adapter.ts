@@ -4,6 +4,7 @@ import { formatAriaSnapshot, type AriaSnapshotNode, type RawAXNode } from '../ut
 import {
   buildRoleSnapshotFromAiSnapshot,
   buildRoleSnapshotFromAriaSnapshot,
+  getRoleSnapshotStats,
   type RoleSnapshotOptions,
   type RoleRefMap,
 } from './playwright.role-snapshot.adapter.js';
