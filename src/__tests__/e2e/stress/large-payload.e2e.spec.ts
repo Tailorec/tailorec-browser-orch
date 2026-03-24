@@ -3,7 +3,7 @@ import { test, expect, request, type Browser, type Page, type BrowserContext } f
 import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
-} from "../../../browser/server.js";
+} from "../helpers/server-bootstrap.js";
 import * as path from "node:path";
 
 let baseUrl = "";

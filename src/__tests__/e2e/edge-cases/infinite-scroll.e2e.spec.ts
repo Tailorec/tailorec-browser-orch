@@ -3,7 +3,7 @@ import { test, expect, request, type Browser, type Page } from "@playwright/test
 import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
-} from "../../../browser/server.js";
+} from "../helpers/server-bootstrap.js";
 import * as path from "node:path";
 
 let baseUrl = "";
@@ -133,10 +133,16 @@ test.describe("E2E: Infinite Scroll", () => {
       </html>
     `);
 
-    // Scroll multiple times
-    for (let i = 0; i < 10; i++) {
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(500);
+    // Scroll multiple times and force the listener to run as content grows.
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => {
+        window.scrollTo(0, document.documentElement.scrollHeight);
+        window.dispatchEvent(new Event("scroll"));
+      });
+      await page.waitForFunction(
+        (expectedCount) => document.querySelectorAll(".item").length >= expectedCount,
+        20 + (i + 1) * 10,
+      );
     }
 
     // Verify many items loaded
