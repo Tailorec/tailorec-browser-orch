@@ -1,35 +1,30 @@
-import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  startBrowserControlServerFromConfig,
-  stopBrowserControlServer,
-} from "../../browser/server.js";
+import { describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { z } from 'zod';
+import { BasicController } from '../../api/controllers/basic.controller.js';
+import { registerBasicRoutes } from '../../api/routes/basic.routes.js';
+import { createBrowserContextMock, createTestApp } from '../helpers/test-helpers.js';
 
-let baseUrl = "";
-
-describe("contract: GET /status", () => {
-  beforeAll(async () => {
-    process.env.PORT = "4012";
-    process.env.BROWSER_HEADLESS = "true";
-
-    const state = await startBrowserControlServerFromConfig();
-    if (!state) {
-      throw new Error("failed to start browser control server");
-    }
-    baseUrl = `http://127.0.0.1:${state.port}`;
-  });
-
-  afterAll(async () => {
-    await stopBrowserControlServer();
-  });
-
-  it("matches response contract", async () => {
-    const response = await request(baseUrl).get("/status");
-
-    expect(response.status).toBe(200);
-    expect(response.body).toStrictEqual({
-      ok: true,
-      profiles: expect.any(Array),
+describe('status contract', () => {
+  it('returns the current status payload shape', async () => {
+    const { browserContext } = createBrowserContextMock();
+    browserContext.state.mockReturnValue({
+      server: {} as any,
+      port: 4000,
+      configuredProfiles: new Map(),
+      profiles: new Map([['default', {}]]),
     });
+    const app = createTestApp((router, middleware) => {
+      registerBasicRoutes(router, new BasicController(browserContext as any), middleware);
+    });
+
+    const response = await request(app).get('/status');
+
+    const schema = z.object({
+      ok: z.literal(true),
+      profiles: z.array(z.string()),
+    });
+
+    expect(schema.parse(response.body)).toEqual({ ok: true, profiles: ['default'] });
   });
 });

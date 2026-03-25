@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Standalone browser control service ported from OpenClaw",
-  "main": "dist/server.js",
+  "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "tsx src/server.ts",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
@@ -24,7 +24,6 @@
     "express": "^4.18.2",
     "playwright": "^1.40.0",
     "playwright-core": "^1.40.0",
-    "tslog": "^4.9.2",
     "ws": "^8.16.0",
     "zod": "^3.22.4"
   },

@@ -1,102 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Page, CDPSession } from "playwright-core";
-import {
-  closePageViaPlaywright,
-  navigateViaPlaywright,
-  pdfViaPlaywright,
-  resizeViewportViaPlaywright,
-  snapshotAiViaPlaywright,
-  snapshotAriaViaPlaywright,
-  snapshotDeltaViaPlaywright,
-  snapshotRoleViaPlaywright,
-} from "../../browser/pw-tools-core.snapshot.js";
+import { SnapshotService } from "../../core/services/snapshot.service.js";
+import { TakeSnapshotUseCase } from "../../core/use-cases/take-snapshot.use-case.js";
+import { PlaywrightNavigationAdapter } from "../../adapters/playwright/playwright.navigation.adapter.js";
 
-// Mock logging
-vi.mock("../../logging/subsystem.js", async () => {
-  return {
-    createSubsystemLogger: vi.fn(() => ({
-      info: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-      exception: vi.fn(),
-    })),
+function createMockPage() {
+  const session = {
+    send: vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ nodes: [] }),
+    detach: vi.fn().mockResolvedValue(undefined),
   };
-});
 
-// Mock pw-session
-vi.mock("../../browser/pw-session.js", async () => {
   return {
-    ensurePageState: vi.fn(),
-    getPageForTargetId: vi.fn(),
-    restoreRoleRefsForTarget: vi.fn(),
-    storeRoleRefsForTarget: vi.fn(),
-  };
-});
+    context: vi.fn().mockReturnValue({
+      newCDPSession: vi.fn().mockResolvedValue(session),
+    }),
+    goto: vi.fn().mockResolvedValue(undefined),
+    url: vi.fn().mockReturnValue("https://example.com"),
+    title: vi.fn().mockResolvedValue("Example"),
+    setViewportSize: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    pdf: vi.fn().mockResolvedValue(Buffer.from("pdf")),
+    screenshot: vi.fn().mockResolvedValue(Buffer.from("shot")),
+    _snapshotForAI: vi.fn().mockResolvedValue({ full: "- button \"Submit\"" }),
+  } as any;
+}
 
-// Mock cdp
-vi.mock("../../browser/cdp.js", async () => {
+function createSessionService(page = createMockPage()) {
   return {
-    formatAriaSnapshot: vi.fn((nodes) => nodes.slice(0, 100)),
-  };
-});
-
-// Mock pw-role-snapshot
-vi.mock("../../browser/pw-role-snapshot.js", async () => {
-  return {
-    buildRoleSnapshotFromAiSnapshot: vi.fn((snapshot) => ({
-      snapshot,
-      refs: { e1: { role: "button", name: "Submit" } },
-    })),
-    buildRoleSnapshotFromAriaSnapshot: vi.fn((snapshot) => ({
-      snapshot,
-      refs: { e1: { role: "button", name: "Click" } },
-    })),
-    getRoleSnapshotStats: vi.fn((snapshot) => ({
-      lines: snapshot.split("\n").length,
-      chars: snapshot.length,
-      refs: 1,
-      interactive: 1,
-    })),
-  };
-});
-
-// Mock dom-observer
-vi.mock("../../browser/pw-tools-core.dom-observer.js", async () => {
-  return {
-    snapshotDeltaViaPlaywright: vi.fn(),
-  };
-});
+    getPage: vi.fn(async () => page),
+    storeRoleRefs: vi.fn(async () => undefined),
+  } as any;
+}
 
 describe("pw-tools-snapshot", () => {
-  const createMockPage = () => {
-    const page = {
-      context: vi.fn().mockReturnValue({
-        newCDPSession: vi.fn(),
-      }),
-      goto: vi.fn(),
-      url: vi.fn().mockReturnValue("https://example.com"),
-      setViewportSize: vi.fn(),
-      close: vi.fn(),
-      pdf: vi.fn(),
-      frameLocator: vi.fn().mockReturnValue({
-        locator: vi.fn().mockReturnValue({
-          ariaSnapshot: vi.fn().mockResolvedValue("- button [Click]"),
-        }),
-      }),
-      locator: vi.fn().mockReturnValue({
-        ariaSnapshot: vi.fn().mockResolvedValue("- button [Submit]"),
-      }),
-      _snapshotForAI: vi.fn().mockResolvedValue({ full: "snapshot content" }),
-    };
-    return page as unknown as Page;
-  };
-
-  const createMockCDPSession = () => {
-    return {
-      send: vi.fn().mockResolvedValue({ nodes: [] }),
-      detach: vi.fn().mockResolvedValue(undefined),
-    } as unknown as CDPSession;
-  };
+  const snapshotService = new SnapshotService();
+  const navigationAdapter = new PlaywrightNavigationAdapter();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -106,442 +46,283 @@ describe("pw-tools-snapshot", () => {
     vi.restoreAllMocks();
   });
 
-  describe("snapshotDeltaViaPlaywright", () => {
-    it("starts delta snapshot", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      const { snapshotDeltaViaPlaywright: mockSnapshotDelta } = await import(
-        "../../browser/pw-tools-core.dom-observer.js"
-      );
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockSnapshotDelta).mockResolvedValue({ observing: true });
-
-      const result = await snapshotDeltaViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        action: "start",
-      });
-
-      expect(getPageForTargetId).toHaveBeenCalledWith({
-        cdpUrl: "http://127.0.0.1:9222",
-        action: "start",
-      });
-      expect(ensurePageState).toHaveBeenCalledWith(mockPage);
-      expect(result).toEqual({ observing: true });
-    });
-
-    it("stops delta snapshot with anchor ref", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      const { snapshotDeltaViaPlaywright: mockSnapshotDelta } = await import(
-        "../../browser/pw-tools-core.dom-observer.js"
-      );
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockSnapshotDelta).mockResolvedValue({
-        addedElements: [],
-        removedElements: [],
-        modifiedElements: [],
-        urlChanged: false,
-        previousUrl: "https://example.com",
-        currentUrl: "https://example.com",
-        observationDurationMs: 100,
-      });
-
-      const result = await snapshotDeltaViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-1",
-        action: "stop",
-        anchorRef: "@e1",
-      });
-
-      expect(getPageForTargetId).toHaveBeenCalledWith({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-1",
-        action: "stop",
-        anchorRef: "@e1",
-      });
-      expect(result.urlChanged).toBe(false);
-    });
-  });
-
-  describe("snapshotAriaViaPlaywright", () => {
+  describe("SnapshotService.captureAriaSnapshot", () => {
     it("captures aria snapshot with default limit", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      const mockSession = createMockCDPSession();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockPage.context().newCDPSession).mockResolvedValue(mockSession);
+      const page = createMockPage();
 
-      const result = await snapshotAriaViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-      });
+      const result = await snapshotService.captureAriaSnapshot(page);
 
-      expect(mockSession.send).toHaveBeenCalledWith("Accessibility.enable");
-      expect(mockSession.send).toHaveBeenCalledWith("Accessibility.getFullAXTree");
+      const session = await page.context().newCDPSession.mock.results[0].value;
+      expect(session.send).toHaveBeenCalledWith("Accessibility.enable");
+      expect(session.send).toHaveBeenCalledWith("Accessibility.getFullAXTree");
       expect(result.nodes).toEqual([]);
     });
 
     it("captures aria snapshot with custom limit", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      const mockSession = createMockCDPSession();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockPage.context().newCDPSession).mockResolvedValue(mockSession);
-
-      await snapshotAriaViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        limit: 100,
+      const page = createMockPage();
+      const nodes = Array.from({ length: 5 }, (_, index) => ({
+        role: { value: `role-${index}` },
+        name: { value: `name-${index}` },
+      }));
+      const session = {
+        send: vi
+          .fn()
+          .mockResolvedValueOnce(undefined)
+          .mockResolvedValueOnce({ nodes }),
+        detach: vi.fn().mockResolvedValue(undefined),
+      };
+      page.context = vi.fn().mockReturnValue({
+        newCDPSession: vi.fn().mockResolvedValue(session),
       });
 
-      expect(mockSession.send).toHaveBeenCalledWith("Accessibility.getFullAXTree");
-    });
+      const result = await snapshotService.captureAriaSnapshot(page, 2);
 
-    it("clamps limit to valid range", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      const mockSession = createMockCDPSession();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockPage.context().newCDPSession).mockResolvedValue(mockSession);
-
-      // Test minimum limit
-      await snapshotAriaViaPlaywright({ cdpUrl: "http://127.0.0.1:9222", limit: -10 });
-      // Test maximum limit
-      await snapshotAriaViaPlaywright({ cdpUrl: "http://127.0.0.1:9222", limit: 5000 });
-
-      expect(mockSession.send).toHaveBeenCalledTimes(4); // 2 calls per snapshot (enable + getFullAXTree)
+      expect(result.nodes).toHaveLength(2);
+      expect(result.nodes[0]).toEqual({
+        role: "role-0",
+        name: "name-0",
+        children: undefined,
+      });
     });
 
     it("detaches session on completion", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      const mockSession = createMockCDPSession();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockPage.context().newCDPSession).mockResolvedValue(mockSession);
+      const page = createMockPage();
 
-      await snapshotAriaViaPlaywright({ cdpUrl: "http://127.0.0.1:9222" });
+      await snapshotService.captureAriaSnapshot(page);
 
-      expect(mockSession.detach).toHaveBeenCalled();
+      const session = await page.context().newCDPSession.mock.results[0].value;
+      expect(session.detach).toHaveBeenCalled();
     });
 
     it("detaches session on error", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      const mockSession = createMockCDPSession();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-      vi.mocked(mockPage.context().newCDPSession).mockResolvedValue(mockSession);
-      vi.mocked(mockSession.send).mockRejectedValue(new Error("CDP error"));
+      const page = createMockPage();
+      const session = {
+        send: vi.fn().mockRejectedValue(new Error("CDP error")),
+        detach: vi.fn().mockResolvedValue(undefined),
+      };
+      page.context = vi.fn().mockReturnValue({
+        newCDPSession: vi.fn().mockResolvedValue(session),
+      });
 
-      await expect(snapshotAriaViaPlaywright({ cdpUrl: "http://127.0.0.1:9222" })).rejects.toThrow();
-
-      expect(mockSession.detach).toHaveBeenCalled();
+      await expect(snapshotService.captureAriaSnapshot(page)).rejects.toThrow("CDP error");
+      expect(session.detach).toHaveBeenCalled();
     });
   });
 
-  describe("snapshotAiViaPlaywright", () => {
+  describe("SnapshotService.captureSnapshot", () => {
     it("captures AI snapshot with default options", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
 
-      const result = await snapshotAiViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-      });
+      const result = await snapshotService.captureSnapshot(page, {});
 
-      expect(ensurePageState).toHaveBeenCalledWith(mockPage);
-      expect(mockPage._snapshotForAI).toHaveBeenCalledWith({
+      expect(page._snapshotForAI).toHaveBeenCalledWith({
         timeout: 5000,
         track: "response",
       });
-      expect(result.snapshot).toBe("snapshot content");
-      expect(result.refs).toEqual({ e1: { role: "button", name: "Submit" } });
+      expect(result.snapshot).toContain("Submit");
+      expect(result.refs).toEqual({});
     });
 
     it("truncates snapshot when maxChars exceeded", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      mockPage._snapshotForAI = vi.fn().mockResolvedValue({ full: "x".repeat(1000) });
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
+      page._snapshotForAI = vi.fn().mockResolvedValue({ full: "x".repeat(1000) });
 
-      const result = await snapshotAiViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        maxChars: 100,
-      });
+      const result = await snapshotService.captureSnapshot(page, { maxChars: 100 });
 
       expect(result.truncated).toBe(true);
-      expect(result.snapshot.length).toBeLessThanOrEqual(150);
+      expect(result.snapshot.length).toBeGreaterThan(100);
+      expect(result.snapshot).toContain("[...TRUNCATED - page too large]");
     });
 
     it("clamps timeout to valid range", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
 
-      // Test minimum timeout
-      await snapshotAiViaPlaywright({ cdpUrl: "http://127.0.0.1:9222", timeoutMs: 100 });
-      // Test maximum timeout
-      await snapshotAiViaPlaywright({ cdpUrl: "http://127.0.0.1:9222", timeoutMs: 100000 });
+      await snapshotService.captureSnapshot(page, { timeoutMs: 100 });
+      await snapshotService.captureSnapshot(page, { timeoutMs: 100000 });
 
-      expect(mockPage._snapshotForAI).toHaveBeenCalledTimes(2);
+      expect(page._snapshotForAI).toHaveBeenNthCalledWith(1, {
+        timeout: 500,
+        track: "response",
+      });
+      expect(page._snapshotForAI).toHaveBeenNthCalledWith(2, {
+        timeout: 60000,
+        track: "response",
+      });
     });
 
     it("throws when _snapshotForAI not available", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      delete (mockPage as any)._snapshotForAI;
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
+      delete page._snapshotForAI;
 
-      await expect(snapshotAiViaPlaywright({ cdpUrl: "http://127.0.0.1:9222" })).rejects.toThrow(
-        "Playwright _snapshotForAI is not available"
+      await expect(snapshotService.captureSnapshot(page, {})).rejects.toThrow(
+        "Playwright _snapshotForAI is not available",
+      );
+    });
+  });
+
+  describe("TakeSnapshotUseCase.execute", () => {
+    it("stores refs after ai snapshot", async () => {
+      const page = createMockPage();
+      const sessionService = createSessionService(page);
+      const useCase = new TakeSnapshotUseCase(sessionService, snapshotService);
+
+      const result = await useCase.execute({
+        cdpUrl: "http://127.0.0.1:9222",
+        targetId: "tab-1",
+        type: "ai",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(sessionService.storeRoleRefs).toHaveBeenCalledWith(
+        "tab-1",
+        expect.any(Object),
+        "aria",
       );
     });
 
-    it("stores role refs after snapshot", async () => {
-      const { getPageForTargetId, storeRoleRefsForTarget } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+    it("returns nodes for aria snapshot", async () => {
+      const page = createMockPage();
+      const sessionService = createSessionService(page);
+      const useCase = new TakeSnapshotUseCase(sessionService, snapshotService);
 
-      await snapshotAiViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-1",
+      const result = await useCase.execute({
+        type: "aria",
+        options: { ariaLimit: 100 },
       });
 
-      expect(storeRoleRefsForTarget).toHaveBeenCalledWith({
-        page: mockPage,
-        cdpUrl: "http://127.0.0.1:9222",
+      expect(result.ok).toBe(true);
+      expect(result.nodes).toEqual([]);
+    });
+
+    it("stores refs in requested mode for role snapshot", async () => {
+      const page = createMockPage();
+      const sessionService = createSessionService(page);
+      const useCase = new TakeSnapshotUseCase(sessionService, snapshotService);
+
+      const result = await useCase.execute({
         targetId: "tab-1",
-        refs: expect.any(Object),
-        mode: "aria",
+        type: "role",
+        options: { refsMode: "role" },
       });
+
+      expect(result.ok).toBe(true);
+      expect(sessionService.storeRoleRefs).toHaveBeenCalledWith(
+        "tab-1",
+        expect.any(Object),
+        "role",
+      );
+    });
+
+    it("publishes lifecycle events", async () => {
+      const page = createMockPage();
+      const sessionService = createSessionService(page);
+      const eventBus = { publish: vi.fn() };
+      const useCase = new TakeSnapshotUseCase(sessionService, snapshotService, eventBus as any);
+
+      await useCase.execute({ targetId: "tab-1", type: "ai" });
+
+      expect(eventBus.publish).toHaveBeenCalledTimes(2);
+      expect(eventBus.publish.mock.calls[0][0]).toMatchObject({
+        type: "ai",
+        aggregateId: "tab-1",
+      });
+      expect(eventBus.publish.mock.calls[1][0]).toMatchObject({
+        type: "ai",
+        aggregateId: "tab-1",
+      });
+    });
+
+    it("returns error response on failure", async () => {
+      const brokenService = {
+        captureSnapshot: vi.fn().mockRejectedValue(new Error("boom")),
+        captureAriaSnapshot: vi.fn(),
+      };
+      const page = createMockPage();
+      const sessionService = createSessionService(page);
+      const useCase = new TakeSnapshotUseCase(
+        sessionService,
+        brokenService as any,
+        { publish: vi.fn() } as any,
+      );
+
+      const result = await useCase.execute({ type: "ai" });
+
+      expect(result).toEqual({ ok: false, error: "boom" });
     });
   });
 
-  describe("snapshotRoleViaPlaywright", () => {
-    it("captures role snapshot in role mode", async () => {
-      const { getPageForTargetId, storeRoleRefsForTarget } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-
-      const result = await snapshotRoleViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        refsMode: "role",
-      });
-
-      expect(mockPage.locator).toHaveBeenCalledWith(":root");
-      expect(result.snapshot).toBe("- button [Submit]");
-      expect(result.stats).toEqual({
-        lines: 1,
-        chars: expect.any(Number),
-        refs: 1,
-        interactive: 1,
-      });
-    });
-
-    it("captures role snapshot with selector", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-
-      await snapshotRoleViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        refsMode: "role",
-        selector: ".my-button",
-      });
-
-      expect(mockPage.locator).toHaveBeenCalledWith(".my-button");
-    });
-
-    it("captures role snapshot with frame selector", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-
-      await snapshotRoleViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        refsMode: "role",
-        frameSelector: "iframe#content",
-      });
-
-      expect(mockPage.frameLocator).toHaveBeenCalledWith("iframe#content");
-    });
-
-    it("captures role snapshot in aria mode", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-
-      const result = await snapshotRoleViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        refsMode: "aria",
-      });
-
-      expect(mockPage._snapshotForAI).toHaveBeenCalled();
-      expect(result.refsMode).toBeUndefined();
-    });
-
-    it("throws for aria mode with selector", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-
-      await expect(
-        snapshotRoleViaPlaywright({
-          cdpUrl: "http://127.0.0.1:9222",
-          refsMode: "aria",
-          selector: ".button",
-        })
-      ).rejects.toThrow("refs=aria does not support selector");
-    });
-
-    it("throws for aria mode without _snapshotForAI", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      delete (mockPage as any)._snapshotForAI;
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
-
-      await expect(
-        snapshotRoleViaPlaywright({
-          cdpUrl: "http://127.0.0.1:9222",
-          refsMode: "aria",
-        })
-      ).rejects.toThrow("refs=aria requires Playwright _snapshotForAI support");
-    });
-  });
-
-  describe("navigateViaPlaywright", () => {
+  describe("PlaywrightNavigationAdapter", () => {
     it("navigates to URL", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
 
-      const result = await navigateViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        url: "https://example.com/page",
-      });
+      const result = await navigationAdapter.navigate(page, "https://example.com/page");
 
-      expect(mockPage.goto).toHaveBeenCalledWith("https://example.com/page", {
+      expect(page.goto).toHaveBeenCalledWith("https://example.com/page", {
         timeout: 20000,
+        waitUntil: "load",
       });
       expect(result.url).toBe("https://example.com");
     });
 
     it("throws for empty URL", async () => {
-      await expect(
-        navigateViaPlaywright({
-          cdpUrl: "http://127.0.0.1:9222",
-          url: "",
-        })
-      ).rejects.toThrow("url is required");
+      const page = createMockPage();
+
+      await expect(navigationAdapter.navigate(page, "")).rejects.toThrow("url is required");
     });
 
-    it("clamps timeout to valid range", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+    it("clamps navigation timeout to valid range", async () => {
+      const page = createMockPage();
 
-      // Test minimum timeout
-      await navigateViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        url: "https://example.com",
-        timeoutMs: 100,
-      });
-      // Test maximum timeout
-      await navigateViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        url: "https://example.com",
-        timeoutMs: 200000,
-      });
+      await navigationAdapter.navigate(page, "https://example.com", { timeoutMs: 100 });
+      await navigationAdapter.navigate(page, "https://example.com", { timeoutMs: 200000 });
 
-      expect(mockPage.goto).toHaveBeenCalledTimes(2);
+      expect(page.goto).toHaveBeenNthCalledWith(1, "https://example.com", {
+        timeout: 1000,
+        waitUntil: "load",
+      });
+      expect(page.goto).toHaveBeenNthCalledWith(2, "https://example.com", {
+        timeout: 120000,
+        waitUntil: "load",
+      });
     });
-  });
 
-  describe("resizeViewportViaPlaywright", () => {
     it("resizes viewport", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
 
-      await resizeViewportViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        width: 1920,
-        height: 1080,
-      });
+      await navigationAdapter.resizeViewport(page, 1920, 1080);
 
-      expect(mockPage.setViewportSize).toHaveBeenCalledWith({
+      expect(page.setViewportSize).toHaveBeenCalledWith({
         width: 1920,
         height: 1080,
       });
     });
 
     it("clamps dimensions to minimum 1", async () => {
-      const { getPageForTargetId } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
 
-      await resizeViewportViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        width: -100,
-        height: 0,
-      });
+      await navigationAdapter.resizeViewport(page, -100, 0);
 
-      expect(mockPage.setViewportSize).toHaveBeenCalledWith({
+      expect(page.setViewportSize).toHaveBeenCalledWith({
         width: 1,
         height: 1,
       });
     });
-  });
 
-  describe("closePageViaPlaywright", () => {
     it("closes page", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+      const page = createMockPage();
 
-      await closePageViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-      });
+      await navigationAdapter.closePage(page);
 
-      expect(mockPage.close).toHaveBeenCalled();
+      expect(page.close).toHaveBeenCalled();
     });
-  });
 
-  describe("pdfViaPlaywright", () => {
-    it("generates PDF", async () => {
-      const { getPageForTargetId, ensurePageState } = await import("../../browser/pw-session.js");
-      
-      const mockPage = createMockPage();
-      const mockBuffer = Buffer.from("pdf content");
-      vi.mocked(mockPage.pdf).mockResolvedValue(mockBuffer);
-      vi.mocked(getPageForTargetId).mockResolvedValue(mockPage);
+    it("generates pdf", async () => {
+      const page = createMockPage();
 
-      const result = await pdfViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-      });
+      const result = await navigationAdapter.generatePdf(page);
 
-      expect(mockPage.pdf).toHaveBeenCalledWith({ printBackground: true });
-      expect(result.buffer).toEqual(mockBuffer);
+      expect(page.pdf).toHaveBeenCalledWith({ printBackground: true, format: "A4" });
+      expect(result.buffer).toEqual(Buffer.from("pdf"));
     });
   });
 });

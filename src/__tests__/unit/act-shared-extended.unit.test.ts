@@ -1,117 +1,75 @@
-import { describe, it, expect } from "vitest";
-import {
-  ACT_KINDS,
-  isActKind,
-  parseClickButton,
-  parseClickModifiers,
-} from "../../browser/routes/agent.act.shared.js";
+import { describe, expect, it, vi } from 'vitest';
+import { ActionCompatController } from '../../api/controllers/action-compat.controller.js';
+import { createMockReq, createMockRes } from '../helpers/test-helpers.js';
 
-describe("agent.act.shared: ACT_KINDS", () => {
-  it("should include all expected action kinds", () => {
-    expect(ACT_KINDS).toContain("click");
-    expect(ACT_KINDS).toContain("type");
-    expect(ACT_KINDS).toContain("press");
-    expect(ACT_KINDS).toContain("hover");
-    expect(ACT_KINDS).toContain("fill");
-    expect(ACT_KINDS).toContain("select");
-    expect(ACT_KINDS).toContain("wait");
-    expect(ACT_KINDS).toContain("navigate");
-    expect(ACT_KINDS).toContain("evaluate");
-    expect(ACT_KINDS).toContain("close");
-    expect(ACT_KINDS).toContain("drag");
-    expect(ACT_KINDS).toContain("scrollIntoView");
-    expect(ACT_KINDS).toContain("resize");
-    expect(ACT_KINDS).toContain("discover_dropdown");
-    expect(ACT_KINDS).toContain("close_dropdown");
-    expect(ACT_KINDS).toContain("query_state");
-    expect(ACT_KINDS).toContain("detect_blocker");
-    expect(ACT_KINDS).toContain("dismiss_blocker");
+describe('ActionCompatController validation', () => {
+  it('rejects unknown action kinds', async () => {
+    const controller = new ActionCompatController({} as any, {} as any, {} as any, true);
+    const res = createMockRes();
+
+    await controller.handleAct(createMockReq({ body: { kind: 'unknown' } }), res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.payload).toEqual({ ok: false, error: 'kind is required' });
   });
 
-  it("should be a readonly array", () => {
-    expect(Array.isArray(ACT_KINDS)).toBe(true);
-    expect(ACT_KINDS.length).toBeGreaterThan(10);
-  });
-});
+  it('rejects selector for non-wait actions', async () => {
+    const controller = new ActionCompatController({} as any, {} as any, {} as any, true);
+    const res = createMockRes();
 
-describe("agent.act.shared: isActKind", () => {
-  it("should return true for valid action kinds", () => {
-    expect(isActKind("click")).toBe(true);
-    expect(isActKind("type")).toBe(true);
-    expect(isActKind("press")).toBe(true);
-    expect(isActKind("hover")).toBe(true);
-    expect(isActKind("fill")).toBe(true);
-    expect(isActKind("wait")).toBe(true);
-    expect(isActKind("navigate")).toBe(true);
+    await controller.handleAct(
+      createMockReq({ body: { kind: 'click', ref: 'e1', selector: '#bad' } }),
+      res,
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect((res.payload as { error: string }).error).toContain("'selector' is not supported");
   });
 
-  it("should return false for invalid action kinds", () => {
-    expect(isActKind("invalid")).toBe(false);
-    expect(isActKind("unknown")).toBe(false);
-    expect(isActKind("")).toBe(false);
+  it('rejects invalid click button and modifiers', async () => {
+    const controller = new ActionCompatController({} as any, {} as any, {} as any, true);
+
+    const badButton = createMockRes();
+    await controller.handleAct(
+      createMockReq({ body: { kind: 'click', ref: 'e1', button: 'bad' } }),
+      badButton,
+    );
+    expect(badButton.payload).toEqual({ ok: false, error: 'button must be left|right|middle' });
+
+    const badModifiers = createMockRes();
+    await controller.handleAct(
+      createMockReq({ body: { kind: 'click', ref: 'e1', modifiers: ['Bad'] } }),
+      badModifiers,
+    );
+    expect(badModifiers.payload).toEqual({
+      ok: false,
+      error: 'modifiers must be Alt|Control|ControlOrMeta|Meta|Shift',
+    });
   });
 
-  it("should return false for non-string values", () => {
-    expect(isActKind(null)).toBe(false);
-    expect(isActKind(undefined)).toBe(false);
-    expect(isActKind(123)).toBe(false);
-    expect(isActKind({})).toBe(false);
-    expect(isActKind([])).toBe(false);
-  });
-});
+  it('rejects empty wait payloads and disabled wait functions', async () => {
+    const disabledController = new ActionCompatController({} as any, {} as any, {} as any, false);
 
-describe("agent.act.shared: parseClickButton", () => {
-  it("should return valid button values", () => {
-    expect(parseClickButton("left")).toBe("left");
-    expect(parseClickButton("right")).toBe("right");
-    expect(parseClickButton("middle")).toBe("middle");
-  });
+    const missingConditions = createMockRes();
+    await disabledController.handleAct(createMockReq({ body: { kind: 'wait' } }), missingConditions);
+    expect(missingConditions.statusCode).toBe(400);
 
-  it("should return undefined for invalid button values", () => {
-    expect(parseClickButton("invalid")).toBe(undefined);
-    expect(parseClickButton("")).toBe(undefined);
-    expect(parseClickButton("LEFT")).toBe(undefined);
-    expect(parseClickButton("Left")).toBe(undefined);
+    const disabledFn = createMockRes();
+    await disabledController.handleAct(
+      createMockReq({ body: { kind: 'wait', fn: '() => true' } }),
+      disabledFn,
+    );
+    expect(disabledFn.statusCode).toBe(403);
   });
 
-  it("should handle edge cases", () => {
-    expect(parseClickButton("  left  ")).toBe(undefined);
-    expect(parseClickButton("left ")).toBe(undefined);
-  });
-});
+  it('dispatches evaluate requests to the advanced controller when enabled', async () => {
+    const advanced = { handleEvaluate: vi.fn(async () => undefined) };
+    const controller = new ActionCompatController({} as any, {} as any, advanced as any, true);
+    const req = createMockReq({ body: { kind: 'evaluate', fn: '() => 1' } });
+    const res = createMockRes();
 
-describe("agent.act.shared: parseClickModifiers", () => {
-  it("should return valid modifiers", () => {
-    const result = parseClickModifiers(["Alt", "Control", "Shift"]);
-    expect(result.error).toBeUndefined();
-    expect(result.modifiers).toEqual(["Alt", "Control", "Shift"]);
-  });
+    await controller.handleAct(req, res);
 
-  it("should return undefined modifiers for empty array", () => {
-    const result = parseClickModifiers([]);
-    expect(result.error).toBeUndefined();
-    expect(result.modifiers).toBeUndefined();
-  });
-
-  it("should return error for invalid modifiers", () => {
-    const result = parseClickModifiers(["Alt", "Invalid", "Shift"]);
-    expect(result.error).toContain("must be Alt|Control|ControlOrMeta|Meta|Shift");
-    expect(result.modifiers).toBeUndefined();
-  });
-
-  it("should accept all valid modifier types", () => {
-    const result = parseClickModifiers(["ControlOrMeta", "Meta"]);
-    expect(result.error).toBeUndefined();
-    expect(result.modifiers).toEqual(["ControlOrMeta", "Meta"]);
-  });
-
-  it("should reject all invalid modifiers", () => {
-    const result = parseClickModifiers(["Command", "Option", "Fn"]);
-    expect(result.error).toContain("must be Alt|Control|ControlOrMeta|Meta|Shift");
-  });
-
-  it("should handle mixed valid and invalid modifiers", () => {
-    const result = parseClickModifiers(["Alt", "Command"]);
-    expect(result.error).toBeDefined();
+    expect(advanced.handleEvaluate).toHaveBeenCalledWith(req, res);
   });
 });

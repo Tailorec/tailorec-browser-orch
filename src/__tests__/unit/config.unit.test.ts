@@ -1,37 +1,38 @@
-import { afterEach, describe, expect, it } from "vitest";
-import {
-  getConfiguredViewport,
-  loadConfig,
-  resolveProfile,
-} from "../../browser/config.js";
+import { afterEach, describe, expect, it } from 'vitest';
+import { getConfiguredViewport, loadConfig, resolveProfile } from '../../config/config.js';
 
-const envBackup = { ...process.env };
+describe('config', () => {
+  const originalEnv = { ...process.env };
 
-afterEach(() => {
-  process.env = { ...envBackup };
-});
-
-describe("browser config", () => {
-  it("loads defaults and env overrides", () => {
-    process.env.PORT = "4555";
-    process.env.BROWSER_HEADLESS = "true";
-    process.env.BROWSER_VIEWPORT = "1440x900";
-
-    const cfg = loadConfig();
-    expect(cfg.browser.controlPort).toBe(4555);
-    expect(cfg.browser.headless).toBe(true);
-    expect(cfg.browser.viewport).toEqual({ width: 1440, height: 900 });
+  afterEach(() => {
+    process.env = { ...originalEnv };
   });
 
-  it("falls back to defaults for invalid viewport", () => {
-    process.env.BROWSER_VIEWPORT = "not-a-size";
+  it('parses viewport from the environment', () => {
+    process.env.BROWSER_VIEWPORT = '1440x900';
+    expect(getConfiguredViewport()).toEqual({ width: 1440, height: 900 });
+
+    process.env.BROWSER_VIEWPORT = 'bad';
     expect(getConfiguredViewport()).toEqual({ width: 1280, height: 720 });
   });
 
-  it("resolves profile and returns null for unknown profile", () => {
-    const cfg = loadConfig().browser;
-    const resolved = resolveProfile(cfg, "default");
-    expect(resolved?.cdpUrl).toContain("127.0.0.1");
-    expect(resolveProfile(cfg, "missing")).toBeNull();
+  it('loads env overrides and resolves configured profiles', () => {
+    process.env.PORT = '4100';
+    process.env.BROWSER_HEADLESS = 'true';
+    process.env.BROWSER_NO_SANDBOX = '1';
+    process.env.LOG_LEVEL = 'debug';
+
+    const config = loadConfig();
+    expect(config.port).toBe(4100);
+    expect(config.browser.headless).toBe(true);
+    expect(config.browser.noSandbox).toBe(true);
+    expect(config.logging.level).toBe('debug');
+
+    expect(resolveProfile(config.browser, 'default')).toMatchObject({
+      name: 'default',
+      cdpPort: 9222,
+      cdpUrl: 'http://127.0.0.1:9222',
+    });
+    expect(resolveProfile(config.browser, 'missing')).toBeNull();
   });
 });

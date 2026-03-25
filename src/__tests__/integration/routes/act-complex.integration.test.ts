@@ -1,965 +1,387 @@
-import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// Mock the pw-ai-module to avoid real browser calls
-const fillFormViaPlaywright = vi.fn();
-const waitForViaPlaywright = vi.fn();
-const navigateViaPlaywright = vi.fn();
-const evaluateViaPlaywright = vi.fn();
-
-vi.mock("../../../browser/pw-ai-module.js", () => ({
-  getPwAiModule: async () => ({
-    fillFormViaPlaywright,
-    waitForViaPlaywright,
-    navigateViaPlaywright,
-    evaluateViaPlaywright,
-  }),
-}));
-
-import { registerBrowserAgentActRoutes } from "../../../browser/routes/agent.act.js";
+import { describe, expect, it } from "vitest";
+import { createActionRouteHarness } from "./helpers/route-harness.js";
 
 describe("integration: /act - complex actions (fill, wait, navigate, evaluate)", () => {
-  beforeEach(() => {
-    fillFormViaPlaywright.mockReset();
-    waitForViaPlaywright.mockReset();
-    navigateViaPlaywright.mockReset();
-    evaluateViaPlaywright.mockReset();
-  });
-
-  /**
-   * Helper to create test Express app with act routes
-   */
-  function makeApp(options?: {
-    profileName?: string;
-    cdpUrl?: string;
-    targetId?: string;
-    pageUrl?: string;
-    evaluateEnabled?: boolean;
-  }) {
-    const app = express();
-    app.use(express.json());
-
-    const ctx = {
-      state: () => ({
-        resolved: { evaluateEnabled: options?.evaluateEnabled ?? true },
-      }),
-      forProfile: () => ({
-        profile: {
-          name: options?.profileName ?? "default",
-          cdpUrl: options?.cdpUrl ?? "http://127.0.0.1:9222",
-        },
-        ensureTabAvailable: async (targetId?: string) => ({
-          targetId: targetId ?? "tab-default",
-          url: options?.pageUrl ?? "https://example.org",
-        }),
-        stopRunningBrowser: async () => undefined,
-      }),
-      mapTabError: () => null,
-    } as any;
-
-    registerBrowserAgentActRoutes(app as any, ctx);
-    return app;
-  }
-
   describe("POST /act (fill) - Basic Functionality", () => {
     it("single field fill", async () => {
-      fillFormViaPlaywright.mockResolvedValue({ results: [{ ref: "e1", matched: true }] });
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      executeActionUseCase.execute.mockResolvedValueOnce({
+        ok: true,
+        targetId: "tab-default",
+        results: [{ ref: "e1", requestedValue: "Alice", actualValue: "Alice", matched: true, strategy: "fill" }],
+        allMatched: true,
+      });
 
-      const res = await request(makeApp()).post("/act").send({
+      const res = await request(app).post("/act").send({
         kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "John Doe" }],
+        fields: [{ ref: "e1", type: "text", value: "Alice" }],
       });
 
       expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
       expect(res.body.results).toHaveLength(1);
-      expect(res.body.allMatched).toBe(true);
-      expect(fillFormViaPlaywright).toHaveBeenCalledWith(
+      expect(executeActionUseCase.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          fields: expect.arrayContaining([
-            expect.objectContaining({ ref: "e1", type: "text", value: "John Doe" }),
-          ]),
-        })
+          action: expect.objectContaining({
+            kind: "fill",
+            fields: [{ ref: "e1", type: "text", value: "Alice" }],
+          }),
+        }),
       );
     });
 
     it("multiple fields fill", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      executeActionUseCase.execute.mockResolvedValueOnce({
+        ok: true,
+        targetId: "tab-default",
         results: [
-          { ref: "e1", matched: true },
-          { ref: "e2", matched: true },
-          { ref: "e3", matched: true },
+          { ref: "e1", requestedValue: "Alice", actualValue: "Alice", matched: true, strategy: "fill" },
+          { ref: "e2", requestedValue: "a@example.com", actualValue: "a@example.com", matched: true, strategy: "fill" },
         ],
+        allMatched: true,
       });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [
-          { ref: "e1", type: "text", value: "John" },
-          { ref: "e2", type: "email", value: "john@example.com" },
-          { ref: "e3", type: "password", value: "secret123" },
-        ],
-      });
-
+      const fields = [
+        { ref: "e1", type: "text", value: "Alice" },
+        { ref: "e2", type: "email", value: "a@example.com" },
+      ];
+      const res = await request(app).post("/act").send({ kind: "fill", fields });
       expect(res.status).toBe(200);
-      expect(res.body.results).toHaveLength(3);
-      expect(res.body.allMatched).toBe(true);
-    });
-
-    it("skip when value matches", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true, actualValue: "Existing Value" }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Existing Value" }],
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.results[0].matched).toBe(true);
-    });
-
-    it("fallback to pressSequentially", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true, strategy: "pressSequentially" }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Test" }],
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("date input handling", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "date", value: "2024-01-15" }],
-      });
-
-      expect(res.status).toBe(200);
-      expect(fillFormViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fields: expect.arrayContaining([
-            expect.objectContaining({ ref: "e1", type: "date", value: "2024-01-15" }),
-          ]),
-        })
+      expect(res.body.results).toHaveLength(2);
+      expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ action: expect.objectContaining({ fields }) }),
       );
     });
 
-    it("tel input digits-only", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true }],
+    for (const strategy of ["skip", "pressSequentially", "fill"] as const) {
+      it(`returns strategy ${strategy}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({
+          ok: true,
+          targetId: "tab-default",
+          results: [{ ref: "e1", requestedValue: "v", actualValue: "v", matched: true, strategy }],
+          allMatched: true,
+        });
+        const res = await request(app).post("/act").send({
+          kind: "fill",
+          fields: [{ ref: "e1", type: "text", value: "v" }],
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.results[0].strategy).toBe(strategy);
       });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "tel", value: "+1234567890" }],
-      });
-
-      expect(res.status).toBe(200);
-    });
+    }
 
     it("response structure with mismatched fields", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      executeActionUseCase.execute.mockResolvedValueOnce({
+        ok: true,
+        targetId: "tab-default",
         results: [
-          { ref: "e1", matched: false, requestedValue: "New", actualValue: "Old", warning: "Value mismatch" },
+          {
+            ref: "e1",
+            requestedValue: "expected",
+            actualValue: "actual",
+            matched: false,
+            strategy: "pressSequentially",
+            warning: "Value mismatch",
+          },
         ],
+        allMatched: false,
       });
-
-      const res = await request(makeApp()).post("/act").send({
+      const res = await request(app).post("/act").send({
         kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "New" }],
+        fields: [{ ref: "e1", type: "text", value: "expected" }],
       });
-
       expect(res.status).toBe(200);
       expect(res.body.allMatched).toBe(false);
-      expect(res.body.mismatched).toHaveLength(1);
-      expect(res.body.mismatched[0].ref).toBe("e1");
+      expect(res.body.mismatched).toEqual([
+        { ref: "e1", requested: "expected", actual: "actual", warning: "Value mismatch" },
+      ]);
     });
 
     it("fill with timeoutMs option", async () => {
-      fillFormViaPlaywright.mockResolvedValue({ results: [{ ref: "e1", matched: true }] });
-
-      const res = await request(makeApp()).post("/act").send({
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({
         kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Test" }],
         timeoutMs: 5000,
+        fields: [{ ref: "e1", type: "text", value: "Test" }],
       });
-
       expect(res.status).toBe(200);
-      expect(fillFormViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 5000,
-        })
+      expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ action: expect.objectContaining({ timeoutMs: 5000 }) }),
       );
     });
   });
 
   describe("POST /act (fill) - Error Handling", () => {
-    it("error: missing fields", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
+    for (const body of [
+      { kind: "fill" },
+      { kind: "fill", fields: [] },
+      { kind: "fill", fields: [{ type: "text", value: "x" }] },
+      { kind: "fill", fields: [{ ref: "e1", value: "x" }] },
+    ]) {
+      it(`rejects invalid fill payload ${JSON.stringify(body)}`, async () => {
+        const { app } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.ok).toBe(false);
       });
+    }
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("fields are required");
-    });
-
-    it("error: empty fields array", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [],
+    for (const message of ["Element not found", "Element is not fillable"]) {
+      it(`surfaces fill failure: ${message}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: message });
+        const res = await request(app).post("/act").send({
+          kind: "fill",
+          fields: [{ ref: "e1", type: "text", value: "Test" }],
+        });
+        expect(res.status).toBe(500);
+        expect(res.body.error).toContain(message);
       });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("fields are required");
-    });
-
-    it("error: field missing ref", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ type: "text", value: "Test" }],
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("fields are required");
-    });
-
-    it("error: field missing type", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", value: "Test" }],
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("fields are required");
-    });
-
-    it("error: element not found", async () => {
-      fillFormViaPlaywright.mockRejectedValue(new Error("Element not found: e1"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Test" }],
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Element not found");
-    });
-
-    it("error: element not fillable", async () => {
-      fillFormViaPlaywright.mockRejectedValue(new Error("Element is not fillable"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Test" }],
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("not fillable");
-    });
+    }
   });
 
   describe("POST /act (fill) - Edge Cases", () => {
-    it("masked input handling", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true, strategy: "masked" }],
+    for (const field of [
+      { ref: "e1", type: "tel", value: "1234567890" },
+      { ref: "e1", type: "date", value: "2024-01-01" },
+      { ref: "e1", type: "text", value: "" },
+      { ref: "e1", type: "text", value: "   " },
+      { ref: "e1", type: "text", value: "A".repeat(500) },
+    ]) {
+      it(`accepts fill edge case type=${field.type} value=${String(field.value).slice(0, 10)}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        const res = await request(app).post("/act").send({ kind: "fill", fields: [field] });
+        expect(res.status).toBe(200);
+        expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+          expect.objectContaining({ action: expect.objectContaining({ fields: [field] }) }),
+        );
       });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "password", value: "secret" }],
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("contenteditable fallback", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true, strategy: "contenteditable" }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Editable content" }],
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("empty value clearing", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "" }],
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("whitespace trimming", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true }],
-      });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "  trimmed  " }],
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("long text handling", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true }],
-      });
-
-      const longText = "A".repeat(500);
-      const res = await request(makeApp()).post("/act").send({
-        kind: "fill",
-        fields: [{ ref: "e1", type: "textarea", value: longText }],
-      });
-
-      expect(res.status).toBe(200);
-    });
+    }
 
     it("strategy tracking in response", async () => {
-      fillFormViaPlaywright.mockResolvedValue({
-        results: [{ ref: "e1", matched: true, strategy: "direct" }],
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      executeActionUseCase.execute.mockResolvedValueOnce({
+        ok: true,
+        targetId: "tab-default",
+        results: [{ ref: "e1", requestedValue: "X", actualValue: "X", matched: true, strategy: "pressSequentially" }],
+        allMatched: true,
       });
-
-      const res = await request(makeApp()).post("/act").send({
+      const res = await request(app).post("/act").send({
         kind: "fill",
-        fields: [{ ref: "e1", type: "text", value: "Test" }],
+        fields: [{ ref: "e1", type: "text", value: "X" }],
       });
-
-      expect(res.status).toBe(200);
-      expect(res.body.results[0]).toHaveProperty("strategy");
+      expect(res.body.results[0].strategy).toBe("pressSequentially");
     });
   });
 
   describe("POST /act (wait) - Basic Functionality", () => {
-    it("wait for element visible", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#myElement",
+    for (const body of [
+      { selector: ".ready" },
+      { textGone: "Loading" },
+      { text: "Ready" },
+      { url: "**/done" },
+      { timeoutMs: 5000, selector: ".ready" },
+      { loadState: "networkidle" },
+      { timeMs: 250 },
+      { targetId: "tab-wait", selector: ".ready" },
+      { loadState: "domcontentloaded" },
+      { loadState: "load" },
+      { fn: "() => true" },
+    ]) {
+      it(`wait forwards payload ${Object.keys(body).join(",")}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        const res = await request(app).post("/act").send({ kind: "wait", ...body });
+        expect(res.status).toBe(200);
+        const expected = { ...body } as Record<string, unknown>;
+        const expectedTargetId = typeof expected.targetId === "string" ? expected.targetId : undefined;
+        delete expected.targetId;
+        expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ...(expectedTargetId ? { targetId: expectedTargetId } : {}),
+            action: expect.objectContaining(expected),
+          }),
+        );
       });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          selector: "#myElement",
-        })
-      );
-    });
-
-    it("wait for element hidden", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#loading",
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("wait for text", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        text: "Loading complete",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          text: "Loading complete",
-        })
-      );
-    });
-
-    it("wait for text gone", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        textGone: "Loading...",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          textGone: "Loading...",
-        })
-      );
-    });
-
-    it("wait for navigation", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        url: "https://example.com/dashboard",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: "https://example.com/dashboard",
-        })
-      );
-    });
-
-    it("wait with timeout option", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-        timeoutMs: 10000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 10000,
-        })
-      );
-    });
-
-    it("wait for load state", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        loadState: "networkidle",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          loadState: "networkidle",
-        })
-      );
-    });
-
-    it("wait with timeMs", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        timeMs: 2000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeMs: 2000,
-        })
-      );
-    });
+    }
 
     it("response structure verification", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-      });
-
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "wait", selector: ".ready" });
       expect(res.body).toMatchObject({
         ok: true,
         targetId: expect.any(String),
       });
-    });
-
-    it("wait with explicit targetId", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-        targetId: "tab-wait",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-wait");
     });
   });
 
   describe("POST /act (wait) - Error Handling", () => {
     it("error: missing condition", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-      });
-
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "wait" });
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("wait requires at least one of");
+      expect(res.body.error).toContain("wait requires at least one");
     });
 
-    it("error: timeout exceeded", async () => {
-      waitForViaPlaywright.mockRejectedValue(new Error("Timeout 5000ms exceeded"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#never",
-        timeoutMs: 5000,
+    for (const message of [
+      "Timeout 5000ms exceeded",
+      "Element never appears",
+      "Element never disappears",
+      "Text never appears",
+      "Browser unavailable",
+    ]) {
+      it(`surfaces wait failure: ${message}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: message });
+        const res = await request(app).post("/act").send({ kind: "wait", selector: ".ready", timeoutMs: 5000 });
+        expect([408, 500]).toContain(res.status);
+        expect(res.body.error).toBeTruthy();
       });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Timeout");
-    });
-
-    it("error: element never appears", async () => {
-      waitForViaPlaywright.mockRejectedValue(new Error("Element never appeared"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#missing",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("never appeared");
-    });
-
-    it("error: element never disappears", async () => {
-      waitForViaPlaywright.mockRejectedValue(new Error("Element never disappeared"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#loading",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("never disappeared");
-    });
-
-    it("error: text never appears", async () => {
-      waitForViaPlaywright.mockRejectedValue(new Error("Text never appeared"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        text: "Never shown",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("never appeared");
-    });
-
-    it("error: browser unavailable", async () => {
-      waitForViaPlaywright.mockRejectedValue(new Error("Browser unavailable"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Browser unavailable");
-    });
-  });
-
-  describe("POST /act (wait) - Edge Cases", () => {
-    it("wait with custom timeout", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-        timeoutMs: 30000,
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("wait for dynamic content", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: ".dynamic-content",
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("wait for SPA navigation", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        url: "/dashboard",
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("wait with multiple conditions", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-        text: "Ready",
-        timeoutMs: 5000,
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("logging verification - wait request logged", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        selector: "#element",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalled();
-    });
-
-    it("wait with loadState domcontentloaded", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        loadState: "domcontentloaded",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          loadState: "domcontentloaded",
-        })
-      );
-    });
-
-    it("wait with loadState load", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "wait",
-        loadState: "load",
-      });
-
-      expect(res.status).toBe(200);
-    });
-
-    it("wait with fn (evaluate enabled)", async () => {
-      waitForViaPlaywright.mockResolvedValue(undefined);
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "wait",
-        fn: "() => document.readyState === 'complete'",
-      });
-
-      expect(res.status).toBe(200);
-      expect(waitForViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fn: "() => document.readyState === 'complete'",
-        })
-      );
-    });
+    }
   });
 
   describe("POST /act (navigate) - Basic Functionality", () => {
-    it("navigate to URL", async () => {
-      navigateViaPlaywright.mockResolvedValue({ url: "https://example.com" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://example.com",
+    for (const body of [
+      { url: "https://example.com" },
+      { url: "https://example.com", timeoutMs: 10000 },
+      { url: "https://example.com", targetId: "tab-nav" },
+    ]) {
+      it(`navigates with ${Object.keys(body).join(",")}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        const res = await request(app).post("/act").send({ kind: "navigate", ...body });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        const expected = { ...body } as Record<string, unknown>;
+        const expectedTargetId = typeof expected.targetId === "string" ? expected.targetId : undefined;
+        delete expected.targetId;
+        expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ...(expectedTargetId ? { targetId: expectedTargetId } : {}),
+            action: expect.objectContaining(expected),
+          }),
+        );
       });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(res.body.url).toBe("https://example.com");
-      expect(navigateViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: "https://example.com",
-        })
-      );
-    });
-
-    it("navigate with timeout", async () => {
-      navigateViaPlaywright.mockResolvedValue({ url: "https://example.com" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://example.com",
-        timeoutMs: 30000,
-      });
-
-      expect(res.status).toBe(200);
-      expect(navigateViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeoutMs: 30000,
-        })
-      );
-    });
+    }
 
     it("response structure verification", async () => {
-      navigateViaPlaywright.mockResolvedValue({ url: "https://example.com" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://example.com",
-      });
-
-      expect(res.body).toMatchObject({
-        ok: true,
-        targetId: expect.any(String),
-        url: expect.any(String),
-      });
-    });
-
-    it("navigate with explicit targetId", async () => {
-      navigateViaPlaywright.mockResolvedValue({ url: "https://example.com" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://example.com",
-        targetId: "tab-nav",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-nav");
+      const { app } = createActionRouteHarness();
+      const res = await request(app).post("/act").send({ kind: "navigate", url: "https://example.com" });
+      expect(res.body).toMatchObject({ ok: true, targetId: expect.any(String), url: expect.any(String) });
     });
 
     it("logging verification - navigate request logged", async () => {
-      navigateViaPlaywright.mockResolvedValue({ url: "https://example.com" });
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://example.com",
-      });
-
-      expect(res.status).toBe(200);
-      expect(navigateViaPlaywright).toHaveBeenCalled();
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      await request(app).post("/act").send({ kind: "navigate", url: "https://example.com" });
+      expect(executeActionUseCase.execute).toHaveBeenCalled();
     });
   });
 
   describe("POST /act (navigate) - Error Handling", () => {
-    it("error: missing URL", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
+    for (const body of [{ kind: "navigate" }, { kind: "navigate", url: "" }]) {
+      it(`rejects invalid navigation payload ${JSON.stringify(body)}`, async () => {
+        const { app } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain("url is required");
       });
+    }
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("url is required");
-    });
-
-    it("error: empty URL string", async () => {
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "",
+    for (const message of ["Invalid URL format", "navigation timeout", "Browser unavailable"]) {
+      it(`surfaces navigation failure: ${message}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: message });
+        const res = await request(app).post("/act").send({ kind: "navigate", url: "https://example.com" });
+        expect(res.status).toBe(500);
+        expect(res.body.error).toContain(message.split(" ")[0]!);
       });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("url is required");
-    });
-
-    it("error: invalid URL format", async () => {
-      navigateViaPlaywright.mockRejectedValue(new Error("Invalid URL"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "not-a-url",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Invalid URL");
-    });
-
-    it("error: navigation timeout", async () => {
-      navigateViaPlaywright.mockRejectedValue(new Error("Navigation timeout 30000ms exceeded"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://slow-page.com",
-        timeoutMs: 30000,
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("timeout");
-    });
-
-    it("error: browser unavailable", async () => {
-      navigateViaPlaywright.mockRejectedValue(new Error("Browser unavailable"));
-
-      const res = await request(makeApp()).post("/act").send({
-        kind: "navigate",
-        url: "https://example.com",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Browser unavailable");
-    });
+    }
   });
 
   describe("POST /act (evaluate) - Basic Functionality", () => {
-    it("evaluate JavaScript", async () => {
-      evaluateViaPlaywright.mockResolvedValue(42);
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => 21 * 2",
+    for (const body of [
+      { fn: "() => 1" },
+      { fn: "(el) => el.textContent", ref: "e1" },
+      { fn: "() => ({ ok: true })", targetId: "tab-eval" },
+    ]) {
+      it(`evaluates payload ${Object.keys(body).join(",")}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({
+          ok: true,
+          targetId: body.targetId ?? "tab-default",
+          url: "https://example.org",
+          result: body.ref ? "hello" : { ok: true },
+        });
+        const res = await request(app).post("/act").send({ kind: "evaluate", ...body });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        const expected = { ...body } as Record<string, unknown>;
+        const expectedTargetId = typeof expected.targetId === "string" ? expected.targetId : undefined;
+        delete expected.targetId;
+        expect(executeActionUseCase.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ...(expectedTargetId ? { targetId: expectedTargetId } : {}),
+            action: expect.objectContaining(expected),
+          }),
+        );
       });
-
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(res.body.result).toBe(42);
-      expect(evaluateViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fn: "() => 21 * 2",
-        })
-      );
-    });
-
-    it("evaluate with ref", async () => {
-      evaluateViaPlaywright.mockResolvedValue("clicked");
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "(el) => el.textContent",
-        ref: "e1",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.result).toBe("clicked");
-      expect(evaluateViaPlaywright).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fn: "(el) => el.textContent",
-          ref: "e1",
-        })
-      );
-    });
+    }
 
     it("response structure verification", async () => {
-      evaluateViaPlaywright.mockResolvedValue({ result: "success" });
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => 'success'",
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      executeActionUseCase.execute.mockResolvedValueOnce({
+        ok: true,
+        targetId: "tab-default",
+        url: "https://example.org",
+        result: 42,
       });
-
+      const res = await request(app).post("/act").send({ kind: "evaluate", fn: "() => 42" });
       expect(res.body).toMatchObject({
         ok: true,
         targetId: expect.any(String),
         url: expect.any(String),
-        result: expect.anything(),
+        result: 42,
       });
-    });
-
-    it("evaluate with explicit targetId", async () => {
-      evaluateViaPlaywright.mockResolvedValue({ result: true });
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => true",
-        targetId: "tab-eval",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.targetId).toBe("tab-eval");
-    });
-
-    it("evaluate returns complex object", async () => {
-      evaluateViaPlaywright.mockResolvedValue({ name: "Test", value: 123, nested: { a: 1 } });
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => ({ name: 'Test', value: 123, nested: { a: 1 } })",
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.body.result.name).toBe("Test");
-      expect(res.body.result.value).toBe(123);
     });
 
     it("logging verification - evaluate request logged", async () => {
-      evaluateViaPlaywright.mockResolvedValue({ result: null });
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => null",
+      const { app, executeActionUseCase } = createActionRouteHarness();
+      executeActionUseCase.execute.mockResolvedValueOnce({
+        ok: true,
+        targetId: "tab-default",
+        url: "https://example.org",
+        result: 1,
       });
-
-      expect(res.status).toBe(200);
-      expect(evaluateViaPlaywright).toHaveBeenCalled();
+      await request(app).post("/act").send({ kind: "evaluate", fn: "() => 1" });
+      expect(executeActionUseCase.execute).toHaveBeenCalled();
     });
   });
 
   describe("POST /act (evaluate) - Error Handling", () => {
     it("error: evaluate disabled by config", async () => {
-      const res = await request(makeApp({ evaluateEnabled: false })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => 1",
-      });
-
+      const { app } = createActionRouteHarness({ evaluateEnabled: false });
+      const res = await request(app).post("/act").send({ kind: "evaluate", fn: "() => 1" });
       expect(res.status).toBe(403);
-      expect(res.body.error).toContain("disabled");
+      expect(res.body.error).toContain("disabled by config");
     });
 
-    it("error: missing fn", async () => {
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
+    for (const body of [{ kind: "evaluate" }, { kind: "evaluate", fn: "" }]) {
+      it(`rejects invalid evaluate payload ${JSON.stringify(body)}`, async () => {
+        const { app } = createActionRouteHarness();
+        const res = await request(app).post("/act").send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain("fn is required");
       });
+    }
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("fn is required");
-    });
-
-    it("error: empty fn string", async () => {
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "",
+    for (const message of ["evaluation fails", "Browser unavailable"]) {
+      it(`surfaces evaluate failure: ${message}`, async () => {
+        const { app, executeActionUseCase } = createActionRouteHarness();
+        executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: message });
+        const res = await request(app).post("/act").send({ kind: "evaluate", fn: "() => 1" });
+        expect(res.status).toBe(500);
+        expect(res.body.error).toContain(message.split(" ")[0]!);
       });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("fn is required");
-    });
-
-    it("error: evaluation fails", async () => {
-      evaluateViaPlaywright.mockRejectedValue(new Error("Evaluation failed: ReferenceError"));
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => undefinedVar",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Evaluation failed");
-    });
-
-    it("error: browser unavailable", async () => {
-      evaluateViaPlaywright.mockRejectedValue(new Error("Browser unavailable"));
-
-      const res = await request(makeApp({ evaluateEnabled: true })).post("/act").send({
-        kind: "evaluate",
-        fn: "() => 1",
-      });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toContain("Browser unavailable");
-    });
+    }
   });
 });

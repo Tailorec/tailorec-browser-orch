@@ -4,7 +4,7 @@ import {
   buildRoleSnapshotFromAriaSnapshot,
   getRoleSnapshotStats,
   parseRoleRef,
-} from "../../browser/pw-role-snapshot.js";
+} from "../../adapters/playwright/playwright.role-snapshot.adapter.js";
 
 describe("pw-role-snapshot", () => {
   it("parses refs in multiple formats", () => {
@@ -15,11 +15,7 @@ describe("pw-role-snapshot", () => {
   });
 
   it("builds aria role snapshot and tracks duplicate nth", () => {
-    const snapshot = [
-      '- button "Save"',
-      '- button "Save"',
-      '- heading "Profile"',
-    ].join("\n");
+    const snapshot = ['- button "Save"', '- button "Save"', '- heading "Profile"'].join("\n");
 
     const out = buildRoleSnapshotFromAriaSnapshot(snapshot);
     expect(out.snapshot).toContain("[ref=e1]");

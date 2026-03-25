@@ -1,92 +1,34 @@
-import express from "express";
-import request from "supertest";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from 'vitest';
+import request from 'supertest';
+import { ActionCompatController } from '../../api/controllers/action-compat.controller.js';
+import { registerActionRoutes } from '../../api/routes/action.routes.js';
+import { createTestApp } from '../helpers/test-helpers.js';
 
-vi.mock("../../browser/pw-ai-module.js", () => {
-  return {
-    getPwAiModule: async () => ({
-      clickViaPlaywright: vi.fn(),
-      typeViaPlaywright: vi.fn(),
-      pressKeyViaPlaywright: vi.fn(),
-      hoverViaPlaywright: vi.fn(),
-      scrollIntoViewViaPlaywright: vi.fn(),
-      dragViaPlaywright: vi.fn(),
-      selectOptionViaPlaywright: vi.fn(),
-      fillFormViaPlaywright: vi.fn().mockResolvedValue({ results: [] }),
-      resizeViewportViaPlaywright: vi.fn(),
-      waitForViaPlaywright: vi.fn(),
-      evaluateViaPlaywright: vi.fn(),
-      navigateViaPlaywright: vi.fn().mockResolvedValue({ url: "about:blank" }),
-      closePageViaPlaywright: vi.fn(),
-      discoverDropdownOptionsViaPlaywright: vi.fn().mockResolvedValue({ options: [] }),
-      closeDropdownViaPlaywright: vi.fn(),
-      queryElementStateViaPlaywright: vi.fn(),
-      queryElementStatesViaPlaywright: vi.fn(),
-      detectBlockingElementViaPlaywright: vi.fn(),
-      dismissBlockerViaPlaywright: vi.fn(),
-      armDialogViaPlaywright: vi.fn(),
-      waitForDownloadViaPlaywright: vi.fn(),
-      downloadViaPlaywright: vi.fn(),
-      takeScreenshotViaPlaywright: vi.fn().mockResolvedValue({ buffer: Buffer.from("") }),
-      screenshotWithLabelsViaPlaywright: vi.fn().mockResolvedValue({ buffer: Buffer.from(""), labels: 0, skipped: 0 }),
-      highlightViaPlaywright: vi.fn(),
-      armFileUploadViaPlaywright: vi.fn(),
-      setInputFilesViaPlaywright: vi.fn(),
-    }),
-  };
-});
+describe('action route integration', () => {
+  it('validates compatibility payloads before dispatching', async () => {
+    const simple = { handleClick: vi.fn(async (_req, res) => res.json({ ok: true, kind: 'click' })) };
+    const form = { handleWait: vi.fn(async (_req, res) => res.json({ ok: true, kind: 'wait' })) };
+    const advanced = {
+      handleEvaluate: vi.fn(async (_req, res) => res.json({ ok: true, kind: 'evaluate' })),
+    };
+    const compat = new ActionCompatController(simple as any, form as any, advanced as any, true);
+    const app = createTestApp((router, middleware) => {
+      registerActionRoutes(router, {} as any, {} as any, {} as any, compat, middleware);
+    });
 
-import { registerBrowserAgentActRoutes } from "../../browser/routes/agent.act.js";
+    const invalidClick = await request(app).post('/act').send({
+      kind: 'click',
+      ref: 'e1',
+      selector: '#legacy',
+    });
+    expect(invalidClick.status).toBe(400);
 
-describe("integration: /act validation", () => {
-  function makeApp(evaluateEnabled = true) {
-    const app = express();
-    app.use(express.json());
+    const wait = await request(app).post('/act').send({ kind: 'wait', selector: '.ready' });
+    expect(wait.status).toBe(200);
+    expect(wait.body).toEqual({ ok: true, kind: 'wait' });
 
-    const ctx = {
-      state: () => ({ resolved: { evaluateEnabled } }),
-      forProfile: () => ({
-        profile: { name: "default", cdpUrl: "http://127.0.0.1:9222" },
-        ensureTabAvailable: async () => ({ targetId: "t1", url: "about:blank" }),
-        stopRunningBrowser: async () => undefined,
-      }),
-      mapTabError: () => null,
-    } as any;
-
-    registerBrowserAgentActRoutes(app as any, ctx);
-    return app;
-  }
-
-  it("returns 400 when kind is missing", async () => {
-    const res = await request(makeApp()).post("/act").send({});
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain("kind is required");
-  });
-
-  it("rejects selector usage for non-wait actions", async () => {
-    const res = await request(makeApp()).post("/act").send({ kind: "click", selector: "#x" });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain("selector");
-  });
-
-  it("rejects evaluate action when evaluate is disabled", async () => {
-    const res = await request(makeApp(false)).post("/act").send({ kind: "evaluate", fn: "() => 1" });
-    expect(res.status).toBe(403);
-    expect(res.body.error).toContain("disabled");
-  });
-
-  it("returns 400 for click without ref", async () => {
-    const res = await request(makeApp()).post("/act").send({ kind: "click" });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain("ref is required");
-  });
-
-  it("validates screenshot constraints", async () => {
-    const res = await request(makeApp())
-      .post("/screenshot")
-      .send({ ref: "e1", element: "#id" });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain("mutually exclusive");
+    const evaluate = await request(app).post('/act').send({ kind: 'evaluate', fn: '() => 1' });
+    expect(evaluate.status).toBe(200);
+    expect(evaluate.body).toEqual({ ok: true, kind: 'evaluate' });
   });
 });

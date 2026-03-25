@@ -3,7 +3,7 @@ import { test, expect, request, type Browser, type Page } from "@playwright/test
 import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
-} from "../../../browser/server.js";
+} from "../helpers/server-bootstrap.js";
 
 let baseUrl = "";
 let api: any;
@@ -229,22 +229,15 @@ test.describe("E2E: Complex Job Application", () => {
     await subjectsInput.scrollIntoViewIfNeeded();
     await subjectsInput.click();
     await page.keyboard.type("Math");
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(500);
+    await page.locator('[id^="react-select-2-option"]').first().click();
 
+    await subjectsInput.click();
     await page.keyboard.type("English");
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(500);
+    await page.locator('[id^="react-select-2-option"]').first().click();
 
-    // Verify subjects were added - use a more general selector
-    const subjectTags = page.locator(".subjects-auto-complete__multi-value");
-    const count = await subjectTags.count();
-    if (count === 0) {
-      // Fallback to more general class match if DemoQA changed classes
-      await expect(page.locator("[class*='multi-value']")).toHaveCount(2);
-    } else {
-      expect(count).toBe(2);
-    }
+    // Verify subjects were added using the stable rendered text.
+    await expect(page.locator("#subjectsContainer")).toContainText("Math");
+    await expect(page.locator("#subjectsContainer")).toContainText("English");
   });
 
   test("application with validation errors and corrections", async () => {

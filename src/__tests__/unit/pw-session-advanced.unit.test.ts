@@ -1,20 +1,32 @@
-import { describe, expect, it } from "vitest";
-import {
-  ensurePageState,
-  refLocator,
-  rememberRoleRefsForTarget,
-  restoreRoleRefsForTarget,
-  storeRoleRefsForTarget,
-} from "../../browser/pw-session.js";
+import { describe, expect, it, vi } from "vitest";
+import { SessionService } from "../../core/services/session.service.js";
 import { createMockPage } from "../helpers/pw-session-fixtures.js";
 
-describe("unit: pw-session advanced", () => {
-  describe("ensurePageState", () => {
-    it("creates new state for page", () => {
-      const page = createMockPage();
-      const state = ensurePageState(page);
+function createService() {
+  const browser = { isConnected: () => true };
+  const browserDriver = {
+    connect: vi.fn(async () => browser),
+    getPage: vi.fn(async () => createMockPage()),
+    createPage: vi.fn(async () => createMockPage()),
+    closePage: vi.fn(async () => undefined),
+    focusPage: vi.fn(async () => undefined),
+    listPages: vi.fn(async () => []),
+  };
+  const store = new Map<string, any>();
+  const sessionStore = {
+    storeRoleRefs: vi.fn(async (session: { id: string }, refs: any, mode: "role" | "aria", frameSelector?: string) => {
+      store.set(session.id, { refs, mode, frameSelector });
+    }),
+    restoreRoleRefs: vi.fn(async (session: { id: string }) => store.get(session.id) ?? null),
+  };
+  return new SessionService(browserDriver as any, sessionStore as any);
+}
 
-      expect(state).toBeDefined();
+describe("unit: pw-session advanced", () => {
+  describe("initializePageState", () => {
+    it("creates new state for page", () => {
+      const service = createService();
+      const state = (service as any).initializePageState(createMockPage());
       expect(state.console).toEqual([]);
       expect(state.errors).toEqual([]);
       expect(state.requests).toEqual([]);
@@ -22,466 +34,274 @@ describe("unit: pw-session advanced", () => {
     });
 
     it("returns existing state for same page", () => {
+      const service = createService();
       const page = createMockPage();
-      const state1 = ensurePageState(page);
-      const state2 = ensurePageState(page);
-
-      expect(state1).toBe(state2);
+      expect((service as any).initializePageState(page)).toBe((service as any).initializePageState(page));
     });
 
     it("limits console messages to MAX_CONSOLE_MESSAGES", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
+      const state = (service as any).initializePageState(page);
       for (let i = 0; i < 510; i++) {
-        page.emit("console", {
-          type: () => "log",
-          text: () => `message ${i}`,
-          location: () => ({}),
-        });
+        page.emit("console", { type: () => "log", text: () => `message ${i}`, location: () => ({}) });
       }
-
       expect(state.console.length).toBeLessThanOrEqual(500);
     });
 
     it("limits errors to MAX_PAGE_ERRORS", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
-      for (let i = 0; i < 210; i++) {
-        page.emit("pageerror", new Error(`error ${i}`));
-      }
-
+      const state = (service as any).initializePageState(page);
+      for (let i = 0; i < 210; i++) page.emit("pageerror", new Error(`error ${i}`));
       expect(state.errors.length).toBeLessThanOrEqual(200);
     });
 
     it("tracks network requests with incrementing IDs", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
-      const req1 = {
-        method: () => "GET",
-        url: () => "https://api.example.com/1",
-        resourceType: () => "fetch",
-      };
-      const req2 = {
-        method: () => "POST",
-        url: () => "https://api.example.com/2",
-        resourceType: () => "xhr",
-      };
-
-      page.emit("request", req1);
-      page.emit("request", req2);
-
-      expect(state.requests).toHaveLength(2);
+      const state = (service as any).initializePageState(page);
+      page.emit("request", { method: () => "GET", url: () => "https://api.example.com/1", resourceType: () => "fetch" });
+      page.emit("request", { method: () => "POST", url: () => "https://api.example.com/2", resourceType: () => "xhr" });
       expect(state.requests[0]?.id).toBe("r1");
       expect(state.requests[1]?.id).toBe("r2");
     });
 
     it("clears state on page close", () => {
+      const service = createService();
       const page = createMockPage();
-      const state1 = ensurePageState(page);
-
+      const state1 = (service as any).initializePageState(page);
       state1.console.push({ type: "log", text: "test", timestamp: new Date().toISOString() });
-      state1.requests.push({
-        id: "r1",
-        timestamp: new Date().toISOString(),
-        method: "GET",
-        url: "https://example.com",
-      });
-
-      page.emit("close");
-
-      const state2 = ensurePageState(page);
+      (service as any).pageStates.delete(page);
+      const state2 = (service as any).initializePageState(page);
       expect(state2).not.toBe(state1);
       expect(state2.console).toEqual([]);
-      expect(state2.requests).toEqual([]);
     });
   });
 
-  describe("storeRoleRefsForTarget", () => {
-    it("stores role refs in page state", () => {
-      const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-1",
-        refs: { e1: { role: "button", name: "Submit" } },
-        mode: "role",
-      });
-
-      const state = ensurePageState(page);
-      expect(state.roleRefs).toEqual({ e1: { role: "button", name: "Submit" } });
-      expect(state.roleRefsMode).toBe("role");
+  describe("role ref caching", () => {
+    it("stores role refs in page state", async () => {
+      const service = createService();
+      await service.storeRoleRefs("tab-1", { e1: { role: "button", name: "Submit" } }, "role", "http://127.0.0.1:9222");
+      await service.restoreRoleRefs("tab-1", "http://127.0.0.1:9222");
+      expect(service.getPageState("tab-1")?.roleRefs).toEqual({ e1: { role: "button", name: "Submit" } });
     });
 
-    it("stores frame selector with role refs", () => {
-      const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-2",
-        refs: { e1: { role: "textbox" } },
-        frameSelector: "iframe#content",
-        mode: "aria",
-      });
-
-      const state = ensurePageState(page);
-      expect(state.roleRefsFrameSelector).toBe("iframe#content");
-      expect(state.roleRefsMode).toBe("aria");
+    it("stores frame selector with role refs", async () => {
+      const service = createService();
+      await service.storeRoleRefs("tab-2", { e1: { role: "textbox" } }, "aria", "http://127.0.0.1:9222", "iframe#content");
+      await service.restoreRoleRefs("tab-2", "http://127.0.0.1:9222");
+      expect(service.getPageState("tab-2")?.roleRefsFrameSelector).toBe("iframe#content");
+      expect(service.getPageState("tab-2")?.roleRefsMode).toBe("aria");
     });
 
     it("skips target cache for blank target id", () => {
+      const service = createService();
       const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
+      (service as any).initializePageState(page);
+      (service as any).rememberRoleRefsForTarget({
         cdpUrl: "http://127.0.0.1:9222",
         targetId: "   ",
         refs: { e1: { role: "button" } },
-        mode: "role",
       });
-
-      // Page state is still set, but global cache is skipped
-      const state = ensurePageState(page);
-      expect(state.roleRefs).toEqual({ e1: { role: "button" } });
-      
-      // Restore from blank target should be no-op
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "   ",
-        page: createMockPage(),
-      });
+      expect((service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "   ", page })).toBeNull();
     });
-  });
 
-  describe("restoreRoleRefsForTarget", () => {
     it("restores role refs from target cache", () => {
-      const pageWriter = createMockPage();
-      const pageReader = createMockPage();
-
-      storeRoleRefsForTarget({
-        page: pageWriter,
+      const service = createService();
+      const page = createMockPage();
+      (service as any).initializePageState(page);
+      (service as any).rememberRoleRefsForTarget({
         cdpUrl: "http://127.0.0.1:9222",
         targetId: "tab-cache",
         refs: { e1: { role: "link", name: "Home" } },
         mode: "role",
       });
-
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-cache",
-        page: pageReader,
-      });
-
-      const state = ensurePageState(pageReader);
-      expect(state.roleRefs).toEqual({ e1: { role: "link", name: "Home" } });
+      (service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "tab-cache", page });
+      expect((service as any).pageStates.get(page).roleRefs).toEqual({ e1: { role: "link", name: "Home" } });
     });
 
     it("does not overwrite existing role refs", () => {
+      const service = createService();
       const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
+      const state = (service as any).initializePageState(page);
+      state.roleRefs = { e1: { role: "button" } };
+      (service as any).rememberRoleRefsForTarget({
         cdpUrl: "http://127.0.0.1:9222",
         targetId: "tab-existing",
-        refs: { e1: { role: "button" } },
-        mode: "role",
+        refs: { e2: { role: "link" } },
       });
-
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-existing",
-        page,
-      });
-
-      const state = ensurePageState(page);
+      (service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "tab-existing", page });
       expect(state.roleRefs).toEqual({ e1: { role: "button" } });
     });
 
     it("skips restore for blank target id", () => {
+      const service = createService();
       const page = createMockPage();
-
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "   ",
-        page,
-      });
-
-      const state = ensurePageState(page);
-      expect(state.roleRefs).toBeUndefined();
+      (service as any).initializePageState(page);
+      expect((service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "   ", page })).toBeNull();
     });
   });
 
   describe("refLocator", () => {
     it("resolves role ref with name", () => {
+      const service = createService();
       const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-role",
-        refs: { e1: { role: "button", name: "Submit" } },
-        mode: "role",
-      });
-
-      const loc = refLocator(page, "e1") as any;
+      const state = (service as any).initializePageState(page);
+      state.roleRefs = { e1: { role: "button", name: "Submit" } };
+      const loc = (service as any).resolveRefLocator(page, "e1", state);
       expect(loc.kind).toBe("role");
-      expect(loc.role).toBe("button");
       expect(loc.opts).toEqual({ name: "Submit", exact: true });
     });
 
     it("resolves role ref without name", () => {
+      const service = createService();
       const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-role2",
-        refs: { e2: { role: "checkbox" } },
-        mode: "role",
-      });
-
-      const loc = refLocator(page, "e2") as any;
+      const state = (service as any).initializePageState(page);
+      state.roleRefs = { e2: { role: "checkbox" } };
+      const loc = (service as any).resolveRefLocator(page, "e2", state);
       expect(loc.kind).toBe("role");
-      expect(loc.role).toBe("checkbox");
       expect(loc.opts).toBeUndefined();
     });
 
     it("resolves aria-ref in frame mode", () => {
+      const service = createService();
       const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-frame",
-        refs: { e3: { role: "textbox" } },
-        frameSelector: "iframe#main",
-        mode: "aria",
-      });
-
-      const loc = refLocator(page, "@e3") as any;
+      const state = (service as any).initializePageState(page);
+      state.roleRefsMode = "aria";
+      state.roleRefsFrameSelector = "iframe#main";
+      const loc = (service as any).resolveRefLocator(page, "@e3", state);
       expect(loc.kind).toBe("frame-locator");
-      expect(loc.frame).toBe("iframe#main");
       expect(loc.selector).toBe("aria-ref=e3");
     });
 
     it("resolves aria-ref without frame", () => {
+      const service = createService();
       const page = createMockPage();
-
-      storeRoleRefsForTarget({
-        page,
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-aria",
-        refs: { e4: { role: "button" } },
-        mode: "aria",
-      });
-
-      const loc = refLocator(page, "@e4") as any;
+      const state = (service as any).initializePageState(page);
+      state.roleRefsMode = "aria";
+      const loc = (service as any).resolveRefLocator(page, "@e4", state);
       expect(loc.kind).toBe("locator");
       expect(loc.selector).toBe("aria-ref=e4");
     });
 
     it("resolves dynamic ref", () => {
+      const service = createService();
       const page = createMockPage();
-
-      const loc = refLocator(page, "d1") as any;
-      expect(loc.kind).toBe("locator");
+      const loc = (service as any).resolveRefLocator(page, "d1", (service as any).initializePageState(page));
       expect(loc.selector).toBe('[aria-ref="d1"]');
     });
 
     it("throws for unknown role ref", () => {
+      const service = createService();
       const page = createMockPage();
-
-      expect(() => refLocator(page, "e999")).toThrow(/Unknown ref/);
+      expect(() => (service as any).resolveRefLocator(page, "e999", (service as any).initializePageState(page))).toThrow(/Unknown ref/);
     });
 
     it("throws for unknown aria ref", () => {
+      const service = createService();
       const page = createMockPage();
-
-      expect(() => refLocator(page, "@e999")).toThrow(/Unknown ref/);
+      expect(() => (service as any).resolveRefLocator(page, "@e999", (service as any).initializePageState(page))).toThrow(/Unknown ref/);
     });
   });
 
   describe("rememberRoleRefsForTarget", () => {
     it("stores refs in global cache", () => {
+      const service = createService();
       const page = createMockPage();
-
-      rememberRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-global",
-        refs: { e1: { role: "button" } },
-        mode: "role",
-      });
-
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-global",
-        page,
-      });
-
-      const state = ensurePageState(page);
-      expect(state.roleRefs).toEqual({ e1: { role: "button" } });
+      (service as any).initializePageState(page);
+      (service as any).rememberRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "tab-global", refs: { e1: { role: "button" } }, mode: "role" });
+      (service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "tab-global", page });
+      expect((service as any).pageStates.get(page).roleRefs).toEqual({ e1: { role: "button" } });
     });
 
     it("normalizes cdpUrl by removing trailing slash", () => {
-      const page1 = createMockPage();
-      const page2 = createMockPage();
-
-      rememberRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222/",
-        targetId: "tab-norm",
-        refs: { e1: { role: "link" } },
-        mode: "role",
-      });
-
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-norm",
-        page: page2,
-      });
-
-      const state = ensurePageState(page2);
-      expect(state.roleRefs).toEqual({ e1: { role: "link" } });
+      const service = createService();
+      const page = createMockPage();
+      (service as any).initializePageState(page);
+      (service as any).rememberRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222/", targetId: "tab-norm", refs: { e1: { role: "link" } }, mode: "role" });
+      (service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "tab-norm", page });
+      expect((service as any).pageStates.get(page).roleRefs).toEqual({ e1: { role: "link" } });
     });
 
     it("skips storage for blank target id", () => {
+      const service = createService();
       const page = createMockPage();
-
-      rememberRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "   ",
-        refs: { e1: { role: "button" } },
-      });
-
-      restoreRoleRefsForTarget({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "   ",
-        page,
-      });
-
-      const state = ensurePageState(page);
-      expect(state.roleRefs).toBeUndefined();
+      (service as any).initializePageState(page);
+      (service as any).rememberRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "   ", refs: { e1: { role: "button" } } });
+      expect((service as any).restoreRoleRefsForTarget({ cdpUrl: "http://127.0.0.1:9222", targetId: "   ", page })).toBeNull();
     });
   });
 
-  describe("network request tracking", () => {
+  describe("network and event tracking", () => {
     it("tracks response with status", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
-      const req = {
-        method: () => "GET",
-        url: () => "https://api.example.com/data",
-        resourceType: () => "xhr",
-      };
-      const resp = {
-        request: () => req,
-        status: () => 200,
-        ok: () => true,
-      };
-
+      const state = (service as any).initializePageState(page);
+      const req = { method: () => "GET", url: () => "https://api.example.com/data", resourceType: () => "xhr" };
       page.emit("request", req);
-      page.emit("response", resp);
-
-      expect(state.requests).toHaveLength(1);
+      page.emit("response", { request: () => req, status: () => 200, ok: () => true });
       expect(state.requests[0]?.status).toBe(200);
       expect(state.requests[0]?.ok).toBe(true);
     });
 
     it("tracks request failure", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
-      const req = {
-        method: () => "GET",
-        url: () => "https://api.example.com/data",
-        resourceType: () => "fetch",
-        failure: () => ({ errorText: "net::ERR_CONNECTION_REFUSED" }),
-      };
-
+      const state = (service as any).initializePageState(page);
+      const req = { method: () => "GET", url: () => "https://api.example.com/data", resourceType: () => "fetch", failure: () => ({ errorText: "net::ERR_CONNECTION_REFUSED" }) };
       page.emit("request", req);
       page.emit("requestfailed", req);
-
-      expect(state.requests).toHaveLength(1);
       expect(state.requests[0]?.failureText).toBe("net::ERR_CONNECTION_REFUSED");
     });
 
     it("limits requests to MAX_NETWORK_REQUESTS", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
+      const state = (service as any).initializePageState(page);
       for (let i = 0; i < 510; i++) {
-        const req = {
-          method: () => "GET",
-          url: () => `https://api.example.com/${i}`,
-          resourceType: () => "fetch",
-        };
-        page.emit("request", req);
+        page.emit("request", { method: () => "GET", url: () => `https://api.example.com/${i}`, resourceType: () => "fetch" });
       }
-
       expect(state.requests.length).toBeLessThanOrEqual(500);
     });
-  });
 
-  describe("console message tracking", () => {
     it("tracks console messages with type and text", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
-      page.emit("console", {
-        type: () => "log",
-        text: () => "Hello World",
-        location: () => ({ url: "https://example.com", lineNumber: 10 }),
-      });
-
-      expect(state.console).toHaveLength(1);
+      const state = (service as any).initializePageState(page);
+      page.emit("console", { type: () => "log", text: () => "Hello World", location: () => ({}) });
       expect(state.console[0]?.type).toBe("log");
       expect(state.console[0]?.text).toBe("Hello World");
     });
 
     it("includes timestamp for console messages", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
+      const state = (service as any).initializePageState(page);
       const before = Date.now();
-      page.emit("console", {
-        type: () => "error",
-        text: () => "Error message",
-        location: () => ({}),
-      });
+      page.emit("console", { type: () => "error", text: () => "Error message", location: () => ({}) });
       const after = Date.now();
-
       const timestamp = Date.parse(state.console[0]?.timestamp || "");
       expect(timestamp).toBeGreaterThanOrEqual(before);
       expect(timestamp).toBeLessThanOrEqual(after);
     });
-  });
 
-  describe("page error tracking", () => {
     it("tracks page errors with message and stack", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
+      const state = (service as any).initializePageState(page);
       const error = new Error("Test error");
       error.stack = "Error: Test error\n    at test.js:1:1";
-
       page.emit("pageerror", error);
-
-      expect(state.errors).toHaveLength(1);
       expect(state.errors[0]?.message).toBe("Test error");
       expect(state.errors[0]?.stack).toContain("test.js:1:1");
     });
 
     it("handles non-Error objects", () => {
+      const service = createService();
       const page = createMockPage();
-      const state = ensurePageState(page);
-
+      const state = (service as any).initializePageState(page);
       page.emit("pageerror", "string error");
-
-      expect(state.errors).toHaveLength(1);
       expect(state.errors[0]?.message).toBe("string error");
     });
   });

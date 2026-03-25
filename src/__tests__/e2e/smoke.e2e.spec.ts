@@ -3,7 +3,7 @@ import { test, expect, request } from "@playwright/test";
 import {
   startBrowserControlServerFromConfig,
   stopBrowserControlServer,
-} from "../../browser/server.js";
+} from "./helpers/server-bootstrap.js";
 
 let baseUrl = "";
 

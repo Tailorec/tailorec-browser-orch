@@ -1,33 +1,24 @@
-import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  startBrowserControlServerFromConfig,
-  stopBrowserControlServer,
-} from "../../browser/server.js";
+import { describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { BasicController } from '../../api/controllers/basic.controller.js';
+import { registerBasicRoutes } from '../../api/routes/basic.routes.js';
+import { createBrowserContextMock, createTestApp } from '../helpers/test-helpers.js';
 
-let baseUrl = "";
+describe('basic routes integration', () => {
+  it('serves health and status responses through the current route stack', async () => {
+    const { browserContext } = createBrowserContextMock();
+    const controller = new BasicController(browserContext as any);
+    const app = createTestApp((router, middleware) => {
+      registerBasicRoutes(router, controller, middleware);
+    });
 
-describe("integration: status route", () => {
-  beforeAll(async () => {
-    process.env.PORT = "4011";
-    process.env.BROWSER_HEADLESS = "true";
+    const health = await request(app).get('/');
+    expect(health.status).toBe(200);
+    expect(health.text).toBe('Tailorec Browser Service OK');
 
-    const state = await startBrowserControlServerFromConfig();
-    if (!state) {
-      throw new Error("failed to start browser control server");
-    }
-    baseUrl = `http://127.0.0.1:${state.port}`;
-  });
-
-  afterAll(async () => {
-    await stopBrowserControlServer();
-  });
-
-  it("GET /status returns ok", async () => {
-    const response = await request(baseUrl).get("/status");
-
-    expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(true);
-    expect(Array.isArray(response.body.profiles)).toBe(true);
+    const status = await request(app).get('/status').set('x-correlation-id', 'corr-1');
+    expect(status.status).toBe(200);
+    expect(status.body).toEqual({ ok: true, profiles: [] });
+    expect(status.headers['x-correlation-id']).toBe('corr-1');
   });
 });
