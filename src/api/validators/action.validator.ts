@@ -154,6 +154,7 @@ const EvaluateActionSchema = BaseActionSchema.extend({
 const NavigateActionSchema = BaseActionSchema.extend({
   kind: z.literal('navigate'),
   url: z.string().min(1),
+  createNewTab: OptionalBooleanSchema,
 });
 
 /**

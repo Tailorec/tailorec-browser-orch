@@ -180,4 +180,73 @@ test.describe("E2E: Browser Navigation", () => {
     await page.goForward({ waitUntil: "domcontentloaded", timeout: 30000 });
     await expect(page).toHaveURL("about:blank");
   });
+
+  test("bootstrap navigate allocates separate tabs and keeps them isolated by targetId", async () => {
+    const firstUrl = `file://${pagesDir}/simple-form.html`;
+    const secondUrl = `file://${pagesDir}/complex-form.html`;
+
+    const firstNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-nav-1")}`,
+      },
+      data: {
+        kind: "navigate",
+        url: firstUrl,
+        createNewTab: true,
+      },
+    });
+    expect(firstNavigate.ok()).toBeTruthy();
+    const firstBody = await firstNavigate.json();
+
+    const secondNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-nav-2")}`,
+      },
+      data: {
+        kind: "navigate",
+        url: secondUrl,
+        createNewTab: true,
+      },
+    });
+    expect(secondNavigate.ok()).toBeTruthy();
+    const secondBody = await secondNavigate.json();
+
+    expect(firstBody.targetId).toBeTruthy();
+    expect(secondBody.targetId).toBeTruthy();
+    expect(firstBody.targetId).not.toBe(secondBody.targetId);
+    expect(firstBody.url).toContain("simple-form.html");
+    expect(secondBody.url).toContain("complex-form.html");
+
+    const [firstSnapshotResponse, secondSnapshotResponse] = await Promise.all([
+      api.post("/snapshot?profile=default", {
+        headers: {
+          Authorization: `Bearer ${getControlToken("run-nav-1")}`,
+        },
+        data: {
+          targetId: firstBody.targetId,
+        },
+      }),
+      api.post("/snapshot?profile=default", {
+        headers: {
+          Authorization: `Bearer ${getControlToken("run-nav-2")}`,
+        },
+        data: {
+          targetId: secondBody.targetId,
+        },
+      }),
+    ]);
+
+    expect(firstSnapshotResponse.ok()).toBeTruthy();
+    expect(secondSnapshotResponse.ok()).toBeTruthy();
+
+    const firstSnapshot = await firstSnapshotResponse.json();
+    const secondSnapshot = await secondSnapshotResponse.json();
+
+    expect(firstSnapshot.targetId).toBe(firstBody.targetId);
+    expect(secondSnapshot.targetId).toBe(secondBody.targetId);
+    expect(firstSnapshot.url).toContain("simple-form.html");
+    expect(secondSnapshot.url).toContain("complex-form.html");
+    expect(String(firstSnapshot.snapshot)).toContain("Contact Form");
+    expect(String(secondSnapshot.snapshot)).toContain("Job Application Form");
+  });
 });

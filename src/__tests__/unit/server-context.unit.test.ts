@@ -90,6 +90,21 @@ describe('createBrowserRouteContext', () => {
       expect(deps.createPage).not.toHaveBeenCalled();
     });
 
+    it('creates a new tab when explicitly requested without a targetId', async () => {
+      const { ctx, deps, state } = createContext();
+      state.profiles.set('default', {
+        name: 'default',
+        config: state.configuredProfiles.get('default'),
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+      });
+
+      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
+
+      expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
+      expect(deps.createPage).toHaveBeenCalledWith('http://127.0.0.1:9222');
+      expect(deps.focusPage).not.toHaveBeenCalled();
+    });
+
     it('focuses an existing requested targetId', async () => {
       const { ctx, deps, state } = createContext({
         listPages: vi.fn(async () => [
