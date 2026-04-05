@@ -70,6 +70,7 @@ export class SimpleActionController {
         timeoutMs: dto.timeoutMs,
       }),
       true,
+      (dto) => ({ createNewTab: dto.createNewTab === true && !dto.targetId }),
     );
   }
 
@@ -79,12 +80,13 @@ export class SimpleActionController {
     parse: () => T,
     buildAction: (dto: T) => Parameters<ExecuteActionUseCase['execute']>[0]['action'],
     includeUrl = false,
+    tabOptions?: (dto: T) => { createNewTab?: boolean },
   ): Promise<void> {
     const started = Date.now();
     try {
       const dto = parse();
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const tab = await profileCtx.ensureTabAvailable(dto.targetId, tabOptions?.(dto));
       const result = await this.executeActionUseCase.execute({
         cdpUrl: profileCtx.profile.cdpUrl,
         targetId: tab.targetId,

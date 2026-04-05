@@ -42,7 +42,10 @@ export type RunningProfile = {
  */
 export interface ProfileContext {
   profile: ResolvedBrowserProfile;
-  ensureTabAvailable(targetId?: string): Promise<{ targetId: string; url: string }>;
+  ensureTabAvailable(
+    targetId?: string,
+    options?: { createNewTab?: boolean },
+  ): Promise<{ targetId: string; url: string }>;
   stopRunningBrowser(): Promise<void>;
 }
 
@@ -98,7 +101,7 @@ export function createBrowserRouteContext(opts: {
       return {
         profile: resolvedProfile,
 
-        async ensureTabAvailable(targetId?: string) {
+        async ensureTabAvailable(targetId?: string, options?: { createNewTab?: boolean }) {
           const ensureBrowserRunning = async () => {
             let running = s.profiles.get(name);
             const reachable = await opts.isChromeReachable(resolvedProfile.cdpUrl, 500);
@@ -149,6 +152,17 @@ export function createBrowserRouteContext(opts: {
                 return { targetId, url: found.url };
               }
               throw new Error(`Target ${targetId} not found`);
+            }
+
+            if (options?.createNewTab) {
+              const result = await opts.createPage(resolvedProfile.cdpUrl);
+              log.info('new tab created', {
+                profile: name,
+                target_id: result.targetId,
+                url: result.url,
+                duration_ms: Date.now() - startedAt,
+              });
+              return result;
             }
 
             // Reuse an existing tab when no targetId is provided.
