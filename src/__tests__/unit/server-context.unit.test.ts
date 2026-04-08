@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserRouteContext } from '../../api/context/browser.context.js';
 
-function createContext(overrides: Partial<Parameters<typeof createBrowserRouteContext>[0]> = {}) {
+function createContext(
+  overrides: Partial<Parameters<typeof createBrowserRouteContext>[0]> = {},
+  profileOverrides: Record<string, unknown> = {},
+) {
   const state = {
     server: {} as any,
     port: 4000,
@@ -16,6 +19,7 @@ function createContext(overrides: Partial<Parameters<typeof createBrowserRouteCo
           browserEndpointIsLoopback: true,
           driver: 'chrome' as const,
           color: 'blue',
+          ...profileOverrides,
         },
       ],
     ]),
@@ -24,14 +28,15 @@ function createContext(overrides: Partial<Parameters<typeof createBrowserRouteCo
 
   const deps = {
     getState: vi.fn(() => state),
-    isChromeReachable: vi.fn(async () => true),
-    launchChrome: vi.fn(async () => ({
+    isBrowserAvailable: vi.fn(async () => true),
+    ensureBrowser: vi.fn(async () => ({
+      provider: 'local' as const,
       pid: 1,
       userDataDir: '/tmp/chrome',
       browserPort: 9222,
       startedAt: Date.now(),
     })),
-    stopChrome: vi.fn(async () => undefined),
+    releaseBrowser: vi.fn(async () => undefined),
     listPages: vi.fn(async () => [{ targetId: 'tab-1', url: 'https://example.test' }]),
     focusPage: vi.fn(async () => undefined),
     createPage: vi.fn(async () => ({ targetId: 'new-tab', url: 'about:blank' })),
@@ -81,7 +86,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable();
@@ -96,7 +101,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
@@ -116,7 +121,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable('tab-2');
@@ -129,7 +134,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable();
@@ -137,24 +142,46 @@ describe('createBrowserRouteContext', () => {
       expect(deps.createPage).toHaveBeenCalledWith('http://127.0.0.1:9222');
     });
 
-    it('launches chrome when the profile is not running', async () => {
-      const { ctx, deps } = createContext({ isChromeReachable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
+    it('ensures a local browser when the profile is not running', async () => {
+      const { ctx, deps } = createContext({ isBrowserAvailable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
       const result = await ctx.forProfile('default').ensureTabAvailable();
       expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
-      expect(deps.launchChrome).toHaveBeenCalled();
+      expect(deps.ensureBrowser).toHaveBeenCalled();
     });
 
-    it('stops stale chrome when a running profile is unreachable', async () => {
-      const { ctx, deps, state } = createContext({ isChromeReachable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
+    it('releases stale local runtime when a running profile is unreachable', async () => {
+      const { ctx, deps, state } = createContext({ isBrowserAvailable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       await ctx.forProfile('default').ensureTabAvailable();
-      expect(deps.stopChrome).toHaveBeenCalled();
-      expect(deps.launchChrome).toHaveBeenCalled();
+      expect(deps.releaseBrowser).toHaveBeenCalled();
+      expect(deps.ensureBrowser).toHaveBeenCalled();
+    });
+
+    it('does not treat remote profiles as locally launched browsers', async () => {
+      const { ctx, deps } = createContext(
+        {
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureTabAvailable();
+      expect(deps.ensureBrowser).toHaveBeenCalled();
+      expect(deps.focusPage).toHaveBeenCalledWith('wss://browser.example.com?token=test-token', 'tab-1');
     });
 
     it('retries after a connection refused error', async () => {
@@ -166,7 +193,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable();
@@ -174,17 +201,17 @@ describe('createBrowserRouteContext', () => {
       expect(deps.listPages).toHaveBeenCalledTimes(2);
     });
 
-    it('stopRunningBrowser stops the active chrome instance', async () => {
+    it('stopRunningBrowser releases the active runtime', async () => {
       const { ctx, deps, state } = createContext();
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       await ctx.forProfile('default').stopRunningBrowser();
-      expect(deps.stopChrome).toHaveBeenCalled();
-      expect(state.profiles.get('default')?.chrome).toBeUndefined();
+      expect(deps.releaseBrowser).toHaveBeenCalled();
+      expect(state.profiles.get('default')?.runtime).toBeUndefined();
     });
   });
 

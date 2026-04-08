@@ -1,5 +1,3 @@
-import os from 'node:os';
-import path from 'node:path';
 import type { Server } from 'node:http';
 import { loadConfig, resolveProfile } from '../../../config/config.js';
 import { createContainer } from '../../../container/container.js';
@@ -60,8 +58,8 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
   const {
     expressServer,
     middleware,
-    chromeLauncher,
     browserDriver,
+    browserRuntime,
     sessionService,
     discoveryService,
     executeActionUseCase,
@@ -80,24 +78,11 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
   let state: BrowserServerState | null = null;
   const browserContext = createBrowserRouteContext({
     getState: () => state,
-    isChromeReachable: (cdpUrl, timeoutMs) => chromeLauncher.isReachable(cdpUrl, timeoutMs),
-    launchChrome: async (profile) =>
-      chromeLauncher.launch({
-        cdpPort: profile.browserPort ?? 9222,
-        headless: config.browser.headless,
-        noSandbox: config.browser.noSandbox,
-        viewport: config.browser.viewport,
-        userDataDir: path.join(os.tmpdir(), `openclaw-browser-${profile.name}`),
-      }),
-    stopChrome: async (chrome) => {
-      if (!chrome) return;
-      const running = chrome.browserPort == null ? undefined : chromeLauncher.getRunning(chrome.browserPort);
-      if (running) {
-        await chromeLauncher.stop(running);
-      }
-    },
-    listPages: async (cdpUrl) => {
-      const browser = await browserDriver.connect(cdpUrl);
+    isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
+    ensureBrowser: (profile) => browserRuntime.ensureBrowser(profile),
+    releaseBrowser: (profile, running) => browserRuntime.releaseBrowser(profile, running),
+    listPages: async (browserEndpoint) => {
+      const browser = await browserDriver.connect(browserEndpoint);
       const pages = await browserDriver.listPages(browser);
       return pages.map((entry) => ({
         targetId: entry.targetId,
@@ -105,13 +90,13 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
         title: entry.title,
       }));
     },
-    focusPage: async (cdpUrl, targetId) => {
-      const browser = await browserDriver.connect(cdpUrl);
+    focusPage: async (browserEndpoint, targetId) => {
+      const browser = await browserDriver.connect(browserEndpoint);
       const page = await browserDriver.getPage(browser, targetId);
       await browserDriver.focusPage(page);
     },
-    createPage: async (cdpUrl, url) => {
-      const browser = await browserDriver.connect(cdpUrl);
+    createPage: async (browserEndpoint, url) => {
+      const browser = await browserDriver.connect(browserEndpoint);
       const page = await browserDriver.createPage(browser, url);
       const pages = await browserDriver.listPages(browser);
       const found = pages.find((entry) => entry.url === page.url()) || pages[pages.length - 1];
@@ -173,14 +158,9 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
     state,
     stop: async () => {
       for (const running of state.profiles.values()) {
-        if (running.chrome) {
-          const active = running.chrome.browserPort == null
-            ? undefined
-            : chromeLauncher.getRunning(running.chrome.browserPort);
-          if (active) {
-            await chromeLauncher.stop(active);
-          }
-          running.chrome = undefined;
+        if (running.runtime) {
+          await browserRuntime.releaseBrowser(running.config, running.runtime);
+          running.runtime = undefined;
         }
       }
       await expressServer.stop();
