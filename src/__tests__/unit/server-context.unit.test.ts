@@ -236,7 +236,7 @@ describe('createBrowserRouteContext', () => {
       const { ctx } = createContext();
       expect(ctx.mapTabError(new Error('ECONNREFUSED'))).toEqual({
         status: 503,
-        message: 'Browser CDP unavailable. Retry in a few seconds.',
+        message: 'Browser endpoint unavailable. Retry in a few seconds.',
       });
     });
 

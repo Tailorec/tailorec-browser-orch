@@ -11,6 +11,7 @@ import type { Server } from 'node:http';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
+import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
 const log = createSubsystemLogger('browser-context');
 
@@ -132,7 +133,7 @@ export function createBrowserRouteContext(opts: {
               log.info('browser available on demand', {
                 profile: name,
                 provider: resolvedProfile.provider,
-                browser_endpoint: resolvedProfile.browserEndpoint,
+                browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
                 browser_port: runtime?.browserPort ?? resolvedProfile.browserPort,
               });
             }
@@ -199,7 +200,8 @@ export function createBrowserRouteContext(opts: {
             if (isConnectionRefusedError(err)) {
               log.warn('browser connection refused, retrying', {
                 profile: name,
-                browser_endpoint: resolvedProfile.browserEndpoint,
+                provider: resolvedProfile.provider,
+                browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
               });
               await ensureBrowserRunning();
               return await getOrCreateTab();
@@ -217,6 +219,7 @@ export function createBrowserRouteContext(opts: {
               log.info('browser stopped', {
                 profile: name,
                 provider: resolvedProfile.provider,
+                browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
                 browser_port: running.config.browserPort,
               });
             } catch (err) {
@@ -238,7 +241,7 @@ export function createBrowserRouteContext(opts: {
           return { status: 404, message: 'Tab not found or closed' };
         }
         if (isConnectionRefusedError(err)) {
-          return { status: 503, message: 'Browser CDP unavailable. Retry in a few seconds.' };
+          return { status: 503, message: 'Browser endpoint unavailable. Retry in a few seconds.' };
         }
         if (
           msg.includes('not found or not visible') ||

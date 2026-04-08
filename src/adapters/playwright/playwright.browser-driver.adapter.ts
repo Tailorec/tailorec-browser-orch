@@ -6,6 +6,7 @@ import {
   normalizeCdpUrl,
   resolvePlaywrightCdpEndpoint,
 } from '../utils/cdp.utils.js';
+import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
 const log = createSubsystemLogger('pw-browser-driver');
 
@@ -66,7 +67,11 @@ export class PlaywrightBrowserDriverAdapter {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const timeout = 5000 + attempt * 2000;
-          log.info('connecting over CDP', { cdp_url: normalized, attempt: attempt + 1, timeout_ms: timeout });
+          log.info('connecting over CDP', {
+            browser_endpoint: redactBrowserEndpoint(normalized),
+            attempt: attempt + 1,
+            timeout_ms: timeout,
+          });
 
           const endpoint = await resolvePlaywrightCdpEndpoint(normalized);
           const headers = getHeadersWithAuth(endpoint);
@@ -81,15 +86,20 @@ export class PlaywrightBrowserDriverAdapter {
             if (this.cached?.browser === browser) {
               this.cached = null;
             }
-            log.warn('cdp browser disconnected', { cdp_url: normalized });
+            log.warn('cdp browser disconnected', {
+              browser_endpoint: redactBrowserEndpoint(normalized),
+            });
           });
           
-          log.info('cdp connect succeeded', { cdp_url: normalized, endpoint });
+          log.info('cdp connect succeeded', {
+            browser_endpoint: redactBrowserEndpoint(normalized),
+            connect_endpoint: redactBrowserEndpoint(endpoint),
+          });
           return connected;
         } catch (err) {
           lastErr = err;
           log.warn('cdp connect attempt failed', {
-            cdp_url: normalized,
+            browser_endpoint: redactBrowserEndpoint(normalized),
             attempt: attempt + 1,
             error: String(err),
           });
