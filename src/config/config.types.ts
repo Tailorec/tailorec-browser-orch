@@ -17,12 +17,18 @@ export interface BrowserViewport {
 }
 
 /**
+ * Supported browser providers
+ */
+export type BrowserProvider = 'local' | 'browserless';
+
+/**
  * Browser profile configuration
  */
 export interface BrowserProfileConfig {
   name: string;
+  provider: BrowserProvider;
   cdpPort?: number;
-  cdpUrl?: string;
+  browserEndpoint?: string;
   driver?: 'chrome' | 'extension';
   color?: string;
 }
@@ -85,9 +91,10 @@ export interface AppConfig {
  */
 export interface ResolvedBrowserProfile {
   name: string;
-  cdpPort: number;
-  cdpUrl: string;
-  cdpIsLoopback: boolean;
+  provider: BrowserProvider;
+  browserPort?: number;
+  browserEndpoint: string;
+  browserEndpointIsLoopback: boolean;
   driver: 'chrome' | 'extension';
   color: string;
 }

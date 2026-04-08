@@ -10,8 +10,9 @@
  */
 export type ProfileConfig = {
   name: string;
-  cdpPort: number;
-  cdpUrl: string;
+  provider: 'local' | 'browserless';
+  browserPort?: number;
+  browserEndpoint: string;
   driver: 'chrome' | 'extension';
   color?: string;
 };
@@ -21,9 +22,10 @@ export type ProfileConfig = {
  */
 export type ResolvedProfile = {
   name: string;
-  cdpPort: number;
-  cdpUrl: string;
-  cdpIsLoopback: boolean;
+  provider: 'local' | 'browserless';
+  browserPort?: number;
+  browserEndpoint: string;
+  browserEndpointIsLoopback: boolean;
   driver: 'chrome' | 'extension';
   color: string;
 };
@@ -46,17 +48,17 @@ export class Profile {
   }
 
   /**
-   * Get CDP URL
+   * Get browser endpoint
    */
-  get cdpUrl(): string {
-    return this.config.cdpUrl;
+  get browserEndpoint(): string {
+    return this.config.browserEndpoint;
   }
 
   /**
-   * Get CDP port
+   * Get browser port
    */
-  get cdpPort(): number {
-    return this.config.cdpPort;
+  get browserPort(): number | undefined {
+    return this.config.browserPort;
   }
 
   /**
@@ -72,19 +74,20 @@ export class Profile {
   resolve(): ResolvedProfile {
     return {
       name: this.config.name,
-      cdpPort: this.config.cdpPort,
-      cdpUrl: this.config.cdpUrl,
-      cdpIsLoopback: this.isLoopback(),
+      provider: this.config.provider,
+      browserPort: this.config.browserPort,
+      browserEndpoint: this.config.browserEndpoint,
+      browserEndpointIsLoopback: this.isLoopback(),
       driver: this.config.driver,
       color: this.config.color ?? 'blue',
     };
   }
 
   /**
-   * Check if CDP URL is loopback (localhost/127.0.0.1)
+   * Check if browser endpoint is loopback (localhost/127.0.0.1)
    */
   isLoopback(): boolean {
-    const url = this.config.cdpUrl.toLowerCase();
+    const url = this.config.browserEndpoint.toLowerCase();
     return url.includes('127.0.0.1') || url.includes('localhost');
   }
 
