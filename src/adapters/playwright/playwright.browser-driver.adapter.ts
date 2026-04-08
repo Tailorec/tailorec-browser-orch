@@ -1,7 +1,11 @@
 import type { Browser, BrowserContext, Page, Locator } from 'playwright-core';
 import { chromium } from 'playwright-core';
 import { createSubsystemLogger } from '../logging/logger.adapter.js';
-import { getHeadersWithAuth, fetchJson } from '../utils/cdp.utils.js';
+import {
+  getHeadersWithAuth,
+  normalizeCdpUrl,
+  resolvePlaywrightCdpEndpoint,
+} from '../utils/cdp.utils.js';
 
 const log = createSubsystemLogger('pw-browser-driver');
 
@@ -25,31 +29,6 @@ export type ConnectedBrowser = {
 };
 
 /**
- * Get Chrome WebSocket URL from CDP endpoint.
- */
-async function getChromeWebSocketUrl(cdpUrl: string, timeoutMs = 500): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    
-    try {
-      const version = await fetchJson<{ webSocketDebuggerUrl?: string }>(
-        `${cdpUrl.replace(/\/$/, '')}/json/version`,
-        timeoutMs,
-      );
-      clearTimeout(timeout);
-      const wsUrl = String(version?.webSocketDebuggerUrl ?? '').trim();
-      return wsUrl || null;
-    } catch {
-      clearTimeout(timeout);
-      return null;
-    }
-  } catch {
-    return null;
-  }
-}
-
-/**
  * PlaywrightBrowserDriverAdapter implements browser driver functionality
  * by connecting to Chrome over CDP using Playwright.
  * 
@@ -68,7 +47,7 @@ export class PlaywrightBrowserDriverAdapter {
    * Connect to a browser over CDP.
    */
   async connect(cdpUrl: string): Promise<Browser> {
-    const normalized = this.normalizeCdpUrl(cdpUrl);
+    const normalized = normalizeCdpUrl(cdpUrl);
     
     if (this.cached?.cdpUrl === normalized) {
       log.debug('reusing cached cdp browser connection', { cdp_url: normalized });
@@ -89,8 +68,7 @@ export class PlaywrightBrowserDriverAdapter {
           const timeout = 5000 + attempt * 2000;
           log.info('connecting over CDP', { cdp_url: normalized, attempt: attempt + 1, timeout_ms: timeout });
 
-          const wsUrl = await getChromeWebSocketUrl(normalized, timeout).catch(() => null);
-          const endpoint = wsUrl ?? normalized;
+          const endpoint = await resolvePlaywrightCdpEndpoint(normalized);
           const headers = getHeadersWithAuth(endpoint);
 
           const browser = await chromium.connectOverCDP(endpoint, { timeout, headers });
@@ -257,10 +235,6 @@ export class PlaywrightBrowserDriverAdapter {
 
     // Handle aria-ref locator as the primary mechanism
     return page.locator(`[aria-ref="${normalized}"]`);
-  }
-
-  private normalizeCdpUrl(raw: string): string {
-    return raw.replace(/\/$/, '');
   }
 
   private async getAllPages(browser: Browser): Promise<Page[]> {
