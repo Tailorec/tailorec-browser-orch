@@ -85,7 +85,7 @@ async function main() {
     isChromeReachable: (cdpUrl, timeoutMs) => chromeLauncher.isReachable(cdpUrl, timeoutMs),
     launchChrome: async (profile) =>
       chromeLauncher.launch({
-        cdpPort: profile.cdpPort,
+        cdpPort: profile.browserPort ?? 9222,
         headless: config.browser.headless,
         noSandbox: config.browser.noSandbox,
         viewport: config.browser.viewport,
@@ -95,7 +95,7 @@ async function main() {
       if (!chrome) {
         return;
       }
-      const running = chromeLauncher.getRunning(chrome.cdpPort);
+      const running = chrome.browserPort == null ? undefined : chromeLauncher.getRunning(chrome.browserPort);
       if (running) {
         await chromeLauncher.stop(running);
       }

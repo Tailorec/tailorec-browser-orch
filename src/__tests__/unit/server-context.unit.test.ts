@@ -10,9 +10,10 @@ function createContext(overrides: Partial<Parameters<typeof createBrowserRouteCo
         'default',
         {
           name: 'default',
-          cdpPort: 9222,
-          cdpUrl: 'http://127.0.0.1:9222',
-          cdpIsLoopback: true,
+          provider: 'local' as const,
+          browserPort: 9222,
+          browserEndpoint: 'http://127.0.0.1:9222',
+          browserEndpointIsLoopback: true,
           driver: 'chrome' as const,
           color: 'blue',
         },
@@ -27,7 +28,7 @@ function createContext(overrides: Partial<Parameters<typeof createBrowserRouteCo
     launchChrome: vi.fn(async () => ({
       pid: 1,
       userDataDir: '/tmp/chrome',
-      cdpPort: 9222,
+      browserPort: 9222,
       startedAt: Date.now(),
     })),
     stopChrome: vi.fn(async () => undefined),
@@ -72,7 +73,7 @@ describe('createBrowserRouteContext', () => {
       const { ctx } = createContext();
       const profileCtx = ctx.forProfile('default');
       expect(profileCtx.profile.name).toBe('default');
-      expect(profileCtx.profile.cdpPort).toBe(9222);
+      expect(profileCtx.profile.browserPort).toBe(9222);
     });
 
     it('reuses an existing tab when targetId is omitted', async () => {
@@ -80,7 +81,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable();
@@ -95,7 +96,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
@@ -115,7 +116,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable('tab-2');
@@ -128,7 +129,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable();
@@ -148,7 +149,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       await ctx.forProfile('default').ensureTabAvailable();
@@ -165,7 +166,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       const result = await ctx.forProfile('default').ensureTabAvailable();
@@ -178,7 +179,7 @@ describe('createBrowserRouteContext', () => {
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
-        chrome: { pid: 1, userDataDir: '/tmp/chrome', cdpPort: 9222, startedAt: Date.now() },
+        chrome: { pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
       await ctx.forProfile('default').stopRunningBrowser();

@@ -32,7 +32,7 @@ export type RunningProfile = {
   chrome?: {
     pid: number;
     userDataDir: string;
-    cdpPort: number;
+    browserPort?: number;
     startedAt: number;
   };
 };
@@ -104,7 +104,7 @@ export function createBrowserRouteContext(opts: {
         async ensureTabAvailable(targetId?: string, options?: { createNewTab?: boolean }) {
           const ensureBrowserRunning = async () => {
             let running = s.profiles.get(name);
-            const reachable = await opts.isChromeReachable(resolvedProfile.cdpUrl, 500);
+            const reachable = await opts.isChromeReachable(resolvedProfile.browserEndpoint, 500);
 
             if (running?.chrome && !reachable) {
               try {
@@ -129,8 +129,8 @@ export function createBrowserRouteContext(opts: {
               s.profiles.set(name, running);
               log.info('browser launched on demand', {
                 profile: name,
-                cdp_url: resolvedProfile.cdpUrl,
-                cdp_port: resolvedProfile.cdpPort,
+                browser_endpoint: resolvedProfile.browserEndpoint,
+                browser_port: resolvedProfile.browserPort,
               });
             }
           };
@@ -139,10 +139,10 @@ export function createBrowserRouteContext(opts: {
             const startedAt = Date.now();
 
             if (targetId) {
-              const pages = await opts.listPages(resolvedProfile.cdpUrl);
+              const pages = await opts.listPages(resolvedProfile.browserEndpoint);
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
-                await opts.focusPage(resolvedProfile.cdpUrl, targetId);
+                await opts.focusPage(resolvedProfile.browserEndpoint, targetId);
                 log.info('target focused', {
                   profile: name,
                   target_id: targetId,
@@ -155,7 +155,7 @@ export function createBrowserRouteContext(opts: {
             }
 
             if (options?.createNewTab) {
-              const result = await opts.createPage(resolvedProfile.cdpUrl);
+              const result = await opts.createPage(resolvedProfile.browserEndpoint);
               log.info('new tab created', {
                 profile: name,
                 target_id: result.targetId,
@@ -166,10 +166,10 @@ export function createBrowserRouteContext(opts: {
             }
 
             // Reuse an existing tab when no targetId is provided.
-            const pages = await opts.listPages(resolvedProfile.cdpUrl);
+            const pages = await opts.listPages(resolvedProfile.browserEndpoint);
             if (pages.length > 0) {
               const first = pages[0];
-              await opts.focusPage(resolvedProfile.cdpUrl, first.targetId);
+              await opts.focusPage(resolvedProfile.browserEndpoint, first.targetId);
               log.debug('reusing existing tab', {
                 profile: name,
                 target_id: first.targetId,
@@ -179,7 +179,7 @@ export function createBrowserRouteContext(opts: {
               return { targetId: first.targetId, url: first.url };
             }
 
-            const result = await opts.createPage(resolvedProfile.cdpUrl);
+            const result = await opts.createPage(resolvedProfile.browserEndpoint);
             log.info('new tab created', {
               profile: name,
               target_id: result.targetId,
@@ -196,7 +196,7 @@ export function createBrowserRouteContext(opts: {
             if (isConnectionRefusedError(err)) {
               log.warn('browser connection refused, retrying', {
                 profile: name,
-                cdp_url: resolvedProfile.cdpUrl,
+                browser_endpoint: resolvedProfile.browserEndpoint,
               });
               await ensureBrowserRunning();
               return await getOrCreateTab();
@@ -213,7 +213,7 @@ export function createBrowserRouteContext(opts: {
               await opts.stopChrome(running.chrome);
               log.info('browser stopped', {
                 profile: name,
-                cdp_port: running.config.cdpPort,
+                browser_port: running.config.browserPort,
               });
             } catch (err) {
               log.warn('browser stop failed', {

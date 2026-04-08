@@ -83,7 +83,7 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
     isChromeReachable: (cdpUrl, timeoutMs) => chromeLauncher.isReachable(cdpUrl, timeoutMs),
     launchChrome: async (profile) =>
       chromeLauncher.launch({
-        cdpPort: profile.cdpPort,
+        cdpPort: profile.browserPort ?? 9222,
         headless: config.browser.headless,
         noSandbox: config.browser.noSandbox,
         viewport: config.browser.viewport,
@@ -91,7 +91,7 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
       }),
     stopChrome: async (chrome) => {
       if (!chrome) return;
-      const running = chromeLauncher.getRunning(chrome.cdpPort);
+      const running = chrome.browserPort == null ? undefined : chromeLauncher.getRunning(chrome.browserPort);
       if (running) {
         await chromeLauncher.stop(running);
       }
@@ -174,7 +174,9 @@ export async function startBrowserControlServerFromConfig(): Promise<StartedTest
     stop: async () => {
       for (const running of state.profiles.values()) {
         if (running.chrome) {
-          const active = chromeLauncher.getRunning(running.chrome.cdpPort);
+          const active = running.chrome.browserPort == null
+            ? undefined
+            : chromeLauncher.getRunning(running.chrome.browserPort);
           if (active) {
             await chromeLauncher.stop(active);
           }
