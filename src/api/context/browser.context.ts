@@ -9,6 +9,7 @@
 
 import type { Server } from 'node:http';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
+import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 
 const log = createSubsystemLogger('browser-context');
@@ -24,17 +25,12 @@ export type BrowserServerState = {
 };
 
 /**
- * Running profile with Chrome instance
+ * Running profile runtime state
  */
 export type RunningProfile = {
   name: string;
   config: ResolvedBrowserProfile;
-  chrome?: {
-    pid: number;
-    userDataDir: string;
-    browserPort?: number;
-    startedAt: number;
-  };
+  runtime?: RunningBrowserRuntime;
 };
 
 /**
@@ -71,14 +67,20 @@ function isConnectionRefusedError(err: unknown): boolean {
  */
 export function createBrowserRouteContext(opts: {
   getState: () => BrowserServerState | null;
-  isChromeReachable: (cdpUrl: string, timeoutMs?: number) => Promise<boolean>;
-  launchChrome: (profile: ResolvedBrowserProfile) => Promise<RunningProfile['chrome']>;
-  stopChrome: (chrome: RunningProfile['chrome']) => Promise<void>;
-  listPages: (cdpUrl: string) => Promise<Array<{ targetId: string; url: string; title?: string }>>;
-  focusPage: (cdpUrl: string, targetId: string) => Promise<void>;
-  createPage: (cdpUrl: string, url?: string) => Promise<{ targetId: string; url: string }>;
+  isBrowserAvailable: (
+    profile: ResolvedBrowserProfile,
+    running?: RunningProfile['runtime'],
+  ) => Promise<boolean>;
+  ensureBrowser: (profile: ResolvedBrowserProfile) => Promise<RunningProfile['runtime']>;
+  releaseBrowser: (
+    profile: ResolvedBrowserProfile,
+    running?: RunningProfile['runtime'],
+  ) => Promise<void>;
+  listPages: (browserEndpoint: string) => Promise<Array<{ targetId: string; url: string; title?: string }>>;
+  focusPage: (browserEndpoint: string, targetId: string) => Promise<void>;
+  createPage: (browserEndpoint: string, url?: string) => Promise<{ targetId: string; url: string }>;
 }): BrowserRouteContext {
-  const launchInFlight = new Map<string, Promise<RunningProfile['chrome']>>();
+  const ensureInFlight = new Map<string, Promise<RunningProfile['runtime']>>();
 
   return {
     state() {
@@ -104,33 +106,34 @@ export function createBrowserRouteContext(opts: {
         async ensureTabAvailable(targetId?: string, options?: { createNewTab?: boolean }) {
           const ensureBrowserRunning = async () => {
             let running = s.profiles.get(name);
-            const reachable = await opts.isChromeReachable(resolvedProfile.browserEndpoint, 500);
+            const available = await opts.isBrowserAvailable(resolvedProfile, running?.runtime);
 
-            if (running?.chrome && !reachable) {
+            if (running?.runtime && !available) {
               try {
-                await opts.stopChrome(running.chrome);
+                await opts.releaseBrowser(resolvedProfile, running.runtime);
               } catch {
                 // Ignore stop errors
               }
-              running.chrome = undefined;
+              running.runtime = undefined;
             }
 
-            if (!running || !running.chrome) {
-              let launchPromise = launchInFlight.get(name);
-              if (!launchPromise) {
-                launchPromise = opts.launchChrome(resolvedProfile).finally(() => {
-                  launchInFlight.delete(name);
+            if (!running || !running.runtime) {
+              let ensurePromise = ensureInFlight.get(name);
+              if (!ensurePromise) {
+                ensurePromise = opts.ensureBrowser(resolvedProfile).finally(() => {
+                  ensureInFlight.delete(name);
                 });
-                launchInFlight.set(name, launchPromise);
+                ensureInFlight.set(name, ensurePromise);
               }
 
-              const chrome = await launchPromise;
-              running = { name, config: resolvedProfile, chrome };
+              const runtime = await ensurePromise;
+              running = { name, config: resolvedProfile, runtime };
               s.profiles.set(name, running);
-              log.info('browser launched on demand', {
+              log.info('browser available on demand', {
                 profile: name,
+                provider: resolvedProfile.provider,
                 browser_endpoint: resolvedProfile.browserEndpoint,
-                browser_port: resolvedProfile.browserPort,
+                browser_port: runtime?.browserPort ?? resolvedProfile.browserPort,
               });
             }
           };
@@ -206,13 +209,14 @@ export function createBrowserRouteContext(opts: {
         },
 
         async stopRunningBrowser() {
-          launchInFlight.delete(name);
+          ensureInFlight.delete(name);
           const running = s.profiles.get(name);
-          if (running?.chrome) {
+          if (running?.runtime) {
             try {
-              await opts.stopChrome(running.chrome);
+              await opts.releaseBrowser(resolvedProfile, running.runtime);
               log.info('browser stopped', {
                 profile: name,
+                provider: resolvedProfile.provider,
                 browser_port: running.config.browserPort,
               });
             } catch (err) {
@@ -221,7 +225,7 @@ export function createBrowserRouteContext(opts: {
                 error: err instanceof Error ? err.message : String(err),
               });
             }
-            running.chrome = undefined;
+            running.runtime = undefined;
           }
         },
       };
