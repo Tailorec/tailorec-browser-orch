@@ -56,4 +56,17 @@ describe('cdp utils', () => {
       }),
     );
   });
+
+  it('falls back to the original http endpoint when websocket discovery fails', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        webSocketDebuggerUrl: '',
+      }),
+    })) as any;
+
+    await expect(
+      resolvePlaywrightCdpEndpoint('https://browser.example.com?token=test-token'),
+    ).resolves.toBe('https://browser.example.com?token=test-token');
+  });
 });

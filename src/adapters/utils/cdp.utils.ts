@@ -278,7 +278,11 @@ export async function resolvePlaywrightCdpEndpoint(cdpUrl: string): Promise<stri
   if (isWebSocketEndpoint(normalized)) {
     return normalized;
   }
-  return resolveBrowserCdpWebSocketUrl(normalized);
+  try {
+    return await resolveBrowserCdpWebSocketUrl(normalized);
+  } catch {
+    return normalized;
+  }
 }
 
 export async function resolveTargetCdpWebSocketUrl(
