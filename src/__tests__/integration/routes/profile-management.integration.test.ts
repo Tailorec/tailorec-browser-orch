@@ -21,7 +21,7 @@ describe("integration: profile management", () => {
     it("create with custom path surrogate via cdpUrl", async () => {
       const { app, profileCtx } = createActionRouteHarness({ cdpUrl: "http://127.0.0.1:9333" });
       await request(app).post("/act").send({ kind: "click", ref: "e1" });
-      expect(profileCtx.profile.cdpUrl).toBe("http://127.0.0.1:9333");
+      expect(profileCtx.profile.browserEndpoint).toBe("http://127.0.0.1:9333");
     });
 
     it("logging verification - profile creation logged", async () => {
@@ -114,7 +114,7 @@ describe("integration: profile management", () => {
       const two = createActionRouteHarness({ cdpUrl: "http://127.0.0.1:9333" });
       await request(one.app).post("/act").send({ kind: "click", ref: "e1" });
       await request(two.app).post("/act").send({ kind: "click", ref: "e1" });
-      expect(one.profileCtx.profile.cdpUrl).not.toBe(two.profileCtx.profile.cdpUrl);
+      expect(one.profileCtx.profile.browserEndpoint).not.toBe(two.profileCtx.profile.browserEndpoint);
     });
   });
 });

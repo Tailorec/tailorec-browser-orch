@@ -52,7 +52,7 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
   profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
@@ -127,7 +127,7 @@ export function createSnapshotRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
   profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
@@ -173,7 +173,7 @@ export function createHooksRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
   profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
@@ -216,7 +216,7 @@ export function createMediaRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
   profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",

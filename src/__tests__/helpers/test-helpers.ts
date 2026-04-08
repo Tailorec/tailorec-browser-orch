@@ -66,9 +66,10 @@ export function createMockRes(): Response & {
 export function createBrowserContextMock() {
   const profile = {
     name: 'default',
-    cdpPort: 9222,
-    cdpUrl: 'http://127.0.0.1:9222',
-    cdpIsLoopback: true,
+    provider: 'local' as const,
+    browserPort: 9222,
+    browserEndpoint: 'http://127.0.0.1:9222',
+    browserEndpointIsLoopback: true,
     driver: 'chrome',
     color: 'blue',
   };

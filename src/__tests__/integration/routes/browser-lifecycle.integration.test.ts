@@ -19,7 +19,7 @@ describe("integration: browser lifecycle", () => {
       const { app, profileCtx } = createSnapshotRouteHarness();
       const res = await request(app).post("/snapshot").send({});
       expect(res.status).toBe(200);
-      expect(profileCtx.profile.cdpUrl).toContain("9222");
+      expect(profileCtx.profile.browserEndpoint).toContain("9222");
     });
 
     it("launch with custom viewport", async () => {
