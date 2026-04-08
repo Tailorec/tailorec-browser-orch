@@ -58,6 +58,12 @@ describe('config', () => {
     expect(() => loadConfig()).toThrow('browser.profiles.default.browserEndpoint');
   });
 
+  it('fails fast when browser provider is invalid', () => {
+    process.env.BROWSER_PROVIDER = 'browserles';
+
+    expect(() => loadConfig()).toThrow("browser.profiles.default.provider");
+  });
+
   it('rejects mixed providers across configured profiles', () => {
     expect(() => validateConfig({
       port: 4000,

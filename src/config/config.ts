@@ -75,14 +75,15 @@ function parseViewportEnv(value: string | undefined, fallback: BrowserViewport):
   return { width: Math.floor(width), height: Math.floor(height) };
 }
 
-function parseBrowserProviderEnv(value: string | undefined, fallback: BrowserProvider): BrowserProvider {
+function parseBrowserProviderEnv(
+  value: string | undefined,
+  fallback: BrowserProvider,
+): BrowserProvider | string {
   if (!value) {
     return fallback;
   }
 
-  return value.trim().toLowerCase() === 'browserless'
-    ? 'browserless'
-    : 'local';
+  return value.trim().toLowerCase();
 }
 
 /**
@@ -136,12 +137,12 @@ export function loadConfig(): AppConfig {
         default: {
           name: 'default',
           provider,
-          ...(provider === 'local'
+          ...(provider === 'browserless'
             ? {
-                cdpPort: Number(process.env.BROWSER_CDP_PORT) || 9222,
+                browserEndpoint: process.env.BROWSER_ENDPOINT,
               }
             : {
-                browserEndpoint: process.env.BROWSER_ENDPOINT,
+                cdpPort: Number(process.env.BROWSER_CDP_PORT) || 9222,
               }),
           driver: DEFAULT_CONFIG.browser.profiles.default.driver,
           color: DEFAULT_CONFIG.browser.profiles.default.color,
