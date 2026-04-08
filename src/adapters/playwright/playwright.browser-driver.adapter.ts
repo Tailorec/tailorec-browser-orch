@@ -285,11 +285,7 @@ export class PlaywrightBrowserDriverAdapter {
     // Fallback to URL-based matching using /json/list endpoint
     if (cdpUrl) {
       try {
-        const baseUrl = cdpUrl
-          .replace(/\/+$/, '')
-          .replace(/^ws:/, 'http:')
-          .replace(/\/cdp$/, '');
-        const listUrl = `${baseUrl}/json/list`;
+        const listUrl = this.buildJsonListUrl(cdpUrl);
         const response = await fetch(listUrl, { headers: getHeadersWithAuth(listUrl) });
         
         if (response.ok) {
@@ -345,5 +341,18 @@ export class PlaywrightBrowserDriverAdapter {
 
   private ensureContextState(context: BrowserContext): void {
     // Placeholder for context state management
+  }
+
+  private toHttpUrl(endpoint: string): string {
+    const normalized = endpoint.replace(/\/+$/, '');
+    return normalized
+      .replace(/^wss:/, 'https:')
+      .replace(/^ws:/, 'http:');
+  }
+
+  private buildJsonListUrl(endpoint: string): string {
+    const url = new URL(this.toHttpUrl(endpoint));
+    url.pathname = `${url.pathname.replace(/\/+$/, '').replace(/\/cdp$/, '')}/json/list`;
+    return url.toString();
   }
 }
