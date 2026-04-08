@@ -22,9 +22,20 @@ describe('status contract', () => {
 
     const schema = z.object({
       ok: z.literal(true),
+      provider: z.enum(['local', 'browserless']).nullable(),
       profiles: z.array(z.string()),
+      configured_profiles: z.array(z.object({
+        name: z.string(),
+        provider: z.enum(['local', 'browserless']),
+        browser_endpoint: z.string(),
+      })),
     });
 
-    expect(schema.parse(response.body)).toEqual({ ok: true, profiles: ['default'] });
+    expect(schema.parse(response.body)).toEqual({
+      ok: true,
+      provider: null,
+      profiles: ['default'],
+      configured_profiles: [],
+    });
   });
 });

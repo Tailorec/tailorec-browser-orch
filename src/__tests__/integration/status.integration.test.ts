@@ -18,7 +18,18 @@ describe('basic routes integration', () => {
 
     const status = await request(app).get('/status').set('x-correlation-id', 'corr-1');
     expect(status.status).toBe(200);
-    expect(status.body).toEqual({ ok: true, profiles: [] });
+    expect(status.body).toEqual({
+      ok: true,
+      provider: 'local',
+      profiles: [],
+      configured_profiles: [
+        {
+          name: 'default',
+          provider: 'local',
+          browser_endpoint: 'http://127.0.0.1:9222/',
+        },
+      ],
+    });
     expect(status.headers['x-correlation-id']).toBe('corr-1');
   });
 });
