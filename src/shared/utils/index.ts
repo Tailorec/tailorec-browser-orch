@@ -55,3 +55,6 @@ export {
   verifyControlToken,
   createControlToken,
 } from './control-token.js';
+export {
+  redactBrowserEndpoint,
+} from './browser-endpoint.utils.js';
