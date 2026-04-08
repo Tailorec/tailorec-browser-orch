@@ -7,7 +7,7 @@ Standalone browser automation service for LLM-driven workflows. The service expo
 - Runtime entrypoint: `src/main.ts`
 - HTTP API on `127.0.0.1:4000` by default
 - Clean architecture split across `api`, `adapters`, `core`, `config`, `container`, and `shared`
-- Playwright-backed browser/session management
+- Playwright-backed browser/session management with pluggable browser providers
 - Snapshot, action, hooks, media, and interactive control endpoints
 - Vitest unit/integration/contract coverage plus Playwright E2E coverage
 
@@ -16,7 +16,6 @@ Standalone browser automation service for LLM-driven workflows. The service expo
 ```bash
 npm install
 npx playwright install chromium
-cp .env.example .env
 npm run dev
 ```
 
@@ -115,6 +114,9 @@ API reference:
 Primary environment variables:
 
 - `PORT` default `4000`
+- `BROWSER_PROVIDER` one of `local` or `browserless`
+- `BROWSER_CDP_PORT` local provider only, default `9222`
+- `BROWSER_ENDPOINT` browserless provider only, must be a full `ws(s)` or `http(s)` endpoint
 - `BROWSER_HEADLESS` default `true` in `.env.example`
 - `BROWSER_NO_SANDBOX`
 - `BROWSER_VIEWPORT` format `WIDTHxHEIGHT`
@@ -126,6 +128,29 @@ Primary environment variables:
 - `LOG_BACKUP_COUNT`
 
 Details: [Configuration](./docs/getting-started/configuration.md)
+
+Provider examples:
+
+```bash
+# local browser runtime
+BROWSER_PROVIDER=local
+BROWSER_CDP_PORT=9222
+BROWSER_HEADLESS=true
+```
+
+```bash
+# remote/browserless runtime
+BROWSER_PROVIDER=browserless
+BROWSER_ENDPOINT=wss://browser.example.com?token=YOUR_TOKEN
+BROWSER_HEADLESS=true
+```
+
+Current v1 constraints:
+
+- One provider per process. Mixed local and remote profiles are rejected.
+- One active browser connection per process.
+- Remote disconnects fail the current request; the client should retry explicitly.
+- `/status` reports provider diagnostics with redacted endpoints and does not perform live provider health checks.
 
 ## Testing
 
