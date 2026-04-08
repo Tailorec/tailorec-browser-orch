@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { validateConfig } from '../../config/config.validators.js';
 import { getConfiguredViewport, loadConfig, resolveProfile } from '../../config/config.js';
 
 describe('config', () => {
@@ -30,9 +31,68 @@ describe('config', () => {
 
     expect(resolveProfile(config.browser, 'default')).toMatchObject({
       name: 'default',
-      cdpPort: 9222,
-      cdpUrl: 'http://127.0.0.1:9222',
+      provider: 'local',
+      browserPort: 9222,
+      browserEndpoint: 'http://127.0.0.1:9222',
     });
     expect(resolveProfile(config.browser, 'missing')).toBeNull();
+  });
+
+  it('loads browserless env overrides and resolves configured profiles', () => {
+    process.env.BROWSER_PROVIDER = 'browserless';
+    process.env.BROWSER_ENDPOINT = 'wss://browser.example.com?token=test-token';
+
+    const config = loadConfig();
+
+    expect(resolveProfile(config.browser, 'default')).toMatchObject({
+      name: 'default',
+      provider: 'browserless',
+      browserPort: undefined,
+      browserEndpoint: 'wss://browser.example.com?token=test-token',
+    });
+  });
+
+  it('fails fast when browserless endpoint is missing', () => {
+    process.env.BROWSER_PROVIDER = 'browserless';
+
+    expect(() => loadConfig()).toThrow('browser.profiles.default.browserEndpoint');
+  });
+
+  it('rejects mixed providers across configured profiles', () => {
+    expect(() => validateConfig({
+      port: 4000,
+      host: '127.0.0.1',
+      browser: {
+        enabled: true,
+        headless: false,
+        profiles: {
+          local: {
+            name: 'local',
+            provider: 'local',
+            cdpPort: 9222,
+          },
+          remote: {
+            name: 'remote',
+            provider: 'browserless',
+            browserEndpoint: 'wss://browser.example.com?token=test-token',
+          },
+        },
+        evaluateEnabled: true,
+        viewport: { width: 1280, height: 720 },
+      },
+      logging: {
+        level: 'info',
+        format: 'json',
+        toFile: false,
+        filePath: 'logs/app.log',
+        maxBytes: 1024,
+        backupCount: 0,
+      },
+      security: {
+        corsEnabled: false,
+        rateLimitEnabled: false,
+      },
+      nodeEnv: 'test',
+    })).toThrow('all configured profiles must use the same provider in v1');
   });
 });

@@ -6,10 +6,45 @@ import type { AppConfig } from './config.types.js';
  */
 const BrowserProfileSchema = z.object({
   name: z.string().min(1),
+  provider: z.enum(['local', 'browserless']),
   cdpPort: z.number().min(1024).max(65535).optional(),
-  cdpUrl: z.string().url().optional(),
+  browserEndpoint: z.string().url().optional(),
   driver: z.enum(['chrome', 'extension']).optional().default('chrome'),
   color: z.string().optional(),
+}).superRefine((profile, ctx) => {
+  if (profile.provider === 'local') {
+    if (profile.cdpPort == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cdpPort'],
+        message: 'cdpPort is required for local provider',
+      });
+    }
+    if (profile.browserEndpoint != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['browserEndpoint'],
+        message: 'browserEndpoint is not allowed for local provider',
+      });
+    }
+  }
+
+  if (profile.provider === 'browserless') {
+    if (!profile.browserEndpoint) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['browserEndpoint'],
+        message: 'browserEndpoint is required for browserless provider',
+      });
+    }
+    if (profile.cdpPort != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cdpPort'],
+        message: 'cdpPort is not allowed for browserless provider',
+      });
+    }
+  }
 });
 
 /**
@@ -25,6 +60,18 @@ const BrowserConfigSchema = z.object({
     width: z.number().min(100).max(7680),
     height: z.number().min(100).max(4320),
   }),
+}).superRefine((browser, ctx) => {
+  const providers = new Set(
+    Object.values(browser.profiles).map((profile) => profile.provider),
+  );
+
+  if (providers.size > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['profiles'],
+      message: 'all configured profiles must use the same provider in v1',
+    });
+  }
 });
 
 /**

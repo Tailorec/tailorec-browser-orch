@@ -1,4 +1,9 @@
-import type { AppConfig, BrowserViewport, BrowserProfileConfig, ResolvedBrowserProfile } from './config.types.js';
+import type {
+  AppConfig,
+  BrowserProvider,
+  BrowserViewport,
+  ResolvedBrowserProfile,
+} from './config.types.js';
 import { validateConfig } from './config.validators.js';
 import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 
@@ -17,6 +22,7 @@ const DEFAULT_CONFIG: AppConfig = {
     profiles: {
       default: {
         name: 'default',
+        provider: 'local',
         cdpPort: 9222,
         driver: 'chrome',
         color: 'blue',
@@ -69,6 +75,16 @@ function parseViewportEnv(value: string | undefined, fallback: BrowserViewport):
   return { width: Math.floor(width), height: Math.floor(height) };
 }
 
+function parseBrowserProviderEnv(value: string | undefined, fallback: BrowserProvider): BrowserProvider {
+  if (!value) {
+    return fallback;
+  }
+
+  return value.trim().toLowerCase() === 'browserless'
+    ? 'browserless'
+    : 'local';
+}
+
 /**
  * Get configured viewport from environment or default
  */
@@ -89,14 +105,17 @@ export function resolveProfile(
     return null;
   }
 
-  const cdpPort = profile.cdpPort || 9222;
-  const cdpUrl = profile.cdpUrl || `http://127.0.0.1:${cdpPort}`;
+  const browserEndpoint = profile.provider === 'local'
+    ? `http://127.0.0.1:${profile.cdpPort}`
+    : profile.browserEndpoint!;
 
   return {
     name,
-    cdpPort,
-    cdpUrl,
-    cdpIsLoopback: cdpUrl.includes('127.0.0.1') || cdpUrl.includes('localhost'),
+    provider: profile.provider,
+    browserPort: profile.cdpPort,
+    browserEndpoint,
+    browserEndpointIsLoopback:
+      browserEndpoint.includes('127.0.0.1') || browserEndpoint.includes('localhost'),
     driver: profile.driver || 'chrome',
     color: profile.color || 'blue',
   };
@@ -106,11 +125,28 @@ export function resolveProfile(
  * Load and validate application configuration
  */
 export function loadConfig(): AppConfig {
+  const provider = parseBrowserProviderEnv(process.env.BROWSER_PROVIDER, 'local');
+
   const rawConfig = {
     ...DEFAULT_CONFIG,
     port: Number(process.env.PORT) || 4000,
     browser: {
       ...DEFAULT_CONFIG.browser,
+      profiles: {
+        default: {
+          name: 'default',
+          provider,
+          ...(provider === 'local'
+            ? {
+                cdpPort: Number(process.env.BROWSER_CDP_PORT) || 9222,
+              }
+            : {
+                browserEndpoint: process.env.BROWSER_ENDPOINT,
+              }),
+          driver: DEFAULT_CONFIG.browser.profiles.default.driver,
+          color: DEFAULT_CONFIG.browser.profiles.default.color,
+        },
+      },
       headless: parseBooleanEnv(
         process.env.BROWSER_HEADLESS ?? process.env.HEADLESS,
         DEFAULT_CONFIG.browser.headless,
@@ -144,6 +180,7 @@ export function loadConfig(): AppConfig {
 
   log.info('config loaded', {
     port: config.port,
+    provider,
     headless: config.browser.headless,
     no_sandbox: config.browser.noSandbox ?? false,
     viewport: `${config.browser.viewport.width}x${config.browser.viewport.height}`,
