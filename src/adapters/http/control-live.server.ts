@@ -112,7 +112,7 @@ export function installControlLiveWebSocketServer(
     const resolvePage = async () => {
       const tab = await profileCtx.ensureTabAvailable(targetId);
       targetId = tab.targetId;
-      const page = await sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      const page = await sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       return { page, tab };
     };
 

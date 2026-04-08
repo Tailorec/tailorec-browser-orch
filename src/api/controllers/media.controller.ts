@@ -50,8 +50,8 @@ export class MediaController {
 
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const screenshotOptions = {
         type,
         ...(type === 'jpeg' && typeof quality === 'number' ? { quality } : {}),
@@ -105,8 +105,8 @@ export class MediaController {
       const tab = await profileCtx.ensureTabAvailable(
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const labeled = await this.takeLabeledScreenshot(
         tab.targetId,
         page,
@@ -142,8 +142,8 @@ export class MediaController {
       const tab = await profileCtx.ensureTabAvailable(
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       await this.sessionService.refLocator(tab.targetId, body.ref).highlight();
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {

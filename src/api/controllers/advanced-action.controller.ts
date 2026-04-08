@@ -25,7 +25,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateQueryState(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
 
       if (dto.refs?.length) {
@@ -97,7 +97,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDiscoverDropdown(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
       const result = await this.discoveryService.discoverDropdownOptions(
         page,
@@ -117,7 +117,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateCloseDropdown(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       await this.discoveryService.closeDropdown(
         page,
         dto.ref,
@@ -134,7 +134,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDetectBlocker(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const result = await this.discoveryService.detectBlockingElement(
         page,
         dto.ref,
@@ -151,7 +151,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDismissBlocker(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, (req.body || {}).targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const result = await this.discoveryService.dismissBlocker(
         page,
         dto.targetRef,
@@ -177,7 +177,7 @@ export class AdvancedActionController {
     try {
       const { profileCtx, tab } = await this.resolvePage(req, targetId);
       const result = await this.executeActionUseCase.execute({
-        cdpUrl: profileCtx.profile.cdpUrl,
+        cdpUrl: profileCtx.profile.browserEndpoint,
         targetId: tab.targetId,
         action,
       });
@@ -203,7 +203,7 @@ export class AdvancedActionController {
   private async resolvePage(req: Request, targetId?: string) {
     const profileCtx = getProfileContext(this.browserContext, req);
     const tab = await profileCtx.ensureTabAvailable(targetId);
-    const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+    const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
     return { profileCtx, tab, page };
   }
 }
