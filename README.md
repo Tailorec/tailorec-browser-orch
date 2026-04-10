@@ -114,6 +114,9 @@ API reference:
 Primary environment variables:
 
 - `PORT` default `4000`
+- `AGENT_RUNTIME_JWT_SECRET` required for `/control` and `/control/live` JWT verification
+- `AGENT_RUNTIME_JWT_ISSUER` default `tailorec-backend`
+- `AGENT_RUNTIME_JWT_AUDIENCE` default `tailorec-agent-runtime`
 - `BROWSER_PROVIDER` one of `local` or `browserless`
 - `BROWSER_CDP_PORT` local provider only, default `9222`
 - `BROWSER_ENDPOINT` browserless provider only, must be a full `ws(s)` or `http(s)` endpoint
@@ -133,6 +136,7 @@ Provider examples:
 
 ```bash
 # local browser runtime
+AGENT_RUNTIME_JWT_SECRET=replace-me
 BROWSER_PROVIDER=local
 BROWSER_CDP_PORT=9222
 BROWSER_HEADLESS=true
@@ -140,6 +144,7 @@ BROWSER_HEADLESS=true
 
 ```bash
 # remote/browserless runtime
+AGENT_RUNTIME_JWT_SECRET=replace-me
 BROWSER_PROVIDER=browserless
 BROWSER_ENDPOINT=wss://browser.example.com?token=YOUR_TOKEN
 BROWSER_HEADLESS=true

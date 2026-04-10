@@ -8,6 +8,12 @@ The runtime loads env vars at startup through `dotenv/config` in `src/main.ts`.
 
 - `PORT`: HTTP port, default `4000`
 
+### Control API
+
+- `AGENT_RUNTIME_JWT_SECRET`: required for `/control` and `/control/live` JWT verification
+- `AGENT_RUNTIME_JWT_ISSUER`: defaults to `tailorec-backend`
+- `AGENT_RUNTIME_JWT_AUDIENCE`: defaults to `tailorec-agent-runtime`
+
 ### Browser
 
 - `BROWSER_PROVIDER`: `local|browserless`
@@ -46,6 +52,9 @@ Current defaults come from `src/config/config.ts`:
 
 ```bash
 PORT=4000
+AGENT_RUNTIME_JWT_SECRET=replace-me
+AGENT_RUNTIME_JWT_ISSUER=tailorec-backend
+AGENT_RUNTIME_JWT_AUDIENCE=tailorec-agent-runtime
 BROWSER_PROVIDER=local
 BROWSER_CDP_PORT=9222
 BROWSER_HEADLESS=true
@@ -62,6 +71,9 @@ LOG_BACKUP_COUNT=5
 
 ```bash
 PORT=4000
+AGENT_RUNTIME_JWT_SECRET=replace-me
+AGENT_RUNTIME_JWT_ISSUER=tailorec-backend
+AGENT_RUNTIME_JWT_AUDIENCE=tailorec-agent-runtime
 BROWSER_PROVIDER=browserless
 BROWSER_ENDPOINT=wss://browser.example.com?token=YOUR_TOKEN
 BROWSER_HEADLESS=true
