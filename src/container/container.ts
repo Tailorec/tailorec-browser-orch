@@ -1,5 +1,5 @@
 import type { Container } from './container.types.js';
-import type { AppConfig } from '../config/config.types.js';
+import type { AppConfig, BrowserProvider } from '../config/config.types.js';
 import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 import { ExpressServerAdapter } from '../adapters/http/express.server.adapter.js';
 import { createMiddlewareRegistry } from '../api/middlewares/index.js';
@@ -29,7 +29,7 @@ export function createContainer(config: AppConfig): Container {
   const expressServer = new ExpressServerAdapter();
   const middleware = createMiddlewareRegistry();
   const browserDriver = new PlaywrightBrowserDriverAdapter();
-  const provider = config.browser.profiles.default?.provider ?? 'local';
+  const provider = resolveContainerBrowserProvider(config);
   const browserRuntime = provider === 'local'
     ? new LocalBrowserRuntimeAdapter(new ChromeLauncherAdapter(), {
         headless: config.browser.headless,
@@ -85,4 +85,12 @@ export function createContainer(config: AppConfig): Container {
   });
 
   return container;
+}
+
+function resolveContainerBrowserProvider(config: AppConfig): BrowserProvider {
+  const firstProfile = Object.values(config.browser.profiles)[0];
+  if (!firstProfile) {
+    throw new Error('No browser profiles configured');
+  }
+  return firstProfile.provider;
 }
