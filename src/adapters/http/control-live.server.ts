@@ -109,8 +109,25 @@ export function installControlLiveWebSocketServer(
       }
     };
 
+    const resolveExistingTarget = async () => {
+      const pages = await sessionService.listSessions(profileCtx.profile.browserEndpoint);
+      if (pages.length === 0) {
+        throw new Error('targetId is required. Call navigate first to create a browser session.');
+      }
+
+      if (pages.length === 1) {
+        return pages[0];
+      }
+
+      // Browserless can expose an extra blank page alongside the active page.
+      // Prefer the most recently listed non-blank page, but never create a new tab here.
+      const nonBlankPages = pages.filter((page) => page.url && page.url !== 'about:blank');
+      return nonBlankPages.at(-1) ?? pages.at(-1)!;
+    };
+
     const resolvePage = async () => {
-      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const resolvedTarget = targetId || (await resolveExistingTarget()).targetId;
+      const tab = await profileCtx.ensureTabAvailable(resolvedTarget);
       targetId = tab.targetId;
       const page = await sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       return { page, tab };
