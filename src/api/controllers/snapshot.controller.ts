@@ -71,7 +71,7 @@ export class SnapshotController {
     }
     try {
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const tab = await profileCtx.ensureTabAvailable(targetId, { useCurrentTab: true });
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
 

@@ -109,6 +109,27 @@ describe('createBrowserRouteContext', () => {
       expect(deps.focusPage).not.toHaveBeenCalled();
     });
 
+    it('focuses the current tab when explicitly requested without a targetId', async () => {
+      const { ctx, deps, state } = createContext({
+        listPages: vi.fn(async () => [
+          { targetId: 'tab-other', url: 'https://other.test' },
+          { targetId: 'tab-current', url: 'https://current.test' },
+        ]),
+      });
+      state.profiles.set('default', {
+        name: 'default',
+        config: state.configuredProfiles.get('default'),
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+        activeTargetId: 'tab-current',
+      });
+
+      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { useCurrentTab: true });
+
+      expect(result).toEqual({ targetId: 'tab-current', url: 'https://current.test' });
+      expect(deps.focusPage).toHaveBeenCalledWith('http://127.0.0.1:9222', 'tab-current');
+      expect(deps.createPage).not.toHaveBeenCalled();
+    });
+
     it('focuses an existing requested targetId', async () => {
       const { ctx, deps, state } = createContext({
         listPages: vi.fn(async () => [

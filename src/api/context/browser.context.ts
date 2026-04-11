@@ -32,6 +32,7 @@ export type RunningProfile = {
   name: string;
   config: ResolvedBrowserProfile;
   runtime?: RunningBrowserRuntime;
+  activeTargetId?: string;
 };
 
 /**
@@ -41,7 +42,7 @@ export interface ProfileContext {
   profile: ResolvedBrowserProfile;
   ensureTabAvailable(
     targetId?: string,
-    options?: { createNewTab?: boolean },
+    options?: { createNewTab?: boolean; useCurrentTab?: boolean },
   ): Promise<{ targetId: string; url: string }>;
   stopRunningBrowser(): Promise<void>;
 }
@@ -104,7 +105,7 @@ export function createBrowserRouteContext(opts: {
       return {
         profile: resolvedProfile,
 
-        async ensureTabAvailable(targetId?: string, options?: { createNewTab?: boolean }) {
+        async ensureTabAvailable(targetId?: string, options?: { createNewTab?: boolean; useCurrentTab?: boolean }) {
           const stopRunningBrowser = async () => {
             ensureInFlight.delete(name);
             const running = s.profiles.get(name);
@@ -163,12 +164,19 @@ export function createBrowserRouteContext(opts: {
 
           const getOrCreateTab = async () => {
             const startedAt = Date.now();
+            const setActiveTarget = (activeTargetId: string) => {
+              const running = s.profiles.get(name);
+              if (running) {
+                running.activeTargetId = activeTargetId;
+              }
+            };
 
             if (targetId) {
               const pages = await opts.listPages(resolvedProfile.browserEndpoint);
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
                 await opts.focusPage(resolvedProfile.browserEndpoint, targetId);
+                setActiveTarget(targetId);
                 log.info('target focused', {
                   profile: name,
                   target_id: targetId,
@@ -181,6 +189,22 @@ export function createBrowserRouteContext(opts: {
             }
 
             if (!options?.createNewTab) {
+              if (options?.useCurrentTab) {
+                const pages = await opts.listPages(resolvedProfile.browserEndpoint);
+                const activeTargetId = s.profiles.get(name)?.activeTargetId;
+                const current = pages.find((p) => p.targetId === activeTargetId) ?? pages[0];
+                if (current) {
+                  await opts.focusPage(resolvedProfile.browserEndpoint, current.targetId);
+                  setActiveTarget(current.targetId);
+                  log.info('current target focused', {
+                    profile: name,
+                    target_id: current.targetId,
+                    url: current.url,
+                    duration_ms: Date.now() - startedAt,
+                  });
+                  return { targetId: current.targetId, url: current.url };
+                }
+              }
               throw new Error('targetId is required. Call navigate first to create a browser session.');
             }
 
@@ -188,6 +212,7 @@ export function createBrowserRouteContext(opts: {
             await ensureBrowserRunning();
 
             const result = await opts.createPage(resolvedProfile.browserEndpoint);
+            setActiveTarget(result.targetId);
             log.info('new tab created', {
               profile: name,
               target_id: result.targetId,
