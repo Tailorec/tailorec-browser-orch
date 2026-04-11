@@ -144,17 +144,23 @@ export class SessionService {
    */
   async closeSession(targetId: string): Promise<void> {
     const session = this.sessions.get(targetId);
-    if (session) {
-      const key = this.roleRefsKey(session.cdpUrl, targetId);
-      try {
-        await this.browserDriver.closePage(session.page);
-      } catch {
-        // Ignore close failures for already-closed pages; cleanup still matters.
-      }
-      this.sessions.delete(targetId);
-      this.roleRefsByTarget.delete(key);
-      this.pageStates.delete(session.page);
+    if (!session) {
+      return;
     }
+
+    const browser = this.browser;
+    this.forgetSession(targetId);
+
+    if (browser) {
+      try {
+        await this.browserDriver.disconnect(browser);
+      } catch {
+        // Ignore disconnect failures; cleanup still matters.
+      }
+    }
+
+    this.browser = null;
+    this.browserCdpUrl = null;
   }
 
   /**
@@ -400,15 +406,20 @@ export class SessionService {
    * Clear all sessions
    */
   async clearAll(): Promise<void> {
-    const sessionEntries = Array.from(this.sessions.entries());
-    for (const [targetId, session] of sessionEntries) {
+    const browser = this.browser;
+
+    if (browser) {
       try {
-        await this.browserDriver.closePage(session.page);
+        await this.browserDriver.disconnect(browser);
       } catch {
-        // Ignore close errors
+        // Ignore disconnect errors
       }
     }
-    this.sessions.clear();
+
+    for (const targetId of Array.from(this.sessions.keys())) {
+      this.forgetSession(targetId);
+    }
+
     this.browser = null;
     this.browserCdpUrl = null;
   }
