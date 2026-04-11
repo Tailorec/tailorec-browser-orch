@@ -88,20 +88,20 @@ describe("integration: browser lifecycle", () => {
   describe("Browser cleanup", () => {
     it("graceful browser close", async () => {
       const { app } = createActionRouteHarness();
-      const res = await request(app).post("/act").send({ kind: "close" });
+      const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(200);
     });
 
     it("cleanup on error", async () => {
-      const { app, executeActionUseCase } = createActionRouteHarness();
-      executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: "cleanup failed" });
-      const res = await request(app).post("/act").send({ kind: "close" });
+      const { app, profileCtx } = createActionRouteHarness();
+      profileCtx.stopRunningBrowser.mockRejectedValueOnce(new Error("cleanup failed"));
+      const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(500);
     });
 
     it("cleanup preserves functionality", async () => {
       const { app } = createActionRouteHarness();
-      await request(app).post("/act").send({ kind: "close" });
+      await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       const res = await request(app).post("/act").send({ kind: "click", ref: "e1" });
       expect(res.status).toBe(200);
     });

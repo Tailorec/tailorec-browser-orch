@@ -90,7 +90,16 @@ export class AdvancedActionController {
   }
 
   async handleClose(req: Request, res: Response): Promise<void> {
-    await this.execute(req, res, (req.body || {}).targetId, { kind: 'close' });
+    try {
+      const targetId = typeof (req.body || {}).targetId === 'string' ? (req.body as { targetId?: string }).targetId : undefined;
+      const { profileCtx, tab } = await this.resolvePage(req, targetId);
+      await profileCtx.stopRunningBrowser();
+      this.sessionService.forgetSession(tab.targetId);
+      res.json({ ok: true, targetId: tab.targetId });
+    } catch (error) {
+      const mapped = mapRouteError(this.browserContext, error, 'Close failed');
+      sendErrorResponse(res, mapped.status, mapped.message);
+    }
   }
 
   async handleDiscoverDropdown(req: Request, res: Response): Promise<void> {

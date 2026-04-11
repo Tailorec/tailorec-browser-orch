@@ -36,6 +36,7 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
     getPage: vi.fn(async () => ({ locator: vi.fn(), keyboard: { press: vi.fn() }, mouse: { click: vi.fn() } })),
     restoreRoleRefs: vi.fn(async () => undefined),
     refLocator: vi.fn(() => ({ click: vi.fn(), blur: vi.fn() })),
+    forgetSession: vi.fn(() => undefined),
   } as any;
 
   const discoveryService = {
