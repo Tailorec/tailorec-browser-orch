@@ -105,6 +105,28 @@ export function createBrowserRouteContext(opts: {
         profile: resolvedProfile,
 
         async ensureTabAvailable(targetId?: string, options?: { createNewTab?: boolean }) {
+          const stopRunningBrowser = async () => {
+            ensureInFlight.delete(name);
+            const running = s.profiles.get(name);
+            if (running?.runtime) {
+              try {
+                await opts.releaseBrowser(resolvedProfile, running.runtime);
+                log.info('browser stopped', {
+                  profile: name,
+                  provider: resolvedProfile.provider,
+                  browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
+                  browser_port: running.config.browserPort,
+                });
+              } catch (err) {
+                log.warn('browser stop failed', {
+                  profile: name,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+              running.runtime = undefined;
+            }
+          };
+
           const ensureBrowserRunning = async () => {
             let running = s.profiles.get(name);
             const available = await opts.isBrowserAvailable(resolvedProfile, running?.runtime);
@@ -158,30 +180,12 @@ export function createBrowserRouteContext(opts: {
               throw new Error(`Target ${targetId} not found`);
             }
 
-            if (options?.createNewTab) {
-              const result = await opts.createPage(resolvedProfile.browserEndpoint);
-              log.info('new tab created', {
-                profile: name,
-                target_id: result.targetId,
-                url: result.url,
-                duration_ms: Date.now() - startedAt,
-              });
-              return result;
+            if (!options?.createNewTab) {
+              throw new Error('targetId is required. Call navigate first to create a browser session.');
             }
 
-            // Reuse an existing tab when no targetId is provided.
-            const pages = await opts.listPages(resolvedProfile.browserEndpoint);
-            if (pages.length > 0) {
-              const first = pages[0];
-              await opts.focusPage(resolvedProfile.browserEndpoint, first.targetId);
-              log.debug('reusing existing tab', {
-                profile: name,
-                target_id: first.targetId,
-                url: first.url,
-                duration_ms: Date.now() - startedAt,
-              });
-              return { targetId: first.targetId, url: first.url };
-            }
+            await stopRunningBrowser();
+            await ensureBrowserRunning();
 
             const result = await opts.createPage(resolvedProfile.browserEndpoint);
             log.info('new tab created', {
@@ -237,6 +241,9 @@ export function createBrowserRouteContext(opts: {
     mapTabError(err: unknown): { status: number; message: string } | null {
       if (err instanceof Error) {
         const msg = err.message;
+        if (msg.includes('targetId is required')) {
+          return { status: 400, message: msg };
+        }
         if (msg.includes('tab not found') || msg.includes('Target closed')) {
           return { status: 404, message: 'Tab not found or closed' };
         }

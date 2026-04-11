@@ -81,19 +81,17 @@ describe('createBrowserRouteContext', () => {
       expect(profileCtx.profile.browserPort).toBe(9222);
     });
 
-    it('reuses an existing tab when targetId is omitted', async () => {
-      const { ctx, deps, state } = createContext();
+    it('fails fast when targetId is omitted for an existing browser session', async () => {
+      const { ctx, state } = createContext();
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable();
-
-      expect(result).toEqual({ targetId: 'tab-1', url: 'https://example.test' });
-      expect(deps.focusPage).toHaveBeenCalledWith('http://127.0.0.1:9222', 'tab-1');
-      expect(deps.createPage).not.toHaveBeenCalled();
+      await expect(ctx.forProfile('default').ensureTabAvailable()).rejects.toThrow(
+        'targetId is required. Call navigate first to create a browser session.',
+      );
     });
 
     it('creates a new tab when explicitly requested without a targetId', async () => {
@@ -129,7 +127,7 @@ describe('createBrowserRouteContext', () => {
       expect(deps.focusPage).toHaveBeenCalledWith('http://127.0.0.1:9222', 'tab-2');
     });
 
-    it('creates a new page when none exist', async () => {
+    it('creates a new page when navigate requests a fresh browser session', async () => {
       const { ctx, deps, state } = createContext({ listPages: vi.fn(async () => []) });
       state.profiles.set('default', {
         name: 'default',
@@ -137,19 +135,20 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable();
+      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
       expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
+      expect(deps.releaseBrowser).toHaveBeenCalled();
       expect(deps.createPage).toHaveBeenCalledWith('http://127.0.0.1:9222');
     });
 
-    it('ensures a local browser when the profile is not running', async () => {
+    it('ensures a local browser when navigate creates a fresh session', async () => {
       const { ctx, deps } = createContext({ isBrowserAvailable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
-      const result = await ctx.forProfile('default').ensureTabAvailable();
+      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
       expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
       expect(deps.ensureBrowser).toHaveBeenCalled();
     });
 
-    it('releases stale local runtime when a running profile is unreachable', async () => {
+    it('releases stale local runtime when navigate creates a fresh session', async () => {
       const { ctx, deps, state } = createContext({ isBrowserAvailable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
       state.profiles.set('default', {
         name: 'default',
@@ -157,12 +156,12 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      await ctx.forProfile('default').ensureTabAvailable();
+      await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
       expect(deps.releaseBrowser).toHaveBeenCalled();
       expect(deps.ensureBrowser).toHaveBeenCalled();
     });
 
-    it('does not treat remote profiles as locally launched browsers', async () => {
+    it('does not treat remote profiles as locally launched browsers when navigate creates a fresh session', async () => {
       const { ctx, deps } = createContext(
         {
           isBrowserAvailable: vi.fn(async () => true),
@@ -179,12 +178,12 @@ describe('createBrowserRouteContext', () => {
         },
       );
 
-      await ctx.forProfile('default').ensureTabAvailable();
+      await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
-      expect(deps.focusPage).toHaveBeenCalledWith('wss://browser.example.com?token=test-token', 'tab-1');
+      expect(deps.createPage).toHaveBeenCalledWith('wss://browser.example.com?token=test-token');
     });
 
-    it('retries after a connection refused error', async () => {
+    it('retries after a connection refused error while resolving a target', async () => {
       const listPages = vi
         .fn()
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
@@ -196,7 +195,7 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable();
+      const result = await ctx.forProfile('default').ensureTabAvailable('tab-1');
       expect(result).toEqual({ targetId: 'tab-1', url: 'https://example.test' });
       expect(deps.listPages).toHaveBeenCalledTimes(2);
     });

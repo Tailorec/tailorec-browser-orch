@@ -70,7 +70,7 @@ export class SimpleActionController {
         timeoutMs: dto.timeoutMs,
       }),
       true,
-      (dto) => ({ createNewTab: dto.createNewTab === true && !dto.targetId }),
+      (dto) => ({ createNewTab: !dto.targetId }),
     );
   }
 
