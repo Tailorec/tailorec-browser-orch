@@ -92,7 +92,12 @@ export class AdvancedActionController {
   async handleClose(req: Request, res: Response): Promise<void> {
     try {
       const targetId = typeof (req.body || {}).targetId === 'string' ? (req.body as { targetId?: string }).targetId : undefined;
-      const { profileCtx, tab } = await this.resolvePage(req, targetId);
+      const { profileCtx, tab, page } = await this.resolvePage(req, targetId);
+      try {
+        await page.close();
+      } catch {
+        // Best-effort close before runtime teardown.
+      }
       await profileCtx.stopRunningBrowser();
       this.sessionService.forgetSession(tab.targetId);
       res.json({ ok: true, targetId: tab.targetId });

@@ -33,7 +33,7 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
   } as any;
 
   const sessionService = {
-    getPage: vi.fn(async () => ({ locator: vi.fn(), keyboard: { press: vi.fn() }, mouse: { click: vi.fn() } })),
+    getPage: vi.fn(async () => ({ locator: vi.fn(), keyboard: { press: vi.fn() }, mouse: { click: vi.fn() }, close: vi.fn(async () => undefined) })),
     restoreRoleRefs: vi.fn(async () => undefined),
     refLocator: vi.fn(() => ({ click: vi.fn(), blur: vi.fn() })),
     forgetSession: vi.fn(() => undefined),

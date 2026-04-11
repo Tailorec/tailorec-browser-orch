@@ -6,6 +6,7 @@
  */
 
 import type { Page } from 'playwright-core';
+import { setTimeout as delay } from 'node:timers/promises';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -81,6 +82,84 @@ function createPageDownloadWaiter(page: Page, timeoutMs: number) {
       cleanup();
     },
   };
+}
+
+type BrowserDownload = {
+  url?: () => string;
+  suggestedFilename?: () => string;
+  saveAs?: (outPath: string) => Promise<void>;
+};
+
+function shouldFallbackToHttpDownload(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('playwright-artifacts') && message.includes('ENOENT');
+}
+
+async function downloadViaHttp(page: Page, url: string, outPath: string): Promise<void> {
+  const cookies = await page.context().cookies([url]).catch(() => []);
+  const cookieHeader = cookies
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join('; ');
+  const referer = /^https?:\/\//i.test(page.url()) ? page.url() : undefined;
+  const userAgent = await page.evaluate(() => navigator.userAgent).catch(() => '');
+
+  const controller = new AbortController();
+  const timeoutMs = Math.max(2_000, Math.min(120_000, Number(process.env.BROWSER_UPLOAD_DOWNLOAD_TIMEOUT_MS || 45_000)));
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
+        ...(referer ? { referer } : {}),
+        ...(userAgent ? { 'user-agent': userAgent } : {}),
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download fallback failed with status ${response.status}`);
+    }
+
+    const bytes = Buffer.from(await response.arrayBuffer());
+    await fs.mkdir(path.dirname(outPath), { recursive: true });
+    await fs.writeFile(outPath, bytes);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function persistDownload(page: Page, download: BrowserDownload, outPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+
+  try {
+    await download.saveAs?.(outPath);
+    return;
+  } catch (error) {
+    if (!shouldFallbackToHttpDownload(error)) {
+      throw error;
+    }
+
+    const url = download.url?.() || '';
+    if (!/^https?:\/\//i.test(url)) {
+      throw error;
+    }
+
+    log.warn('download saveAs failed, falling back to direct http fetch', { url, path: outPath });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await downloadViaHttp(page, url, outPath);
+        return;
+      } catch (fallbackError) {
+        if (attempt === 2) {
+          throw fallbackError;
+        }
+        await delay(100 * (attempt + 1));
+      }
+    }
+  }
 }
 
 /**
@@ -227,8 +306,7 @@ export async function waitForDownload(
 
     const suggested = download.suggestedFilename?.() || 'download.bin';
     const outPath = opts.path?.trim() || buildTempDownloadPath(suggested);
-    await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await download.saveAs?.(outPath);
+    await persistDownload(page, download, outPath);
 
     const result: DownloadResult = {
       url: download.url?.() || '',
@@ -307,8 +385,7 @@ export async function download(
     }
 
     const suggested = download.suggestedFilename?.() || 'download.bin';
-    await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await download.saveAs?.(outPath);
+    await persistDownload(page, download, outPath);
 
     const result: DownloadResult = {
       url: download.url?.() || '',

@@ -110,7 +110,7 @@ export class MediaController {
       const labeled = await this.takeLabeledScreenshot(
         tab.targetId,
         page,
-        Object.keys(refs),
+        refs,
         maxLabels,
         type,
       );
@@ -177,7 +177,7 @@ export class MediaController {
   private async takeLabeledScreenshot(
     targetId: string,
     page: Awaited<ReturnType<SessionService['getPage']>>,
-    refs: string[],
+    refs: Record<string, LabeledRef>,
     maxLabels: number,
     type: 'png' | 'jpeg',
   ): Promise<{ buffer: Buffer; labels: number; skipped: number }> {
@@ -191,13 +191,21 @@ export class MediaController {
     const boxes: Array<{ ref: string; x: number; y: number; w: number; h: number }> = [];
     let skipped = 0;
 
-    for (const ref of refs) {
+    for (const [ref, spec] of Object.entries(refs)) {
       if (boxes.length >= maxLabels) {
         skipped += 1;
         continue;
       }
       try {
-        const box = await this.sessionService.refLocator(targetId, ref).boundingBox();
+        const nth = Math.max(0, Math.floor(spec.nth ?? 0));
+        const locator = page.getByRole(spec.role as never, {
+          ...(spec.name ? { name: spec.name } : {}),
+        }).nth(nth);
+        if ((await locator.count()) === 0) {
+          skipped += 1;
+          continue;
+        }
+        const box = await locator.boundingBox({ timeout: 1000 });
         if (!box) {
           skipped += 1;
           continue;

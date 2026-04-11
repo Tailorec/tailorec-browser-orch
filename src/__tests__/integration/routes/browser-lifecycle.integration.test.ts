@@ -87,9 +87,11 @@ describe("integration: browser lifecycle", () => {
 
   describe("Browser cleanup", () => {
     it("graceful browser close", async () => {
-      const { app } = createActionRouteHarness();
+      const { app, sessionService } = createActionRouteHarness();
       const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(200);
+      const page = await sessionService.getPage.mock.results[0].value;
+      expect(page.close).toHaveBeenCalled();
     });
 
     it("cleanup on error", async () => {
