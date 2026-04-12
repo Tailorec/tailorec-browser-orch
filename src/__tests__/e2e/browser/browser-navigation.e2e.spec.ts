@@ -190,7 +190,7 @@ test.describe("E2E: Browser Navigation", () => {
         Authorization: `Bearer ${getControlToken("run-nav-1")}`,
       },
       data: {
-        run_id: "run-close-1",
+        run_id: "run-nav-1",
         kind: "navigate",
         url: firstUrl,
         createNewTab: true,
@@ -204,7 +204,7 @@ test.describe("E2E: Browser Navigation", () => {
         Authorization: `Bearer ${getControlToken("run-nav-2")}`,
       },
       data: {
-        run_id: "run-close-2",
+        run_id: "run-nav-2",
         kind: "navigate",
         url: secondUrl,
         createNewTab: true,
@@ -225,6 +225,7 @@ test.describe("E2E: Browser Navigation", () => {
           Authorization: `Bearer ${getControlToken("run-nav-1")}`,
         },
         data: {
+          run_id: "run-nav-1",
           targetId: firstBody.targetId,
         },
       }),
@@ -233,6 +234,7 @@ test.describe("E2E: Browser Navigation", () => {
           Authorization: `Bearer ${getControlToken("run-nav-2")}`,
         },
         data: {
+          run_id: "run-nav-2",
           targetId: secondBody.targetId,
         },
       }),
