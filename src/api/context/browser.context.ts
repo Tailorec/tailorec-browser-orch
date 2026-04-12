@@ -19,6 +19,10 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
+function parseNonNegativeInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+}
 
 const DEFAULT_GLOBAL_MAX_SESSIONS = 200;
 const GLOBAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_MAX_SESSIONS, DEFAULT_GLOBAL_MAX_SESSIONS);
@@ -38,6 +42,21 @@ const DEFAULT_ADMISSION_RETRY_AFTER_SECONDS = 5;
 const ADMISSION_RETRY_AFTER_SECONDS = parsePositiveInt(
   process.env.BROWSER_ADMISSION_RETRY_AFTER_SECONDS,
   DEFAULT_ADMISSION_RETRY_AFTER_SECONDS,
+);
+const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+const SESSION_IDLE_TIMEOUT_MS = parseNonNegativeInt(
+  process.env.BROWSER_SESSION_IDLE_TIMEOUT_MS,
+  DEFAULT_SESSION_IDLE_TIMEOUT_MS,
+);
+const DEFAULT_SESSION_MAX_LIFETIME_MS = 4 * 60 * 60 * 1000;
+const SESSION_MAX_LIFETIME_MS = parseNonNegativeInt(
+  process.env.BROWSER_SESSION_MAX_LIFETIME_MS,
+  DEFAULT_SESSION_MAX_LIFETIME_MS,
+);
+const DEFAULT_SESSION_CLEANUP_SWEEP_MS = 30_000;
+const SESSION_CLEANUP_SWEEP_MS = parseNonNegativeInt(
+  process.env.BROWSER_SESSION_CLEANUP_SWEEP_MS,
+  DEFAULT_SESSION_CLEANUP_SWEEP_MS,
 );
 
 /**
@@ -69,6 +88,8 @@ export type RunOwnedSession = {
   runtime?: RunningBrowserRuntime;
   activeTargetId?: string;
   activeTargetUrl?: string;
+  createdAt?: number;
+  lastTouchedAt?: number;
 };
 
 /**
@@ -183,6 +204,104 @@ export function createBrowserRouteContext(opts: {
     }
   };
 
+  const touchSession = (session: RunOwnedSession, now = Date.now()) => {
+    if (!session.createdAt) {
+      session.createdAt = now;
+    }
+    session.lastTouchedAt = now;
+  };
+
+  const clearIdempotencyForRun = (profileName: string, runId: string) => {
+    const runPrefix = `${profileName}:${runId}:`;
+    for (const key of createIdempotencyResults.keys()) {
+      if (key.startsWith(runPrefix)) {
+        createIdempotencyResults.delete(key);
+      }
+    }
+  };
+
+  const closeSessionInternal = async (
+    s: BrowserServerState,
+    runId: string,
+    session: RunOwnedSession,
+    reason: 'explicit_close' | 'idle_timeout' | 'max_lifetime',
+    targetId?: string,
+  ): Promise<{ targetId?: string; closed: boolean }> => {
+    const closeTargetId = targetId?.trim() || session.activeTargetId;
+    if (targetId && session.activeTargetId && targetId !== session.activeTargetId) {
+      throw statusError(409, `Target ${targetId} is not owned by run ${runId}`);
+    }
+
+    if (session.runtime) {
+      try {
+        await opts.releaseBrowser(session.runtimeProfile, session.runtime);
+      } catch (err) {
+        log.warn('browser stop failed', {
+          profile: session.profileName,
+          run_id: runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (closeTargetId) {
+      s.targetOwners.delete(closeTargetId);
+    }
+    s.runSessions.delete(runId);
+    clearIdempotencyForRun(session.profileName, runId);
+    log.info('run session closed', {
+      profile: session.profileName,
+      run_id: runId,
+      target_id: closeTargetId,
+      reason,
+    });
+    return { targetId: closeTargetId, closed: Boolean(closeTargetId) };
+  };
+
+  const sweepExpiredSessions = async (now = Date.now()) => {
+    const s = opts.getState();
+    if (!s) return;
+    const candidates: Array<{ runId: string; reason: 'idle_timeout' | 'max_lifetime' }> = [];
+    for (const [runId, session] of s.runSessions.entries()) {
+      const createdAt = session.createdAt ?? now;
+      const lastTouchedAt = session.lastTouchedAt ?? createdAt;
+      const isMaxLifetimeExpired =
+        SESSION_MAX_LIFETIME_MS > 0 && now - createdAt >= SESSION_MAX_LIFETIME_MS;
+      const isIdleExpired =
+        !isMaxLifetimeExpired && SESSION_IDLE_TIMEOUT_MS > 0 && now - lastTouchedAt >= SESSION_IDLE_TIMEOUT_MS;
+      if (isMaxLifetimeExpired) {
+        candidates.push({ runId, reason: 'max_lifetime' });
+      } else if (isIdleExpired) {
+        candidates.push({ runId, reason: 'idle_timeout' });
+      }
+    }
+
+    for (const candidate of candidates) {
+      const lockKey = `${s.runSessions.get(candidate.runId)?.profileName ?? ''}:${candidate.runId}`;
+      await withRunLock(lockKey, async () => {
+        const latest = s.runSessions.get(candidate.runId);
+        if (!latest) return;
+        const createdAt = latest.createdAt ?? now;
+        const lastTouchedAt = latest.lastTouchedAt ?? createdAt;
+        const stillExpired =
+          candidate.reason === 'max_lifetime'
+            ? SESSION_MAX_LIFETIME_MS > 0 && now - createdAt >= SESSION_MAX_LIFETIME_MS
+            : SESSION_IDLE_TIMEOUT_MS > 0 && now - lastTouchedAt >= SESSION_IDLE_TIMEOUT_MS;
+        if (stillExpired) {
+          await closeSessionInternal(s, candidate.runId, latest, candidate.reason);
+        }
+      });
+    }
+  };
+
+  if (SESSION_CLEANUP_SWEEP_MS > 0) {
+    const timer = setInterval(() => {
+      void sweepExpiredSessions();
+    }, SESSION_CLEANUP_SWEEP_MS);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+  }
+
   return {
     state() {
       const s = opts.getState();
@@ -296,6 +415,7 @@ export function createBrowserRouteContext(opts: {
           targetId?: string,
           options?: { createNewTab?: boolean; useCurrentTab?: boolean; idempotencyKey?: string },
         ) {
+          await sweepExpiredSessions();
           const normalizedRunId = runId.trim();
           if (!normalizedRunId) {
             throw statusError(400, 'run_id is required');
@@ -328,6 +448,7 @@ export function createBrowserRouteContext(opts: {
               browserEndpoint: resolvedProfile.browserEndpoint,
               runtimeProfile: resolvedProfile,
             };
+            touchSession(session);
 
             if (!runSession && options?.createNewTab && resolvedProfile.provider === 'local') {
               const port = await reserveLoopbackPort();
@@ -342,6 +463,7 @@ export function createBrowserRouteContext(opts: {
             const setActiveTarget = (activeTargetId: string, activeTargetUrl?: string) => {
               session.activeTargetId = activeTargetId;
               session.activeTargetUrl = activeTargetUrl;
+              touchSession(session);
               s.runSessions.set(normalizedRunId, session);
               s.targetOwners.set(activeTargetId, normalizedRunId);
             };
@@ -350,6 +472,7 @@ export function createBrowserRouteContext(opts: {
                 s.targetOwners.delete(session.activeTargetId);
                 session.activeTargetId = undefined;
                 session.activeTargetUrl = undefined;
+                touchSession(session);
                 s.runSessions.set(normalizedRunId, session);
               }
             };
@@ -415,6 +538,8 @@ export function createBrowserRouteContext(opts: {
                 url: session.activeTargetUrl ?? 'about:blank',
                 browserEndpoint: session.browserEndpoint,
               };
+              touchSession(session);
+              s.runSessions.set(normalizedRunId, session);
               if (idempotencyResultKey) {
                 createIdempotencyResults.set(idempotencyResultKey, {
                   expiresAt: Date.now() + CREATE_IDEMPOTENCY_TTL_MS,
@@ -427,6 +552,8 @@ export function createBrowserRouteContext(opts: {
             // For navigate without targetId, prefer the run-owned active target if available.
             const current = await maybeFocusRunActiveTarget();
             if (current) {
+              touchSession(session);
+              s.runSessions.set(normalizedRunId, session);
               if (idempotencyResultKey) {
                 createIdempotencyResults.set(idempotencyResultKey, {
                   expiresAt: Date.now() + CREATE_IDEMPOTENCY_TTL_MS,
@@ -480,44 +607,18 @@ export function createBrowserRouteContext(opts: {
         },
 
         async closeRunSession(runId: string, targetId?: string): Promise<{ targetId?: string; closed: boolean }> {
+          await sweepExpiredSessions();
           const normalizedRunId = runId.trim();
           if (!normalizedRunId) {
             throw statusError(400, 'run_id is required');
           }
           const lockKey = `${name}:${normalizedRunId}`;
           return await withRunLock(lockKey, async () => {
-            const runPrefix = `${name}:${normalizedRunId}:`;
-            for (const key of createIdempotencyResults.keys()) {
-              if (key.startsWith(runPrefix)) {
-                createIdempotencyResults.delete(key);
-              }
-            }
             const session = s.runSessions.get(normalizedRunId);
             if (!session || session.profileName !== name) {
               return { closed: false };
             }
-
-            const closeTargetId = targetId?.trim() || session.activeTargetId;
-            if (targetId && session.activeTargetId && targetId !== session.activeTargetId) {
-              throw statusError(409, `Target ${targetId} is not owned by run ${normalizedRunId}`);
-            }
-
-            if (session.runtime) {
-              try {
-                await opts.releaseBrowser(session.runtimeProfile, session.runtime);
-              } catch (err) {
-                log.warn('browser stop failed', {
-                  profile: name,
-                  run_id: normalizedRunId,
-                  error: err instanceof Error ? err.message : String(err),
-                });
-              }
-            }
-            if (closeTargetId) {
-              s.targetOwners.delete(closeTargetId);
-            }
-            s.runSessions.delete(normalizedRunId);
-            return { targetId: closeTargetId, closed: Boolean(closeTargetId) };
+            return await closeSessionInternal(s, normalizedRunId, session, 'explicit_close', targetId);
           });
         },
 
