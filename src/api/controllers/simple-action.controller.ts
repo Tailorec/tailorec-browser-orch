@@ -100,7 +100,7 @@ export class SimpleActionController {
 
       if (!result.ok) {
         const mapped = mapRouteError(this.browserContext, result.error || 'Action failed', 'Action failed');
-        sendErrorResponse(res, mapped.status, mapped.message);
+        sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
         return;
       }
 
@@ -117,7 +117,7 @@ export class SimpleActionController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 }

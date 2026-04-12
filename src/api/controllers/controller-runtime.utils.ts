@@ -4,6 +4,13 @@ import { randomUUID } from 'node:crypto';
 import type { Request, Response as ExpressResponse } from 'express';
 import type { BrowserRouteContext } from '../context/browser.context.js';
 
+type RouteErrorDetails = {
+  code?: string;
+  retryAfterSeconds?: number;
+  active?: number;
+  max?: number;
+};
+
 export function getProfileName(req: Request): string {
   const profile = req.query.profile;
   return typeof profile === 'string' && profile.trim() ? profile.trim() : 'default';
@@ -49,10 +56,24 @@ function normalizeValidationErrorMessage(error: Error): string {
   return first;
 }
 
-export function sendErrorResponse(res: ExpressResponse, status: number, error: unknown): void {
+export function sendErrorResponse(
+  res: ExpressResponse,
+  status: number,
+  error: unknown,
+  details?: RouteErrorDetails,
+): void {
+  if (typeof details?.retryAfterSeconds === 'number' && Number.isFinite(details.retryAfterSeconds)) {
+    res.setHeader('Retry-After', String(Math.max(0, Math.floor(details.retryAfterSeconds))));
+  }
   res.status(status).json({
     ok: false,
     error: getErrorMessage(error),
+    ...(details?.code ? { code: details.code } : {}),
+    ...(typeof details?.active === 'number' ? { active: details.active } : {}),
+    ...(typeof details?.max === 'number' ? { max: details.max } : {}),
+    ...(typeof details?.retryAfterSeconds === 'number'
+      ? { retry_after_seconds: Math.max(0, Math.floor(details.retryAfterSeconds)) }
+      : {}),
   });
 }
 
@@ -60,16 +81,31 @@ export function mapRouteError(
   ctx: BrowserRouteContext,
   error: unknown,
   fallback: string,
-): { status: number; message: string } {
+): { status: number; message: string; details?: RouteErrorDetails } {
   if (
     error &&
     typeof error === 'object' &&
     'status' in error &&
     typeof (error as { status?: unknown }).status === 'number'
   ) {
+    const maybeDetails = error as {
+      code?: unknown;
+      retryAfterSeconds?: unknown;
+      active?: unknown;
+      max?: unknown;
+    };
+    const details: RouteErrorDetails = {
+      ...(typeof maybeDetails.code === 'string' ? { code: maybeDetails.code } : {}),
+      ...(typeof maybeDetails.retryAfterSeconds === 'number'
+        ? { retryAfterSeconds: maybeDetails.retryAfterSeconds }
+        : {}),
+      ...(typeof maybeDetails.active === 'number' ? { active: maybeDetails.active } : {}),
+      ...(typeof maybeDetails.max === 'number' ? { max: maybeDetails.max } : {}),
+    };
     return {
       status: (error as { status: number }).status,
       message: getErrorMessage(error),
+      ...(Object.keys(details).length > 0 ? { details } : {}),
     };
   }
   if (error instanceof Error && /ValidationError$/.test(error.name)) {

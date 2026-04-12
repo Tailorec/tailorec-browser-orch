@@ -46,7 +46,7 @@ export class AdvancedActionController {
       log.debug('query_state completed', { profile: profileCtx.profile.name, target_id: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Query state failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -85,7 +85,7 @@ export class AdvancedActionController {
       );
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Evaluate failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -103,7 +103,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: closed.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Close failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -123,7 +123,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Discover dropdown failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -140,7 +140,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Close dropdown failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -157,7 +157,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...(result ?? { isBlocked: false }) });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Detect blocker failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -176,7 +176,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Dismiss blocker failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -198,7 +198,7 @@ export class AdvancedActionController {
 
       if (!result.ok) {
         const mapped = mapRouteError(this.browserContext, result.error || 'Action failed', 'Action failed');
-        sendErrorResponse(res, mapped.status, mapped.message);
+        sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
         return;
       }
 
@@ -210,7 +210,7 @@ export class AdvancedActionController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 

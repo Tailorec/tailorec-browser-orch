@@ -73,7 +73,7 @@ export class MediaController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Screenshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -129,7 +129,7 @@ export class MediaController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Labeled screenshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -153,7 +153,7 @@ export class MediaController {
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Highlight failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 

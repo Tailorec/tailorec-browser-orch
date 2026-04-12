@@ -21,6 +21,10 @@ const DEFAULT_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const CREATE_IDEMPOTENCY_TTL_MS = Number(
   process.env.BROWSER_CREATE_IDEMPOTENCY_TTL_MS || DEFAULT_CREATE_IDEMPOTENCY_TTL_MS,
 );
+const DEFAULT_ADMISSION_RETRY_AFTER_SECONDS = 5;
+const ADMISSION_RETRY_AFTER_SECONDS = Number(
+  process.env.BROWSER_ADMISSION_RETRY_AFTER_SECONDS || DEFAULT_ADMISSION_RETRY_AFTER_SECONDS,
+);
 
 /**
  * Browser server state
@@ -84,9 +88,23 @@ function isConnectionRefusedError(err: unknown): boolean {
   return msg.includes('ECONNREFUSED') || msg.includes('connectOverCDP');
 }
 
-function statusError(status: number, message: string): Error & { status: number } {
-  const error = new Error(message) as Error & { status: number };
+function statusError(
+  status: number,
+  message: string,
+  details?: { code?: string; retryAfterSeconds?: number; active?: number; max?: number },
+): Error & { status: number; code?: string; retryAfterSeconds?: number; active?: number; max?: number } {
+  const error = new Error(message) as Error & {
+    status: number;
+    code?: string;
+    retryAfterSeconds?: number;
+    active?: number;
+    max?: number;
+  };
   error.status = status;
+  if (details?.code) error.code = details.code;
+  if (typeof details?.retryAfterSeconds === 'number') error.retryAfterSeconds = details.retryAfterSeconds;
+  if (typeof details?.active === 'number') error.active = details.active;
+  if (typeof details?.max === 'number') error.max = details.max;
   return error;
 }
 
@@ -191,7 +209,16 @@ export function createBrowserRouteContext(opts: {
                 candidate.runtime,
             ).length;
             if (activeLocalSessions >= LOCAL_MAX_SESSIONS) {
-              throw statusError(429, `local browser capacity exceeded: ${activeLocalSessions}/${LOCAL_MAX_SESSIONS}`);
+              throw statusError(
+                429,
+                `local browser capacity exceeded: ${activeLocalSessions}/${LOCAL_MAX_SESSIONS}`,
+                {
+                  code: 'capacity_exceeded',
+                  retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
+                  active: activeLocalSessions,
+                  max: LOCAL_MAX_SESSIONS,
+                },
+              );
             }
           }
 

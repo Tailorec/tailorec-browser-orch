@@ -71,7 +71,7 @@ export class HooksController {
       log.info('file chooser armed', { target_id: tab.targetId, paths: dto.paths.length });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'File chooser failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     } finally {
       if (process.env.BROWSER_KEEP_STAGED_UPLOADS !== 'true') {
         await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
@@ -96,7 +96,7 @@ export class HooksController {
       res.json({ ok: true });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Dialog hook failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -116,7 +116,7 @@ export class HooksController {
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Wait for download failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -139,7 +139,7 @@ export class HooksController {
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Download failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 }

@@ -57,7 +57,7 @@ export class SnapshotController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Snapshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -90,7 +90,7 @@ export class SnapshotController {
       log.info('snapshot delta completed', { target_id: tab.targetId, action });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Snapshot delta failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
