@@ -268,6 +268,50 @@ describe('createBrowserRouteContext', () => {
       ).rejects.toThrow('local browser capacity exceeded');
     });
 
+    it('counts local capacity across profiles', async () => {
+      const { ctx, state } = createContext({ listPages: vi.fn(async () => []) });
+      const runtimeProfile = state.configuredProfiles.get('default');
+      for (let i = 1; i <= 5; i += 1) {
+        state.runSessions.set(`run-${i}`, {
+          runId: `run-${i}`,
+          profileName: `profile-${i}`,
+          browserEndpoint: `http://127.0.0.1:${9200 + i}`,
+          runtimeProfile,
+          runtime: { provider: 'local', pid: i, userDataDir: `/tmp/chrome-${i}`, browserPort: 9200 + i, startedAt: Date.now() },
+        });
+      }
+
+      await expect(
+        ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
+      ).rejects.toThrow('local browser capacity exceeded');
+    });
+
+    it('enforces global browser max sessions (200)', async () => {
+      const { ctx, state } = createContext(
+        { listPages: vi.fn(async () => []) },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+      const runtimeProfile = state.configuredProfiles.get('default');
+      for (let i = 1; i <= 200; i += 1) {
+        state.runSessions.set(`run-${i}`, {
+          runId: `run-${i}`,
+          profileName: 'default',
+          browserEndpoint: `wss://browser.example.com?session=${i}`,
+          runtimeProfile,
+          runtime: { provider: 'browserless', startedAt: Date.now() },
+        });
+      }
+
+      await expect(
+        ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
+      ).rejects.toThrow('global browser capacity exceeded');
+    });
+
     it('serializes concurrent create requests for the same run', async () => {
       let createCount = 0;
       const { ctx, deps } = createContext({

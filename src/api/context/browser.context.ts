@@ -15,15 +15,29 @@ import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js'
 import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
 const log = createSubsystemLogger('browser-context');
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+const DEFAULT_GLOBAL_MAX_SESSIONS = 200;
+const GLOBAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_MAX_SESSIONS, DEFAULT_GLOBAL_MAX_SESSIONS);
 const DEFAULT_LOCAL_MAX_SESSIONS = 5;
-const LOCAL_MAX_SESSIONS = Number(process.env.BROWSER_LOCAL_MAX_SESSIONS || DEFAULT_LOCAL_MAX_SESSIONS);
+const LOCAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_LOCAL_MAX_SESSIONS, DEFAULT_LOCAL_MAX_SESSIONS);
+const DEFAULT_BROWSERLESS_MAX_SESSIONS = 200;
+const BROWSERLESS_MAX_SESSIONS = parsePositiveInt(
+  process.env.BROWSER_BROWSERLESS_MAX_SESSIONS,
+  DEFAULT_BROWSERLESS_MAX_SESSIONS,
+);
 const DEFAULT_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
-const CREATE_IDEMPOTENCY_TTL_MS = Number(
-  process.env.BROWSER_CREATE_IDEMPOTENCY_TTL_MS || DEFAULT_CREATE_IDEMPOTENCY_TTL_MS,
+const CREATE_IDEMPOTENCY_TTL_MS = parsePositiveInt(
+  process.env.BROWSER_CREATE_IDEMPOTENCY_TTL_MS,
+  DEFAULT_CREATE_IDEMPOTENCY_TTL_MS,
 );
 const DEFAULT_ADMISSION_RETRY_AFTER_SECONDS = 5;
-const ADMISSION_RETRY_AFTER_SECONDS = Number(
-  process.env.BROWSER_ADMISSION_RETRY_AFTER_SECONDS || DEFAULT_ADMISSION_RETRY_AFTER_SECONDS,
+const ADMISSION_RETRY_AFTER_SECONDS = parsePositiveInt(
+  process.env.BROWSER_ADMISSION_RETRY_AFTER_SECONDS,
+  DEFAULT_ADMISSION_RETRY_AFTER_SECONDS,
 );
 
 /**
@@ -201,12 +215,25 @@ export function createBrowserRouteContext(opts: {
         }
 
         if (!session.runtime) {
+          const activeSessions = Array.from(s.runSessions.values()).filter(
+            (candidate) => candidate.runtime,
+          ).length;
+          if (activeSessions >= GLOBAL_MAX_SESSIONS) {
+            throw statusError(
+              429,
+              `global browser capacity exceeded: ${activeSessions}/${GLOBAL_MAX_SESSIONS}`,
+              {
+                code: 'capacity_exceeded',
+                retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
+                active: activeSessions,
+                max: GLOBAL_MAX_SESSIONS,
+              },
+            );
+          }
+
           if (session.runtimeProfile.provider === 'local') {
             const activeLocalSessions = Array.from(s.runSessions.values()).filter(
-              (candidate) =>
-                candidate.profileName === name &&
-                candidate.runtimeProfile.provider === 'local' &&
-                candidate.runtime,
+              (candidate) => candidate.runtimeProfile.provider === 'local' && candidate.runtime,
             ).length;
             if (activeLocalSessions >= LOCAL_MAX_SESSIONS) {
               throw statusError(
@@ -217,6 +244,24 @@ export function createBrowserRouteContext(opts: {
                   retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
                   active: activeLocalSessions,
                   max: LOCAL_MAX_SESSIONS,
+                },
+              );
+            }
+          }
+
+          if (session.runtimeProfile.provider === 'browserless') {
+            const activeBrowserlessSessions = Array.from(s.runSessions.values()).filter(
+              (candidate) => candidate.runtimeProfile.provider === 'browserless' && candidate.runtime,
+            ).length;
+            if (activeBrowserlessSessions >= BROWSERLESS_MAX_SESSIONS) {
+              throw statusError(
+                429,
+                `browserless capacity exceeded: ${activeBrowserlessSessions}/${BROWSERLESS_MAX_SESSIONS}`,
+                {
+                  code: 'capacity_exceeded',
+                  retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
+                  active: activeBrowserlessSessions,
+                  max: BROWSERLESS_MAX_SESSIONS,
                 },
               );
             }
