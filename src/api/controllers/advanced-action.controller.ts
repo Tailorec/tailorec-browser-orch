@@ -25,7 +25,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateQueryState(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
 
       if (dto.refs?.length) {
@@ -99,13 +99,6 @@ export class AdvancedActionController {
         sendErrorResponse(res, 404, 'Run session not found');
         return;
       }
-      const page = await this.sessionService.getPage(closed.targetId, profileCtx.profile.browserEndpoint);
-      try {
-        await page.close();
-      } catch {
-        // Best-effort close before runtime teardown.
-      }
-      await profileCtx.stopRunningBrowser();
       this.sessionService.forgetSession(closed.targetId);
       res.json({ ok: true, targetId: closed.targetId });
     } catch (error) {
@@ -118,7 +111,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDiscoverDropdown(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
       const result = await this.discoveryService.discoverDropdownOptions(
         page,
@@ -138,7 +131,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateCloseDropdown(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       await this.discoveryService.closeDropdown(
         page,
         dto.ref,
@@ -155,7 +148,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDetectBlocker(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const result = await this.discoveryService.detectBlockingElement(
         page,
         dto.ref,
@@ -172,7 +165,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDismissBlocker(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, (req.body || {}).targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const result = await this.discoveryService.dismissBlocker(
         page,
         dto.targetRef,
@@ -198,7 +191,7 @@ export class AdvancedActionController {
     try {
       const { profileCtx, tab } = await this.resolvePage(req, targetId);
       const result = await this.executeActionUseCase.execute({
-        cdpUrl: profileCtx.profile.browserEndpoint,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         action,
       });
@@ -225,7 +218,7 @@ export class AdvancedActionController {
     const runId = getRunId(req);
     const profileCtx = getProfileContext(this.browserContext, req);
     const tab = await profileCtx.ensureTabAvailable(runId, targetId);
-    const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+    const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
     return { profileCtx, tab, page };
   }
 }

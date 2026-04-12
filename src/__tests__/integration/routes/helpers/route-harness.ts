@@ -57,6 +57,7 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
   profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
   profileCtx.closeRunSession = vi.fn(async (_runId: string, targetId?: string) => ({
     closed: true,
@@ -136,6 +137,7 @@ export function createSnapshotRouteHarness(options: HarnessOptions = {}) {
   profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
 
   const controller = new SnapshotController(
@@ -182,6 +184,7 @@ export function createHooksRouteHarness(options: HarnessOptions = {}) {
   profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
 
   const controller = new HooksController(sessionService, browserContext as any);
@@ -225,6 +228,7 @@ export function createMediaRouteHarness(options: HarnessOptions = {}) {
   profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
 
   const controller = new MediaController(

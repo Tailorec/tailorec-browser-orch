@@ -8,6 +8,7 @@
  */
 
 import type { Server } from 'node:http';
+import net from 'node:net';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
@@ -39,6 +40,9 @@ export type RunningProfile = {
 export type RunOwnedSession = {
   runId: string;
   profileName: string;
+  browserEndpoint: string;
+  runtimeProfile: ResolvedBrowserProfile;
+  runtime?: RunningBrowserRuntime;
   activeTargetId?: string;
 };
 
@@ -51,7 +55,7 @@ export interface ProfileContext {
     runId: string,
     targetId?: string,
     options?: { createNewTab?: boolean; useCurrentTab?: boolean },
-  ): Promise<{ targetId: string; url: string }>;
+  ): Promise<{ targetId: string; url: string; browserEndpoint: string }>;
   closeRunSession(runId: string, targetId?: string): Promise<{ targetId?: string; closed: boolean }>;
   stopRunningBrowser(): Promise<void>;
 }
@@ -77,6 +81,24 @@ function statusError(status: number, message: string): Error & { status: number 
   const error = new Error(message) as Error & { status: number };
   error.status = status;
   return error;
+}
+
+async function reserveLoopbackPort(): Promise<number> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  return await new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to allocate local browser port')));
+        return;
+      }
+      const port = address.port;
+      server.close((err) => (err ? reject(err) : resolve(port)));
+    });
+  });
 }
 
 /**
@@ -117,6 +139,41 @@ export function createBrowserRouteContext(opts: {
 
       log.debug('profile context created', { profile: name });
 
+      const ensureBrowserRunning = async (session: RunOwnedSession) => {
+        const ensureKey = `${name}:${session.runId}`;
+        const available = await opts.isBrowserAvailable(session.runtimeProfile, session.runtime);
+
+        if (session.runtime && !available) {
+          try {
+            await opts.releaseBrowser(session.runtimeProfile, session.runtime);
+          } catch {
+            // Ignore stop errors
+          }
+          session.runtime = undefined;
+        }
+
+        if (!session.runtime) {
+          let ensurePromise = ensureInFlight.get(ensureKey);
+          if (!ensurePromise) {
+            ensurePromise = opts.ensureBrowser(session.runtimeProfile).finally(() => {
+              ensureInFlight.delete(ensureKey);
+            });
+            ensureInFlight.set(ensureKey, ensurePromise);
+          }
+
+          const runtime = await ensurePromise;
+          session.runtime = runtime;
+          s.profiles.set(name, { name, config: session.runtimeProfile, runtime });
+          log.info('browser available on demand', {
+            profile: name,
+            run_id: session.runId,
+            provider: session.runtimeProfile.provider,
+            browser_endpoint: redactBrowserEndpoint(session.runtimeProfile.browserEndpoint),
+            browser_port: runtime?.browserPort ?? session.runtimeProfile.browserPort,
+          });
+        }
+      };
+
       return {
         profile: resolvedProfile,
 
@@ -126,69 +183,29 @@ export function createBrowserRouteContext(opts: {
             throw statusError(400, 'run_id is required');
           }
 
-          const stopRunningBrowser = async () => {
-            ensureInFlight.delete(name);
-            const running = s.profiles.get(name);
-            if (running?.runtime) {
-              try {
-                await opts.releaseBrowser(resolvedProfile, running.runtime);
-                log.info('browser stopped', {
-                  profile: name,
-                  provider: resolvedProfile.provider,
-                  browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
-                  browser_port: running.config.browserPort,
-                });
-              } catch (err) {
-                log.warn('browser stop failed', {
-                  profile: name,
-                  error: err instanceof Error ? err.message : String(err),
-                });
-              }
-              running.runtime = undefined;
-            }
-          };
-
-          const ensureBrowserRunning = async () => {
-            let running = s.profiles.get(name);
-            const available = await opts.isBrowserAvailable(resolvedProfile, running?.runtime);
-
-            if (running?.runtime && !available) {
-              try {
-                await opts.releaseBrowser(resolvedProfile, running.runtime);
-              } catch {
-                // Ignore stop errors
-              }
-              running.runtime = undefined;
-            }
-
-            if (!running || !running.runtime) {
-              let ensurePromise = ensureInFlight.get(name);
-              if (!ensurePromise) {
-                ensurePromise = opts.ensureBrowser(resolvedProfile).finally(() => {
-                  ensureInFlight.delete(name);
-                });
-                ensureInFlight.set(name, ensurePromise);
-              }
-
-              const runtime = await ensurePromise;
-              running = { name, config: resolvedProfile, runtime };
-              s.profiles.set(name, running);
-              log.info('browser available on demand', {
-                profile: name,
-                provider: resolvedProfile.provider,
-                browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
-                browser_port: runtime?.browserPort ?? resolvedProfile.browserPort,
-              });
-            }
-          };
-
           const getOrCreateTab = async () => {
             const startedAt = Date.now();
             const runSession = s.runSessions.get(normalizedRunId);
             if (runSession && runSession.profileName !== name) {
               throw statusError(409, 'run_id is already bound to a different profile');
             }
-            const session = runSession ?? { runId: normalizedRunId, profileName: name };
+            const session = runSession ?? {
+              runId: normalizedRunId,
+              profileName: name,
+              browserEndpoint: resolvedProfile.browserEndpoint,
+              runtimeProfile: resolvedProfile,
+            };
+
+            if (!runSession && options?.createNewTab && resolvedProfile.provider === 'local') {
+              const port = await reserveLoopbackPort();
+              session.runtimeProfile = {
+                ...resolvedProfile,
+                browserPort: port,
+                browserEndpoint: `http://127.0.0.1:${port}`,
+                browserEndpointIsLoopback: true,
+              };
+              session.browserEndpoint = session.runtimeProfile.browserEndpoint;
+            }
             const setActiveTarget = (activeTargetId: string) => {
               session.activeTargetId = activeTargetId;
               s.runSessions.set(normalizedRunId, session);
@@ -207,10 +224,11 @@ export function createBrowserRouteContext(opts: {
               if (owner && owner !== normalizedRunId) {
                 throw statusError(409, `Target ${targetId} is owned by another run`);
               }
-              const pages = await opts.listPages(resolvedProfile.browserEndpoint);
+              await ensureBrowserRunning(session);
+              const pages = await opts.listPages(session.browserEndpoint);
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
-                await opts.focusPage(resolvedProfile.browserEndpoint, targetId);
+                await opts.focusPage(session.browserEndpoint, targetId);
                 setActiveTarget(targetId);
                 log.info('target focused', {
                   profile: name,
@@ -218,7 +236,7 @@ export function createBrowserRouteContext(opts: {
                   url: found.url,
                   duration_ms: Date.now() - startedAt,
                 });
-                return { targetId, url: found.url };
+                return { targetId, url: found.url, browserEndpoint: session.browserEndpoint };
               }
               throw statusError(404, `Target ${targetId} not found`);
             }
@@ -228,13 +246,14 @@ export function createBrowserRouteContext(opts: {
               if (!activeTargetId) {
                 return null;
               }
-              const pages = await opts.listPages(resolvedProfile.browserEndpoint);
+              await ensureBrowserRunning(session);
+              const pages = await opts.listPages(session.browserEndpoint);
               const current = pages.find((p) => p.targetId === activeTargetId);
               if (!current) {
                 clearOwnedTarget();
                 return null;
               }
-              await opts.focusPage(resolvedProfile.browserEndpoint, current.targetId);
+              await opts.focusPage(session.browserEndpoint, current.targetId);
               setActiveTarget(current.targetId);
               log.info('run current target focused', {
                 profile: name,
@@ -243,7 +262,7 @@ export function createBrowserRouteContext(opts: {
                 url: current.url,
                 duration_ms: Date.now() - startedAt,
               });
-              return { targetId: current.targetId, url: current.url };
+              return { targetId: current.targetId, url: current.url, browserEndpoint: session.browserEndpoint };
             };
 
             if (!options?.createNewTab) {
@@ -260,10 +279,9 @@ export function createBrowserRouteContext(opts: {
               return current;
             }
 
-            await stopRunningBrowser();
-            await ensureBrowserRunning();
+            await ensureBrowserRunning(session);
 
-            const result = await opts.createPage(resolvedProfile.browserEndpoint);
+            const result = await opts.createPage(session.browserEndpoint);
             setActiveTarget(result.targetId);
             log.info('new tab created', {
               profile: name,
@@ -272,11 +290,13 @@ export function createBrowserRouteContext(opts: {
               url: result.url,
               duration_ms: Date.now() - startedAt,
             });
-            return result;
+            return {
+              ...result,
+              browserEndpoint: session.browserEndpoint,
+            };
           };
 
           try {
-            await ensureBrowserRunning();
             return await getOrCreateTab();
           } catch (err) {
             if (isConnectionRefusedError(err)) {
@@ -285,7 +305,6 @@ export function createBrowserRouteContext(opts: {
                 provider: resolvedProfile.provider,
                 browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
               });
-              await ensureBrowserRunning();
               return await getOrCreateTab();
             }
             throw err;
@@ -308,6 +327,17 @@ export function createBrowserRouteContext(opts: {
             throw statusError(409, `Target ${targetId} is not owned by run ${normalizedRunId}`);
           }
 
+          if (session.runtime) {
+            try {
+              await opts.releaseBrowser(session.runtimeProfile, session.runtime);
+            } catch (err) {
+              log.warn('browser stop failed', {
+                profile: name,
+                run_id: normalizedRunId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
           if (closeTargetId) {
             s.targetOwners.delete(closeTargetId);
           }
@@ -316,24 +346,29 @@ export function createBrowserRouteContext(opts: {
         },
 
         async stopRunningBrowser() {
-          ensureInFlight.delete(name);
-          const running = s.profiles.get(name);
-          if (running?.runtime) {
+          for (const [runId, session] of s.runSessions.entries()) {
+            if (session.profileName !== name || !session.runtime) {
+              continue;
+            }
+            ensureInFlight.delete(`${name}:${runId}`);
             try {
-              await opts.releaseBrowser(resolvedProfile, running.runtime);
+              await opts.releaseBrowser(session.runtimeProfile, session.runtime);
               log.info('browser stopped', {
                 profile: name,
-                provider: resolvedProfile.provider,
-                browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
-                browser_port: running.config.browserPort,
+                run_id: runId,
+                provider: session.runtimeProfile.provider,
+                browser_endpoint: redactBrowserEndpoint(session.runtimeProfile.browserEndpoint),
+                browser_port: session.runtimeProfile.browserPort,
               });
             } catch (err) {
               log.warn('browser stop failed', {
                 profile: name,
+                run_id: runId,
                 error: err instanceof Error ? err.message : String(err),
               });
             }
-            running.runtime = undefined;
+            session.runtime = undefined;
+            s.runSessions.set(runId, session);
           }
         },
       };

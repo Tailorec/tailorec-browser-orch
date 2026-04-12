@@ -79,6 +79,7 @@ export function createBrowserContextMock() {
     ensureTabAvailable: vi.fn(async (_runId: string, targetId?: string) => ({
       targetId: targetId ?? 'tab-1',
       url: 'https://example.test',
+      browserEndpoint: profile.browserEndpoint,
     })),
     closeRunSession: vi.fn(async () => ({ closed: false })),
     stopRunningBrowser: vi.fn(async () => undefined),

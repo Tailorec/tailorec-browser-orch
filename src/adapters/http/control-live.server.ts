@@ -111,7 +111,9 @@ export function installControlLiveWebSocketServer(
     };
 
     const resolveExistingTarget = async () => {
-      const pages = await sessionService.listSessions(profileCtx.profile.browserEndpoint);
+      const runSession = ctx.state().runSessions.get(runId);
+      const browserEndpoint = runSession?.browserEndpoint ?? profileCtx.profile.browserEndpoint;
+      const pages = await sessionService.listSessions(browserEndpoint);
       if (pages.length === 0) {
         throw new Error('targetId is required. Call navigate first to create a browser session.');
       }
@@ -130,7 +132,7 @@ export function installControlLiveWebSocketServer(
       const resolvedTarget = targetId || (await resolveExistingTarget()).targetId;
       const tab = await profileCtx.ensureTabAvailable(runId, resolvedTarget);
       targetId = tab.targetId;
-      const page = await sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await sessionService.getPage(tab.targetId, tab.browserEndpoint);
       return { page, tab };
     };
 

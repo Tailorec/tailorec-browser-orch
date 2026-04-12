@@ -89,7 +89,7 @@ export class SimpleActionController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId, tabOptions?.(dto));
       const result = await this.executeActionUseCase.execute({
-        cdpUrl: profileCtx.profile.browserEndpoint,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         action: buildAction(dto),
       });

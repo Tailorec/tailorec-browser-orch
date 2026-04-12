@@ -87,18 +87,17 @@ describe("integration: browser lifecycle", () => {
 
   describe("Browser cleanup", () => {
     it("graceful browser close", async () => {
-      const { app, sessionService } = createActionRouteHarness();
+      const { app, profileCtx } = createActionRouteHarness();
       await request(app).post("/act").send({ kind: "click", ref: "e1" });
       const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(200);
-      const page = await sessionService.getPage.mock.results[0].value;
-      expect(page.close).toHaveBeenCalled();
+      expect(profileCtx.closeRunSession).toHaveBeenCalled();
     });
 
     it("cleanup on error", async () => {
       const { app, profileCtx } = createActionRouteHarness();
       await request(app).post("/act").send({ kind: "click", ref: "e1" });
-      profileCtx.stopRunningBrowser.mockRejectedValueOnce(new Error("cleanup failed"));
+      profileCtx.closeRunSession.mockRejectedValueOnce(new Error("cleanup failed"));
       const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(500);
     });

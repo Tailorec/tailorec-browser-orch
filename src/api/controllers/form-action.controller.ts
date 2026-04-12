@@ -110,7 +110,7 @@ export class FormActionController {
       const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(runId, targetId);
       const result = await this.executeActionUseCase.execute({
-        cdpUrl: profileCtx.profile.browserEndpoint,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         action,
       });

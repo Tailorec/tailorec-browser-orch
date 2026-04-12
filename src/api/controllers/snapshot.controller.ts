@@ -30,7 +30,7 @@ export class SnapshotController {
       const compact = body.compact === true;
       const maxDepth = this.toNumber(body.maxDepth);
       const result = await this.takeSnapshotUseCase.execute({
-        cdpUrl: profileCtx.profile.browserEndpoint,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         options: {
           timeoutMs,
@@ -74,8 +74,8 @@ export class SnapshotController {
       const runId = getRunId(req);
       const profileCtx = getProfileContext(this.browserContext, req);
       const tab = await profileCtx.ensureTabAvailable(runId, targetId, { useCurrentTab: true });
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
 
       const result =
         action === 'start'

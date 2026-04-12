@@ -44,7 +44,7 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
       const resolved = await resolveUploadPaths(dto.paths);
       stagedPaths = resolved.staged;
 
@@ -85,7 +85,7 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
       const armId = this.sessionService.bumpDialogArmId(tab.targetId);
       await armDialog(page, {
         accept: dto.accept,
@@ -106,7 +106,7 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
       const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await waitForDownload(page, {
         path: dto.path,
@@ -126,8 +126,8 @@ export class HooksController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await download(page, {
         ref: dto.ref,

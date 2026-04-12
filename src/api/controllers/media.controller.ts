@@ -51,8 +51,8 @@ export class MediaController {
       const profileCtx = getProfileContext(this.browserContext, req);
       const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(runId, targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const screenshotOptions = {
         type,
         ...(type === 'jpeg' && typeof quality === 'number' ? { quality } : {}),
@@ -108,8 +108,8 @@ export class MediaController {
         runId,
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const labeled = await this.takeLabeledScreenshot(
         tab.targetId,
         page,
@@ -147,8 +147,8 @@ export class MediaController {
         runId,
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       await this.sessionService.refLocator(tab.targetId, body.ref).highlight();
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
