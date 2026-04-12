@@ -13,6 +13,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:contract": "vitest run --project contract",
+    "test:gate:run-isolation": "vitest run src/__tests__/contract/error-contracts.contract.test.ts src/__tests__/integration/routes/error-scenarios.integration.test.ts && playwright test --fail-on-flaky-tests src/__tests__/e2e/browser/browser-navigation.e2e.spec.ts -g \"bootstrap navigate allocates separate tabs and keeps them isolated by targetId|closing one run does not destabilize another run|enforces local max browser cap at 5\"",
     "test:coverage": "COVERAGE_PHASE=1 vitest run --coverage",
     "test:coverage:phase1": "COVERAGE_PHASE=1 vitest run --coverage",
     "test:coverage:phase2": "COVERAGE_PHASE=2 vitest run --coverage",

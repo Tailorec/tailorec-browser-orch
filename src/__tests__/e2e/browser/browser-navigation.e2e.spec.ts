@@ -252,6 +252,30 @@ test.describe("E2E: Browser Navigation", () => {
     expect(secondSnapshot.url).toContain("complex-form.html");
     expect(String(firstSnapshot.snapshot)).toContain("Contact Form");
     expect(String(secondSnapshot.snapshot)).toContain("Job Application Form");
+
+    const closeFirst = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-nav-1")}`,
+      },
+      data: {
+        run_id: "run-nav-1",
+        kind: "close",
+        targetId: firstBody.targetId,
+      },
+    });
+    expect(closeFirst.ok()).toBeTruthy();
+
+    const closeSecond = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-nav-2")}`,
+      },
+      data: {
+        run_id: "run-nav-2",
+        kind: "close",
+        targetId: secondBody.targetId,
+      },
+    });
+    expect(closeSecond.ok()).toBeTruthy();
   });
 
   test("closing one run does not destabilize another run", async () => {
