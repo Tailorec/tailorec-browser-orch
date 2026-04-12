@@ -12,6 +12,7 @@ import {
 } from '../../adapters/playwright/playwright.downloads.adapter.js';
 import {
   getProfileContext,
+  getRunId,
   mapRouteError,
   resolveUploadPaths,
   sendErrorResponse,
@@ -41,7 +42,8 @@ export class HooksController {
       }
 
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       const resolved = await resolveUploadPaths(dto.paths);
       stagedPaths = resolved.staged;
@@ -81,7 +83,8 @@ export class HooksController {
     try {
       const dto = this.validator.validateDialog(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       const armId = this.sessionService.bumpDialogArmId(tab.targetId);
       await armDialog(page, {
@@ -101,7 +104,8 @@ export class HooksController {
     try {
       const dto = this.validator.validateDownloadWait(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await waitForDownload(page, {
@@ -120,7 +124,8 @@ export class HooksController {
     try {
       const dto = this.validator.validateDownload(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const armId = this.sessionService.bumpDownloadArmId(tab.targetId);

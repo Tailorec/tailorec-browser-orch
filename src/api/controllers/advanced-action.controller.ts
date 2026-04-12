@@ -6,7 +6,7 @@ import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { SessionService } from '../../core/services/session.service.js';
 import { DiscoveryService } from '../../core/services/discovery.service.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller-advanced');
 
@@ -91,16 +91,23 @@ export class AdvancedActionController {
 
   async handleClose(req: Request, res: Response): Promise<void> {
     try {
+      const runId = getRunId(req);
       const targetId = typeof (req.body || {}).targetId === 'string' ? (req.body as { targetId?: string }).targetId : undefined;
-      const { profileCtx, tab, page } = await this.resolvePage(req, targetId);
+      const profileCtx = getProfileContext(this.browserContext, req);
+      const closed = await profileCtx.closeRunSession(runId, targetId);
+      if (!closed.closed || !closed.targetId) {
+        sendErrorResponse(res, 404, 'Run session not found');
+        return;
+      }
+      const page = await this.sessionService.getPage(closed.targetId, profileCtx.profile.browserEndpoint);
       try {
         await page.close();
       } catch {
         // Best-effort close before runtime teardown.
       }
       await profileCtx.stopRunningBrowser();
-      this.sessionService.forgetSession(tab.targetId);
-      res.json({ ok: true, targetId: tab.targetId });
+      this.sessionService.forgetSession(closed.targetId);
+      res.json({ ok: true, targetId: closed.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Close failed');
       sendErrorResponse(res, mapped.status, mapped.message);
@@ -215,8 +222,9 @@ export class AdvancedActionController {
   }
 
   private async resolvePage(req: Request, targetId?: string) {
+    const runId = getRunId(req);
     const profileCtx = getProfileContext(this.browserContext, req);
-    const tab = await profileCtx.ensureTabAvailable(targetId);
+    const tab = await profileCtx.ensureTabAvailable(runId, targetId);
     const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
     return { profileCtx, tab, page };
   }

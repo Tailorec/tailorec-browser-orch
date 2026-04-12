@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { SessionService } from '../../core/services/session.service.js';
 import { PlaywrightNavigationAdapter } from '../../adapters/playwright/playwright.navigation.adapter.js';
-import { getProfileContext, mapRouteError, normalizeScreenshotType, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, normalizeScreenshotType, sendErrorResponse } from './controller-runtime.utils.js';
 
 type LabeledRef = { role: string; name?: string; nth?: number };
 
@@ -49,7 +49,8 @@ export class MediaController {
       }
 
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, targetId);
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
       const screenshotOptions = {
@@ -102,7 +103,9 @@ export class MediaController {
           ? Math.max(1, Math.floor(body.maxLabels))
           : 150;
       const profileCtx = getProfileContext(this.browserContext, req);
+      const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(
+        runId,
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
@@ -139,7 +142,9 @@ export class MediaController {
       }
 
       const profileCtx = getProfileContext(this.browserContext, req);
+      const runId = getRunId(req);
       const tab = await profileCtx.ensureTabAvailable(
+        runId,
         typeof body.targetId === 'string' ? body.targetId : undefined,
       );
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);

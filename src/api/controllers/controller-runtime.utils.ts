@@ -20,6 +20,17 @@ export function getProfileContext(ctx: BrowserRouteContext, req: Request) {
   }
 }
 
+export function getRunId(req: Request): string {
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const runId = typeof body.run_id === 'string' ? body.run_id.trim() : '';
+  if (!runId) {
+    const wrapped = new Error('run_id is required');
+    (wrapped as Error & { status?: number }).status = 400;
+    throw wrapped;
+  }
+  return runId;
+}
+
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

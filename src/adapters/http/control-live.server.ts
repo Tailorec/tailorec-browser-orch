@@ -101,6 +101,7 @@ export function installControlLiveWebSocketServer(
 
     const profileCtx = ctx.forProfile('default');
     let targetId = initialTargetBySocket.get(ws);
+    const runId = String(claims.run_id || '');
     let frameBusy = false;
 
     const sendJson = (payload: Record<string, unknown>) => {
@@ -127,7 +128,7 @@ export function installControlLiveWebSocketServer(
 
     const resolvePage = async () => {
       const resolvedTarget = targetId || (await resolveExistingTarget()).targetId;
-      const tab = await profileCtx.ensureTabAvailable(resolvedTarget);
+      const tab = await profileCtx.ensureTabAvailable(runId, resolvedTarget);
       targetId = tab.targetId;
       const page = await sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       return { page, tab };

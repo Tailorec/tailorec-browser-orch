@@ -156,6 +156,8 @@ async function main() {
     port: started.port,
     configuredProfiles,
     profiles: new Map(),
+    runSessions: new Map(),
+    targetOwners: new Map(),
   };
 
   installControlLiveWebSocketServer(started.server, browserContext, sessionService);

@@ -3,7 +3,7 @@ import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.u
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller-forms');
 
@@ -107,7 +107,8 @@ export class FormActionController {
     const started = Date.now();
     try {
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, targetId);
       const result = await this.executeActionUseCase.execute({
         cdpUrl: profileCtx.profile.browserEndpoint,
         targetId: tab.targetId,

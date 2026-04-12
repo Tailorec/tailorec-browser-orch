@@ -5,7 +5,7 @@ import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js'
 import { DiscoveryService } from '../../core/services/discovery.service.js';
 import { SessionService } from '../../core/services/session.service.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
@@ -21,8 +21,9 @@ export class SnapshotController {
     const body = (req.body || {}) as Record<string, unknown>;
     const targetId = typeof body.targetId === 'string' ? body.targetId.trim() || undefined : undefined;
     try {
+      const runId = getRunId(req);
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const tab = await profileCtx.ensureTabAvailable(runId, targetId);
       const timeoutMs = this.toNumber(body.timeoutMs);
       const maxChars = this.toNumber(body.maxChars);
       const interactiveOnly = body.interactiveOnly === true;
@@ -70,8 +71,9 @@ export class SnapshotController {
       return;
     }
     try {
+      const runId = getRunId(req);
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId, { useCurrentTab: true });
+      const tab = await profileCtx.ensureTabAvailable(runId, targetId, { useCurrentTab: true });
       const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.browserEndpoint);
       await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.browserEndpoint);
 

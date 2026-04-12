@@ -92,6 +92,10 @@ export class ActionCompatController {
       sendErrorResponse(res, 400, 'kind is required');
       return;
     }
+    if (!toStringOrEmpty(body.run_id)) {
+      sendErrorResponse(res, 400, 'run_id is required');
+      return;
+    }
     if (Object.hasOwn(body, 'selector') && kind !== 'wait') {
       sendErrorResponse(res, 400, SELECTOR_UNSUPPORTED_MESSAGE);
       return;
