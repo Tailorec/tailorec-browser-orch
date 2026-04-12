@@ -190,6 +190,7 @@ test.describe("E2E: Browser Navigation", () => {
         Authorization: `Bearer ${getControlToken("run-nav-1")}`,
       },
       data: {
+        run_id: "run-close-1",
         kind: "navigate",
         url: firstUrl,
         createNewTab: true,
@@ -203,6 +204,7 @@ test.describe("E2E: Browser Navigation", () => {
         Authorization: `Bearer ${getControlToken("run-nav-2")}`,
       },
       data: {
+        run_id: "run-close-2",
         kind: "navigate",
         url: secondUrl,
         createNewTab: true,
@@ -248,5 +250,87 @@ test.describe("E2E: Browser Navigation", () => {
     expect(secondSnapshot.url).toContain("complex-form.html");
     expect(String(firstSnapshot.snapshot)).toContain("Contact Form");
     expect(String(secondSnapshot.snapshot)).toContain("Job Application Form");
+  });
+
+  test("closing one run does not destabilize another run", async () => {
+    const firstUrl = `file://${pagesDir}/simple-form.html`;
+    const secondUrl = `file://${pagesDir}/complex-form.html`;
+
+    const firstNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-1")}`,
+      },
+      data: {
+        run_id: "run-close-1",
+        kind: "navigate",
+        url: firstUrl,
+        createNewTab: true,
+      },
+    });
+    expect(firstNavigate.ok()).toBeTruthy();
+    const firstBody = await firstNavigate.json();
+
+    const secondNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-2")}`,
+      },
+      data: {
+        run_id: "run-close-2",
+        kind: "navigate",
+        url: secondUrl,
+        createNewTab: true,
+      },
+    });
+    expect(secondNavigate.ok()).toBeTruthy();
+    const secondBody = await secondNavigate.json();
+
+    const closeFirst = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-1")}`,
+      },
+      data: {
+        run_id: "run-close-1",
+        kind: "close",
+        targetId: firstBody.targetId,
+      },
+    });
+    expect(closeFirst.ok()).toBeTruthy();
+
+    const secondSnapshotResponse = await api.post("/snapshot?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-2")}`,
+      },
+      data: {
+        run_id: "run-close-2",
+        targetId: secondBody.targetId,
+      },
+    });
+    expect(secondSnapshotResponse.ok()).toBeTruthy();
+    const secondSnapshot = await secondSnapshotResponse.json();
+    expect(secondSnapshot.targetId).toBe(secondBody.targetId);
+    expect(secondSnapshot.url).toContain("complex-form.html");
+
+    const firstSnapshotAfterClose = await api.post("/snapshot?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-1")}`,
+      },
+      data: {
+        run_id: "run-close-1",
+        targetId: firstBody.targetId,
+      },
+    });
+    expect(firstSnapshotAfterClose.status()).toBe(404);
+
+    const closeSecond = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-2")}`,
+      },
+      data: {
+        run_id: "run-close-2",
+        kind: "close",
+        targetId: secondBody.targetId,
+      },
+    });
+    expect(closeSecond.ok()).toBeTruthy();
   });
 });

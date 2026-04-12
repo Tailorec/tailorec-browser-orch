@@ -25,12 +25,13 @@ export class LocalBrowserRuntimeAdapter implements IBrowserRuntime {
 
   async ensureBrowser(profile: ResolvedBrowserProfile): Promise<RunningBrowserRuntime> {
     const browserPort = profile.browserPort ?? 9222;
+    const userDataDir = path.join(os.tmpdir(), `openclaw-browser-${profile.name}-${browserPort}`);
     const chrome = await this.chromeLauncher.launch({
       cdpPort: browserPort,
       headless: this.options.headless,
       noSandbox: this.options.noSandbox,
       viewport: this.options.viewport,
-      userDataDir: path.join(os.tmpdir(), `openclaw-browser-${profile.name}`),
+      userDataDir,
     });
 
     return {

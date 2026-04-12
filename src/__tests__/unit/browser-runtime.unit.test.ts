@@ -58,6 +58,12 @@ describe('browser runtime adapters', () => {
       pid: 123,
       browserPort: 9222,
     });
+    expect(chromeLauncher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cdpPort: 9222,
+        userDataDir: expect.stringContaining('openclaw-browser-default-9222'),
+      }),
+    );
 
     await runtime.releaseBrowser(localProfile, running);
     expect(chromeLauncher.getRunning).toHaveBeenCalledWith(9222);
