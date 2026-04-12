@@ -180,29 +180,35 @@ describe("integration: error scenarios", () => {
       expect(typeof res.body.error).toBe("string");
     });
 
-    it("capacity errors include retry metadata", async () => {
-      const { app, profileCtx } = createActionRouteHarness();
-      profileCtx.ensureTabAvailable.mockRejectedValueOnce(
-        Object.assign(new Error("local browser capacity exceeded: 5/5"), {
-          status: 429,
-          code: "capacity_exceeded",
-          active: 5,
-          max: 5,
-          retryAfterSeconds: 5,
-        }),
-      );
+    for (const scenario of [
+      { label: "local", active: 5, max: 5, message: "local browser capacity exceeded: 5/5" },
+      { label: "browserless", active: 200, max: 200, message: "browserless capacity exceeded: 200/200" },
+      { label: "global", active: 200, max: 200, message: "global browser capacity exceeded: 200/200" },
+    ] as const) {
+      it(`${scenario.label} capacity errors include retry metadata`, async () => {
+        const { app, profileCtx } = createActionRouteHarness();
+        profileCtx.ensureTabAvailable.mockRejectedValueOnce(
+          Object.assign(new Error(scenario.message), {
+            status: 429,
+            code: "capacity_exceeded",
+            active: scenario.active,
+            max: scenario.max,
+            retryAfterSeconds: 5,
+          }),
+        );
 
-      const res = await request(app).post("/act").send({ kind: "navigate", url: "https://example.com" });
-      expect(res.status).toBe(429);
-      expect(res.headers["retry-after"]).toBe("5");
-      expect(res.body).toEqual({
-        ok: false,
-        error: "local browser capacity exceeded: 5/5",
-        code: "capacity_exceeded",
-        active: 5,
-        max: 5,
-        retry_after_seconds: 5,
+        const res = await request(app).post("/act").send({ kind: "navigate", url: "https://example.com" });
+        expect(res.status).toBe(429);
+        expect(res.headers["retry-after"]).toBe("5");
+        expect(res.body).toEqual({
+          ok: false,
+          error: scenario.message,
+          code: "capacity_exceeded",
+          active: scenario.active,
+          max: scenario.max,
+          retry_after_seconds: 5,
+        });
       });
-    });
+    }
   });
 });
