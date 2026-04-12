@@ -39,8 +39,8 @@ export type ConnectedBrowser = {
  * - Tab listing and management
  */
 export class PlaywrightBrowserDriverAdapter {
-  private cached: { browser: Browser; cdpUrl: string } | null = null;
-  private connecting: Promise<{ browser: Browser; cdpUrl: string }> | null = null;
+  private cachedByCdpUrl = new Map<string, Browser>();
+  private connectingByCdpUrl = new Map<string, Promise<{ browser: Browser; cdpUrl: string }>>();
   private observedContexts = new WeakSet<BrowserContext>();
   private observedPages = new WeakSet<Page>();
 
@@ -49,15 +49,20 @@ export class PlaywrightBrowserDriverAdapter {
    */
   async connect(cdpUrl: string): Promise<Browser> {
     const normalized = normalizeCdpUrl(cdpUrl);
-    
-    if (this.cached?.cdpUrl === normalized) {
+
+    const cached = this.cachedByCdpUrl.get(normalized);
+    if (cached?.isConnected()) {
       log.debug('reusing cached cdp browser connection', { cdp_url: normalized });
-      return this.cached.browser;
+      return cached;
     }
-    
-    if (this.connecting) {
+    if (cached && !cached.isConnected()) {
+      this.cachedByCdpUrl.delete(normalized);
+    }
+
+    const inFlight = this.connectingByCdpUrl.get(normalized);
+    if (inFlight) {
       log.debug('awaiting in-flight cdp connection', { cdp_url: normalized });
-      const connected = await this.connecting;
+      const connected = await inFlight;
       return connected.browser;
     }
 
@@ -78,13 +83,13 @@ export class PlaywrightBrowserDriverAdapter {
 
           const browser = await chromium.connectOverCDP(endpoint, { timeout, headers });
           const connected = { browser, cdpUrl: normalized };
-          
-          this.cached = connected;
+
+          this.cachedByCdpUrl.set(normalized, browser);
           this.observeBrowser(browser);
-          
+
           browser.on('disconnected', () => {
-            if (this.cached?.browser === browser) {
-              this.cached = null;
+            if (this.cachedByCdpUrl.get(normalized) === browser) {
+              this.cachedByCdpUrl.delete(normalized);
             }
             log.warn('cdp browser disconnected', {
               browser_endpoint: redactBrowserEndpoint(normalized),
@@ -115,9 +120,9 @@ export class PlaywrightBrowserDriverAdapter {
     };
 
     const promise = connectWithRetry().finally(() => {
-      this.connecting = null;
+      this.connectingByCdpUrl.delete(normalized);
     });
-    this.connecting = promise;
+    this.connectingByCdpUrl.set(normalized, promise);
 
     const result = await promise;
     return result.browser;
@@ -127,7 +132,9 @@ export class PlaywrightBrowserDriverAdapter {
    * Disconnect and close a browser.
    */
   async disconnect(browser: Browser): Promise<void> {
-    log.info('closing playwright browser connection', { cdp_url: this.cached?.cdpUrl });
+    const cachedEntry = Array.from(this.cachedByCdpUrl.entries()).find(([, cached]) => cached === browser);
+    const cdpUrl = cachedEntry?.[0];
+    log.info('closing playwright browser connection', { cdp_url: cdpUrl });
     
     try {
       await browser.close();
@@ -135,8 +142,8 @@ export class PlaywrightBrowserDriverAdapter {
       // Ignore close errors
     }
     
-    if (this.cached?.browser === browser) {
-      this.cached = null;
+    if (cdpUrl && this.cachedByCdpUrl.get(cdpUrl) === browser) {
+      this.cachedByCdpUrl.delete(cdpUrl);
     }
   }
 
