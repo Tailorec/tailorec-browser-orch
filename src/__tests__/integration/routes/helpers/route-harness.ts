@@ -21,6 +21,7 @@ type HarnessOptions = {
   pageUrl?: string;
   cdpUrl?: string;
   profileName?: string;
+  autoInjectRunId?: boolean;
 };
 
 export function createActionRouteHarness(options: HarnessOptions = {}) {
@@ -80,16 +81,19 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
     options.evaluateEnabled ?? true,
   );
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerActionRoutes(
-      router,
-      simpleController,
-      formController,
-      advancedController,
-      compatController,
-      middleware,
-    );
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerActionRoutes(
+        router,
+        simpleController,
+        formController,
+        advancedController,
+        compatController,
+        middleware,
+      );
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return {
     app,
@@ -147,9 +151,12 @@ export function createSnapshotRouteHarness(options: HarnessOptions = {}) {
     browserContext as any,
   );
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerSnapshotRoutes(router, controller, middleware);
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerSnapshotRoutes(router, controller, middleware);
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return {
     app,
@@ -189,9 +196,12 @@ export function createHooksRouteHarness(options: HarnessOptions = {}) {
 
   const controller = new HooksController(sessionService, browserContext as any);
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerHooksRoutes(router, controller, middleware);
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerHooksRoutes(router, controller, middleware);
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return { app, sessionService, browserContext, profileCtx, page };
 }
@@ -237,9 +247,12 @@ export function createMediaRouteHarness(options: HarnessOptions = {}) {
     browserContext as any,
   );
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerMediaRoutes(router, controller, middleware);
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerMediaRoutes(router, controller, middleware);
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return { app, sessionService, navigationAdapter, browserContext, profileCtx, page, refLocator };
 }

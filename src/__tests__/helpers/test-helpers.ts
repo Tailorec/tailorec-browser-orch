@@ -103,12 +103,14 @@ export function createBrowserContextMock() {
 
 export function createTestApp(
   register: (router: Router, middleware: MiddlewareRegistry) => void,
+  options: { autoInjectRunId?: boolean } = {},
 ) {
   const app = express();
   const middleware = createMiddlewareRegistry();
   const router = Router();
   const runScopedPaths = ['/act', '/snapshot', '/screenshot', '/download', '/wait/download'];
   const runScopedPrefixes = ['/hooks/', '/snapshot/'];
+  const autoInjectRunId = options.autoInjectRunId ?? true;
 
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -120,6 +122,10 @@ export function createTestApp(
     const needsRunId = runScopedPaths.includes(path)
       || runScopedPrefixes.some((prefix) => path.startsWith(prefix));
     if (!needsRunId) {
+      next();
+      return;
+    }
+    if (!autoInjectRunId) {
       next();
       return;
     }

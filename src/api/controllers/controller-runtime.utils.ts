@@ -31,8 +31,9 @@ export function getRunId(req: Request): string {
   const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
   const runId = typeof body.run_id === 'string' ? body.run_id.trim() : '';
   if (!runId) {
-    const wrapped = new Error('run_id is required');
-    (wrapped as Error & { status?: number }).status = 400;
+    const wrapped = new Error('run_id is required') as Error & { status?: number; code?: string };
+    wrapped.status = 400;
+    wrapped.code = 'missing_run_id';
     throw wrapped;
   }
   return runId;

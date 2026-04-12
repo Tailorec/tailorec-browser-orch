@@ -209,6 +209,29 @@ describe('contract: HTTP error response structure', () => {
   });
 
   describe('run-scoped endpoint error contract consistency', () => {
+    it('returns machine-readable missing_run_id code across endpoint families', async () => {
+      const { app: actionApp } = createActionRouteHarness({ autoInjectRunId: false });
+      const { app: snapshotApp } = createSnapshotRouteHarness({ autoInjectRunId: false });
+      const { app: hooksApp } = createHooksRouteHarness({ autoInjectRunId: false });
+      const { app: mediaApp } = createMediaRouteHarness({ autoInjectRunId: false });
+
+      const responses = await Promise.all([
+        request(actionApp).post('/act').send({ kind: 'click', ref: 'e1' }),
+        request(snapshotApp).post('/snapshot').send({ targetId: 'tab-1' }),
+        request(hooksApp).post('/hooks/dialog').send({ accept: true, targetId: 'tab-1' }),
+        request(mediaApp).post('/screenshot').send({ targetId: 'tab-1' }),
+      ]);
+
+      for (const response of responses) {
+        expect(response.status).toBe(400);
+        expect(response.body).toEqual({
+          ok: false,
+          error: 'run_id is required',
+          code: 'missing_run_id',
+        });
+      }
+    });
+
     it('keeps stable 400 envelope across endpoint families', async () => {
       const { app: actionApp } = createActionRouteHarness();
       const { app: snapshotApp } = createSnapshotRouteHarness();

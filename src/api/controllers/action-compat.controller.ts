@@ -93,7 +93,7 @@ export class ActionCompatController {
       return;
     }
     if (!toStringOrEmpty(body.run_id)) {
-      sendErrorResponse(res, 400, 'run_id is required');
+      sendErrorResponse(res, 400, 'run_id is required', { code: 'missing_run_id' });
       return;
     }
     if (Object.hasOwn(body, 'selector') && kind !== 'wait') {
