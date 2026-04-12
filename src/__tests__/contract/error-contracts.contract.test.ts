@@ -162,6 +162,33 @@ describe('contract: HTTP error response structure', () => {
     });
   });
 
+  describe('429 Too Many Requests', () => {
+    it('capacity errors expose retry metadata contract', async () => {
+      const { app, profileCtx } = createActionRouteHarness();
+      profileCtx.ensureTabAvailable.mockRejectedValueOnce(
+        Object.assign(new Error('local browser capacity exceeded: 5/5'), {
+          status: 429,
+          code: 'capacity_exceeded',
+          active: 5,
+          max: 5,
+          retryAfterSeconds: 5,
+        }),
+      );
+
+      const response = await request(app).post('/act').send({ kind: 'navigate', url: 'https://example.com' });
+      expect(response.status).toBe(429);
+      expect(response.headers['retry-after']).toBe('5');
+      expect(response.body).toEqual({
+        ok: false,
+        error: 'local browser capacity exceeded: 5/5',
+        code: 'capacity_exceeded',
+        active: 5,
+        max: 5,
+        retry_after_seconds: 5,
+      });
+    });
+  });
+
   describe('error response consistency', () => {
     for (const path of ['/validation', '/forbidden', '/not-found', '/timeout', '/conflict', '/unavailable', '/unexpected']) {
       it(`responds with shared envelope for ${path}`, async () => {

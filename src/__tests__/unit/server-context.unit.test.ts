@@ -411,6 +411,30 @@ describe('createBrowserRouteContext', () => {
       );
     });
 
+    it('does not resurrect an idle-evicted target', async () => {
+      const { ctx, state } = createContext({
+        listPages: vi.fn(async () => []),
+      });
+      const runtimeProfile = state.configuredProfiles.get('default');
+      const now = Date.now();
+      state.runSessions.set('run-idle', {
+        runId: 'run-idle',
+        profileName: 'default',
+        browserEndpoint: 'http://127.0.0.1:9222',
+        runtimeProfile,
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome-idle', browserPort: 9222, startedAt: now - 1_000 },
+        activeTargetId: 'idle-tab',
+        activeTargetUrl: 'https://idle.example',
+        createdAt: now - 21 * 60 * 1000,
+        lastTouchedAt: now - 21 * 60 * 1000,
+      });
+      state.targetOwners.set('idle-tab', 'run-idle');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-idle', 'idle-tab')).rejects.toThrow('Target idle-tab not found');
+      expect(state.runSessions.has('run-idle')).toBe(false);
+      expect(state.targetOwners.has('idle-tab')).toBe(false);
+    });
+
     it('evicts max-lifetime sessions even when recently touched', async () => {
       const { ctx, deps, state } = createContext({
         listPages: vi.fn(async () => []),
@@ -443,6 +467,35 @@ describe('createBrowserRouteContext', () => {
         expect.objectContaining({ provider: 'browserless' }),
         expect.objectContaining({ provider: 'browserless' }),
       );
+    });
+
+    it('does not resurrect a max-lifetime-evicted target', async () => {
+      const { ctx, state } = createContext({
+        listPages: vi.fn(async () => []),
+      }, {
+        provider: 'browserless',
+        browserPort: undefined,
+        browserEndpoint: 'wss://browser.example.com?token=test-token',
+        browserEndpointIsLoopback: false,
+      });
+      const runtimeProfile = state.configuredProfiles.get('default');
+      const now = Date.now();
+      state.runSessions.set('run-max', {
+        runId: 'run-max',
+        profileName: 'default',
+        browserEndpoint: 'wss://browser.example.com?session=max',
+        runtimeProfile,
+        runtime: { provider: 'browserless', startedAt: now - 1_000 },
+        activeTargetId: 'max-tab',
+        activeTargetUrl: 'https://max.example',
+        createdAt: now - (4 * 60 * 60 * 1000 + 1_000),
+        lastTouchedAt: now - 1_000,
+      });
+      state.targetOwners.set('max-tab', 'run-max');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-max', 'max-tab')).rejects.toThrow('Target max-tab not found');
+      expect(state.runSessions.has('run-max')).toBe(false);
+      expect(state.targetOwners.has('max-tab')).toBe(false);
     });
   });
 
