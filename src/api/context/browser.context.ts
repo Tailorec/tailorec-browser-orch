@@ -46,6 +46,7 @@ export type RunOwnedSession = {
   runtimeProfile: ResolvedBrowserProfile;
   runtime?: RunningBrowserRuntime;
   activeTargetId?: string;
+  activeTargetUrl?: string;
 };
 
 /**
@@ -122,6 +123,25 @@ export function createBrowserRouteContext(opts: {
   createPage: (browserEndpoint: string, url?: string) => Promise<{ targetId: string; url: string }>;
 }): BrowserRouteContext {
   const ensureInFlight = new Map<string, Promise<RunningProfile['runtime']>>();
+  const runLocks = new Map<string, Promise<void>>();
+
+  const withRunLock = async <T>(key: string, action: () => Promise<T>): Promise<T> => {
+    const previous = runLocks.get(key) ?? Promise.resolve();
+    const current = previous
+      .catch(() => undefined)
+      .then(async () => {
+        return await action();
+      });
+    const tail = current.then(() => undefined, () => undefined);
+    runLocks.set(key, tail);
+    try {
+      return await current;
+    } finally {
+      if (runLocks.get(key) === tail) {
+        runLocks.delete(key);
+      }
+    }
+  };
 
   return {
     state() {
@@ -196,6 +216,7 @@ export function createBrowserRouteContext(opts: {
           if (!normalizedRunId) {
             throw statusError(400, 'run_id is required');
           }
+          const lockKey = `${name}:${normalizedRunId}`;
 
           const getOrCreateTab = async () => {
             const startedAt = Date.now();
@@ -220,8 +241,9 @@ export function createBrowserRouteContext(opts: {
               };
               session.browserEndpoint = session.runtimeProfile.browserEndpoint;
             }
-            const setActiveTarget = (activeTargetId: string) => {
+            const setActiveTarget = (activeTargetId: string, activeTargetUrl?: string) => {
               session.activeTargetId = activeTargetId;
+              session.activeTargetUrl = activeTargetUrl;
               s.runSessions.set(normalizedRunId, session);
               s.targetOwners.set(activeTargetId, normalizedRunId);
             };
@@ -229,6 +251,7 @@ export function createBrowserRouteContext(opts: {
               if (session.activeTargetId) {
                 s.targetOwners.delete(session.activeTargetId);
                 session.activeTargetId = undefined;
+                session.activeTargetUrl = undefined;
                 s.runSessions.set(normalizedRunId, session);
               }
             };
@@ -243,7 +266,7 @@ export function createBrowserRouteContext(opts: {
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
                 await opts.focusPage(session.browserEndpoint, targetId);
-                setActiveTarget(targetId);
+                setActiveTarget(targetId, found.url);
                 log.info('target focused', {
                   profile: name,
                   target_id: targetId,
@@ -268,7 +291,7 @@ export function createBrowserRouteContext(opts: {
                 return null;
               }
               await opts.focusPage(session.browserEndpoint, current.targetId);
-              setActiveTarget(current.targetId);
+              setActiveTarget(current.targetId, current.url);
               log.info('run current target focused', {
                 profile: name,
                 run_id: normalizedRunId,
@@ -287,6 +310,15 @@ export function createBrowserRouteContext(opts: {
               throw statusError(400, 'targetId is required. Call navigate first to create a browser session.');
             }
 
+            // For create/retry flows, reuse the run-owned active target idempotently.
+            if (session.activeTargetId) {
+              return {
+                targetId: session.activeTargetId,
+                url: session.activeTargetUrl ?? 'about:blank',
+                browserEndpoint: session.browserEndpoint,
+              };
+            }
+
             // For navigate without targetId, prefer the run-owned active target if available.
             const current = await maybeFocusRunActiveTarget();
             if (current) {
@@ -296,7 +328,7 @@ export function createBrowserRouteContext(opts: {
             await ensureBrowserRunning(session);
 
             const result = await opts.createPage(session.browserEndpoint);
-            setActiveTarget(result.targetId);
+            setActiveTarget(result.targetId, result.url);
             log.info('new tab created', {
               profile: name,
               run_id: normalizedRunId,
@@ -311,7 +343,9 @@ export function createBrowserRouteContext(opts: {
           };
 
           try {
-            return await getOrCreateTab();
+            return await withRunLock(lockKey, async () => {
+              return await getOrCreateTab();
+            });
           } catch (err) {
             if (isConnectionRefusedError(err)) {
               log.warn('browser connection refused, retrying', {
@@ -319,7 +353,9 @@ export function createBrowserRouteContext(opts: {
                 provider: resolvedProfile.provider,
                 browser_endpoint: redactBrowserEndpoint(resolvedProfile.browserEndpoint),
               });
-              return await getOrCreateTab();
+              return await withRunLock(lockKey, async () => {
+                return await getOrCreateTab();
+              });
             }
             throw err;
           }
@@ -330,33 +366,35 @@ export function createBrowserRouteContext(opts: {
           if (!normalizedRunId) {
             throw statusError(400, 'run_id is required');
           }
-
-          const session = s.runSessions.get(normalizedRunId);
-          if (!session || session.profileName !== name) {
-            return { closed: false };
-          }
-
-          const closeTargetId = targetId?.trim() || session.activeTargetId;
-          if (targetId && session.activeTargetId && targetId !== session.activeTargetId) {
-            throw statusError(409, `Target ${targetId} is not owned by run ${normalizedRunId}`);
-          }
-
-          if (session.runtime) {
-            try {
-              await opts.releaseBrowser(session.runtimeProfile, session.runtime);
-            } catch (err) {
-              log.warn('browser stop failed', {
-                profile: name,
-                run_id: normalizedRunId,
-                error: err instanceof Error ? err.message : String(err),
-              });
+          const lockKey = `${name}:${normalizedRunId}`;
+          return await withRunLock(lockKey, async () => {
+            const session = s.runSessions.get(normalizedRunId);
+            if (!session || session.profileName !== name) {
+              return { closed: false };
             }
-          }
-          if (closeTargetId) {
-            s.targetOwners.delete(closeTargetId);
-          }
-          s.runSessions.delete(normalizedRunId);
-          return { targetId: closeTargetId, closed: Boolean(closeTargetId) };
+
+            const closeTargetId = targetId?.trim() || session.activeTargetId;
+            if (targetId && session.activeTargetId && targetId !== session.activeTargetId) {
+              throw statusError(409, `Target ${targetId} is not owned by run ${normalizedRunId}`);
+            }
+
+            if (session.runtime) {
+              try {
+                await opts.releaseBrowser(session.runtimeProfile, session.runtime);
+              } catch (err) {
+                log.warn('browser stop failed', {
+                  profile: name,
+                  run_id: normalizedRunId,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
+            if (closeTargetId) {
+              s.targetOwners.delete(closeTargetId);
+            }
+            s.runSessions.delete(normalizedRunId);
+            return { targetId: closeTargetId, closed: Boolean(closeTargetId) };
+          });
         },
 
         async stopRunningBrowser() {

@@ -267,6 +267,28 @@ describe('createBrowserRouteContext', () => {
         ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
       ).rejects.toThrow('local browser capacity exceeded');
     });
+
+    it('serializes concurrent create requests for the same run', async () => {
+      let createCount = 0;
+      const { ctx, deps } = createContext({
+        listPages: vi.fn(async () => []),
+        createPage: vi.fn(async () => {
+          createCount += 1;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return { targetId: 'new-tab', url: 'about:blank' };
+        }),
+      });
+
+      const [first, second] = await Promise.all([
+        ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true }),
+        ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true }),
+      ]);
+
+      expect(first.targetId).toBe('new-tab');
+      expect(second.targetId).toBe('new-tab');
+      expect(createCount).toBe(1);
+      expect(deps.createPage).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('mapTabError()', () => {
