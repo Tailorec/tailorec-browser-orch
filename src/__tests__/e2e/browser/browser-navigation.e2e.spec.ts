@@ -335,4 +335,64 @@ test.describe("E2E: Browser Navigation", () => {
     });
     expect(closeSecond.ok()).toBeTruthy();
   });
+
+  test("enforces local max browser cap at 5", async () => {
+    const url = `file://${pagesDir}/simple-form.html`;
+    const opened: Array<{ runId: string; targetId: string }> = [];
+
+    for (let i = 1; i <= 5; i += 1) {
+      const runId = `run-cap-${i}`;
+      const navigate = await api.post("/act?profile=default", {
+        headers: {
+          Authorization: `Bearer ${getControlToken(runId)}`,
+        },
+        data: {
+          run_id: runId,
+          kind: "navigate",
+          url,
+          createNewTab: true,
+        },
+      });
+      expect(navigate.ok()).toBeTruthy();
+      const body = await navigate.json();
+      opened.push({ runId, targetId: String(body.targetId) });
+    }
+
+    const sixthRunId = "run-cap-6";
+    const sixthNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken(sixthRunId)}`,
+      },
+      data: {
+        run_id: sixthRunId,
+        kind: "navigate",
+        url,
+        createNewTab: true,
+      },
+    });
+
+    expect(sixthNavigate.status()).toBe(429);
+    expect(sixthNavigate.headers()["retry-after"]).toBeTruthy();
+    const sixthBody = await sixthNavigate.json();
+    expect(sixthBody).toMatchObject({
+      ok: false,
+      code: "capacity_exceeded",
+      max: 5,
+      active: 5,
+    });
+
+    for (const openedRun of opened) {
+      const closeResponse = await api.post("/act?profile=default", {
+        headers: {
+          Authorization: `Bearer ${getControlToken(openedRun.runId)}`,
+        },
+        data: {
+          run_id: openedRun.runId,
+          kind: "close",
+          targetId: openedRun.targetId,
+        },
+      });
+      expect(closeResponse.ok()).toBeTruthy();
+    }
+  });
 });
