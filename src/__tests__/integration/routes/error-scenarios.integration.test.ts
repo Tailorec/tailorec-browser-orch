@@ -179,5 +179,30 @@ describe("integration: error scenarios", () => {
       const res = await request(app).post("/act").send({ kind: "click" });
       expect(typeof res.body.error).toBe("string");
     });
+
+    it("capacity errors include retry metadata", async () => {
+      const { app, profileCtx } = createActionRouteHarness();
+      profileCtx.ensureTabAvailable.mockRejectedValueOnce(
+        Object.assign(new Error("local browser capacity exceeded: 5/5"), {
+          status: 429,
+          code: "capacity_exceeded",
+          active: 5,
+          max: 5,
+          retryAfterSeconds: 5,
+        }),
+      );
+
+      const res = await request(app).post("/act").send({ kind: "navigate", url: "https://example.com" });
+      expect(res.status).toBe(429);
+      expect(res.headers["retry-after"]).toBe("5");
+      expect(res.body).toEqual({
+        ok: false,
+        error: "local browser capacity exceeded: 5/5",
+        code: "capacity_exceeded",
+        active: 5,
+        max: 5,
+        retry_after_seconds: 5,
+      });
+    });
   });
 });
