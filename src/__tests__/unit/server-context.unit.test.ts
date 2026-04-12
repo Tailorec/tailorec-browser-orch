@@ -497,6 +497,39 @@ describe('createBrowserRouteContext', () => {
       expect(state.runSessions.has('run-max')).toBe(false);
       expect(state.targetOwners.has('max-tab')).toBe(false);
     });
+
+    it('closing one run does not disturb another run session', async () => {
+      const { ctx, state } = createContext();
+      const runtimeProfile = state.configuredProfiles.get('default');
+      state.runSessions.set('run-a', {
+        runId: 'run-a',
+        profileName: 'default',
+        browserEndpoint: 'http://127.0.0.1:9222',
+        runtimeProfile,
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome-a', browserPort: 9222, startedAt: Date.now() },
+        activeTargetId: 'tab-a',
+        activeTargetUrl: 'https://a.example',
+      });
+      state.runSessions.set('run-b', {
+        runId: 'run-b',
+        profileName: 'default',
+        browserEndpoint: 'http://127.0.0.1:9223',
+        runtimeProfile: { ...runtimeProfile, browserPort: 9223, browserEndpoint: 'http://127.0.0.1:9223' },
+        runtime: { provider: 'local', pid: 2, userDataDir: '/tmp/chrome-b', browserPort: 9223, startedAt: Date.now() },
+        activeTargetId: 'tab-b',
+        activeTargetUrl: 'https://b.example',
+      });
+      state.targetOwners.set('tab-a', 'run-a');
+      state.targetOwners.set('tab-b', 'run-b');
+
+      const closed = await ctx.forProfile('default').closeRunSession('run-a');
+      expect(closed).toEqual({ targetId: 'tab-a', closed: true });
+
+      expect(state.runSessions.has('run-a')).toBe(false);
+      expect(state.targetOwners.has('tab-a')).toBe(false);
+      expect(state.runSessions.has('run-b')).toBe(true);
+      expect(state.targetOwners.get('tab-b')).toBe('run-b');
+    });
   });
 
   describe('mapTabError()', () => {
