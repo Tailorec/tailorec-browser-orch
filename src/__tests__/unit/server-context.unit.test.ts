@@ -24,6 +24,8 @@ function createContext(
       ],
     ]),
     profiles: new Map<string, any>(),
+    runSessions: new Map<string, any>(),
+    targetOwners: new Map<string, string>(),
   };
 
   const deps = {
@@ -89,7 +91,7 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      await expect(ctx.forProfile('default').ensureTabAvailable()).rejects.toThrow(
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-1')).rejects.toThrow(
         'targetId is required. Call navigate first to create a browser session.',
       );
     });
@@ -102,7 +104,7 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
+      const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
 
       expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
       expect(deps.createPage).toHaveBeenCalledWith('http://127.0.0.1:9222');
@@ -120,10 +122,11 @@ describe('createBrowserRouteContext', () => {
         name: 'default',
         config: state.configuredProfiles.get('default'),
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
-        activeTargetId: 'tab-current',
       });
+      state.runSessions.set('run-1', { runId: 'run-1', profileName: 'default', activeTargetId: 'tab-current' });
+      state.targetOwners.set('tab-current', 'run-1');
 
-      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { useCurrentTab: true });
+      const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { useCurrentTab: true });
 
       expect(result).toEqual({ targetId: 'tab-current', url: 'https://current.test' });
       expect(deps.focusPage).toHaveBeenCalledWith('http://127.0.0.1:9222', 'tab-current');
@@ -143,7 +146,8 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable('tab-2');
+      state.targetOwners.set('tab-2', 'run-1');
+      const result = await ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-2');
       expect(result).toEqual({ targetId: 'tab-2', url: 'https://example.org' });
       expect(deps.focusPage).toHaveBeenCalledWith('http://127.0.0.1:9222', 'tab-2');
     });
@@ -156,7 +160,7 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
+      const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
       expect(deps.releaseBrowser).toHaveBeenCalled();
       expect(deps.createPage).toHaveBeenCalledWith('http://127.0.0.1:9222');
@@ -164,7 +168,7 @@ describe('createBrowserRouteContext', () => {
 
     it('ensures a local browser when navigate creates a fresh session', async () => {
       const { ctx, deps } = createContext({ isBrowserAvailable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
-      const result = await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
+      const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(result).toEqual({ targetId: 'new-tab', url: 'about:blank' });
       expect(deps.ensureBrowser).toHaveBeenCalled();
     });
@@ -177,7 +181,7 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
+      await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.releaseBrowser).toHaveBeenCalled();
       expect(deps.ensureBrowser).toHaveBeenCalled();
     });
@@ -199,7 +203,7 @@ describe('createBrowserRouteContext', () => {
         },
       );
 
-      await ctx.forProfile('default').ensureTabAvailable(undefined, { createNewTab: true });
+      await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
       expect(deps.createPage).toHaveBeenCalledWith('wss://browser.example.com?token=test-token');
     });
@@ -216,7 +220,8 @@ describe('createBrowserRouteContext', () => {
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
 
-      const result = await ctx.forProfile('default').ensureTabAvailable('tab-1');
+      state.targetOwners.set('tab-1', 'run-1');
+      const result = await ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-1');
       expect(result).toEqual({ targetId: 'tab-1', url: 'https://example.test' });
       expect(deps.listPages).toHaveBeenCalledTimes(2);
     });

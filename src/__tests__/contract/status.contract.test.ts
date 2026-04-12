@@ -13,6 +13,8 @@ describe('status contract', () => {
       port: 4000,
       configuredProfiles: new Map(),
       profiles: new Map([['default', {}]]),
+      runSessions: new Map(),
+      targetOwners: new Map(),
     });
     const app = createTestApp((router, middleware) => {
       registerBasicRoutes(router, new BasicController(browserContext as any), middleware);

@@ -54,9 +54,13 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
   profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+  }));
+  profileCtx.closeRunSession = vi.fn(async (_runId: string, targetId?: string) => ({
+    closed: true,
+    targetId: targetId ?? options.targetId ?? "tab-default",
   }));
 
   const simpleController = new SimpleActionController(executeActionUseCase, browserContext as any);
@@ -129,7 +133,7 @@ export function createSnapshotRouteHarness(options: HarnessOptions = {}) {
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
   profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
   }));
@@ -175,7 +179,7 @@ export function createHooksRouteHarness(options: HarnessOptions = {}) {
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
   profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
   }));
@@ -218,7 +222,7 @@ export function createMediaRouteHarness(options: HarnessOptions = {}) {
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
   profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
   }));

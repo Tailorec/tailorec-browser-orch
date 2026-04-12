@@ -80,6 +80,7 @@ describe("integration: profile management", () => {
   describe("Profile cleanup and isolation", () => {
     it("profile on close", async () => {
       const { app } = createActionRouteHarness({ profileName: "close-me" });
+      await request(app).post("/act").send({ kind: "click", ref: "e1" });
       const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(200);
     });
