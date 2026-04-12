@@ -317,6 +317,28 @@ describe('createBrowserRouteContext', () => {
       expect(second.targetId).toBe('new-tab-1');
       expect(deps.createPage).toHaveBeenCalledTimes(1);
     });
+
+    it('keeps create path single-writer under parallel same-run load', async () => {
+      const createdTargets: string[] = [];
+      const { ctx, deps } = createContext({
+        listPages: vi.fn(async () => []),
+        createPage: vi.fn(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          const targetId = `new-tab-${createdTargets.length + 1}`;
+          createdTargets.push(targetId);
+          return { targetId, url: 'about:blank' };
+        }),
+      });
+
+      const calls = Array.from({ length: 10 }, () =>
+        ctx.forProfile('default').ensureTabAvailable('run-race', undefined, { createNewTab: true }),
+      );
+      const results = await Promise.all(calls);
+
+      expect(results.every((result) => result.targetId === 'new-tab-1')).toBe(true);
+      expect(deps.createPage).toHaveBeenCalledTimes(1);
+      expect(createdTargets).toEqual(['new-tab-1']);
+    });
   });
 
   describe('mapTabError()', () => {
