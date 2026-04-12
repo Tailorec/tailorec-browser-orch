@@ -289,6 +289,34 @@ describe('createBrowserRouteContext', () => {
       expect(createCount).toBe(1);
       expect(deps.createPage).toHaveBeenCalledTimes(1);
     });
+
+    it('returns cached create response for duplicate idempotency key', async () => {
+      const { ctx, deps, state } = createContext({
+        listPages: vi.fn(async () => []),
+        createPage: vi
+          .fn(async () => ({ targetId: 'new-tab-1', url: 'about:blank' }))
+          .mockImplementationOnce(async () => ({ targetId: 'new-tab-1', url: 'about:blank' }))
+          .mockImplementationOnce(async () => ({ targetId: 'new-tab-2', url: 'about:blank' })),
+      });
+
+      const first = await ctx
+        .forProfile('default')
+        .ensureTabAvailable('run-1', undefined, { createNewTab: true, idempotencyKey: 'req-1' });
+
+      const session = state.runSessions.get('run-1');
+      if (session) {
+        session.activeTargetId = undefined;
+        session.activeTargetUrl = undefined;
+      }
+
+      const second = await ctx
+        .forProfile('default')
+        .ensureTabAvailable('run-1', undefined, { createNewTab: true, idempotencyKey: 'req-1' });
+
+      expect(first.targetId).toBe('new-tab-1');
+      expect(second.targetId).toBe('new-tab-1');
+      expect(deps.createPage).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('mapTabError()', () => {

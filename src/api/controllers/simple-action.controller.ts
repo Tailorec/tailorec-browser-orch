@@ -70,7 +70,11 @@ export class SimpleActionController {
         timeoutMs: dto.timeoutMs,
       }),
       true,
-      (dto) => ({ createNewTab: !dto.targetId }),
+      (dto) => ({
+        createNewTab: !dto.targetId,
+        idempotencyKey: (dto as { idempotencyKey?: string; idempotency_key?: string }).idempotencyKey
+          ?? (dto as { idempotencyKey?: string; idempotency_key?: string }).idempotency_key,
+      }),
     );
   }
 
@@ -80,7 +84,7 @@ export class SimpleActionController {
     parse: () => T,
     buildAction: (dto: T) => Parameters<ExecuteActionUseCase['execute']>[0]['action'],
     includeUrl = false,
-    tabOptions?: (dto: T) => { createNewTab?: boolean },
+    tabOptions?: (dto: T) => { createNewTab?: boolean; idempotencyKey?: string },
   ): Promise<void> {
     const started = Date.now();
     try {

@@ -17,6 +17,10 @@ import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils
 const log = createSubsystemLogger('browser-context');
 const DEFAULT_LOCAL_MAX_SESSIONS = 5;
 const LOCAL_MAX_SESSIONS = Number(process.env.BROWSER_LOCAL_MAX_SESSIONS || DEFAULT_LOCAL_MAX_SESSIONS);
+const DEFAULT_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+const CREATE_IDEMPOTENCY_TTL_MS = Number(
+  process.env.BROWSER_CREATE_IDEMPOTENCY_TTL_MS || DEFAULT_CREATE_IDEMPOTENCY_TTL_MS,
+);
 
 /**
  * Browser server state
@@ -57,7 +61,7 @@ export interface ProfileContext {
   ensureTabAvailable(
     runId: string,
     targetId?: string,
-    options?: { createNewTab?: boolean; useCurrentTab?: boolean },
+    options?: { createNewTab?: boolean; useCurrentTab?: boolean; idempotencyKey?: string },
   ): Promise<{ targetId: string; url: string; browserEndpoint: string }>;
   closeRunSession(runId: string, targetId?: string): Promise<{ targetId?: string; closed: boolean }>;
   stopRunningBrowser(): Promise<void>;
@@ -124,6 +128,10 @@ export function createBrowserRouteContext(opts: {
 }): BrowserRouteContext {
   const ensureInFlight = new Map<string, Promise<RunningProfile['runtime']>>();
   const runLocks = new Map<string, Promise<void>>();
+  const createIdempotencyResults = new Map<
+    string,
+    { expiresAt: number; response: { targetId: string; url: string; browserEndpoint: string } }
+  >();
 
   const withRunLock = async <T>(key: string, action: () => Promise<T>): Promise<T> => {
     const previous = runLocks.get(key) ?? Promise.resolve();
@@ -211,15 +219,33 @@ export function createBrowserRouteContext(opts: {
       return {
         profile: resolvedProfile,
 
-        async ensureTabAvailable(runId: string, targetId?: string, options?: { createNewTab?: boolean; useCurrentTab?: boolean }) {
+        async ensureTabAvailable(
+          runId: string,
+          targetId?: string,
+          options?: { createNewTab?: boolean; useCurrentTab?: boolean; idempotencyKey?: string },
+        ) {
           const normalizedRunId = runId.trim();
           if (!normalizedRunId) {
             throw statusError(400, 'run_id is required');
           }
           const lockKey = `${name}:${normalizedRunId}`;
+          const normalizedIdempotencyKey = options?.idempotencyKey?.trim();
+          const idempotencyResultKey =
+            options?.createNewTab && normalizedIdempotencyKey
+              ? `${name}:${normalizedRunId}:${normalizedIdempotencyKey}`
+              : undefined;
 
           const getOrCreateTab = async () => {
             const startedAt = Date.now();
+            if (idempotencyResultKey) {
+              const cached = createIdempotencyResults.get(idempotencyResultKey);
+              if (cached) {
+                if (cached.expiresAt > Date.now()) {
+                  return cached.response;
+                }
+                createIdempotencyResults.delete(idempotencyResultKey);
+              }
+            }
             const runSession = s.runSessions.get(normalizedRunId);
             if (runSession && runSession.profileName !== name) {
               throw statusError(409, 'run_id is already bound to a different profile');
@@ -312,16 +338,29 @@ export function createBrowserRouteContext(opts: {
 
             // For create/retry flows, reuse the run-owned active target idempotently.
             if (session.activeTargetId) {
-              return {
+              const response = {
                 targetId: session.activeTargetId,
                 url: session.activeTargetUrl ?? 'about:blank',
                 browserEndpoint: session.browserEndpoint,
               };
+              if (idempotencyResultKey) {
+                createIdempotencyResults.set(idempotencyResultKey, {
+                  expiresAt: Date.now() + CREATE_IDEMPOTENCY_TTL_MS,
+                  response,
+                });
+              }
+              return response;
             }
 
             // For navigate without targetId, prefer the run-owned active target if available.
             const current = await maybeFocusRunActiveTarget();
             if (current) {
+              if (idempotencyResultKey) {
+                createIdempotencyResults.set(idempotencyResultKey, {
+                  expiresAt: Date.now() + CREATE_IDEMPOTENCY_TTL_MS,
+                  response: current,
+                });
+              }
               return current;
             }
 
@@ -336,10 +375,17 @@ export function createBrowserRouteContext(opts: {
               url: result.url,
               duration_ms: Date.now() - startedAt,
             });
-            return {
+            const response = {
               ...result,
               browserEndpoint: session.browserEndpoint,
             };
+            if (idempotencyResultKey) {
+              createIdempotencyResults.set(idempotencyResultKey, {
+                expiresAt: Date.now() + CREATE_IDEMPOTENCY_TTL_MS,
+                response,
+              });
+            }
+            return response;
           };
 
           try {
@@ -368,6 +414,12 @@ export function createBrowserRouteContext(opts: {
           }
           const lockKey = `${name}:${normalizedRunId}`;
           return await withRunLock(lockKey, async () => {
+            const runPrefix = `${name}:${normalizedRunId}:`;
+            for (const key of createIdempotencyResults.keys()) {
+              if (key.startsWith(runPrefix)) {
+                createIdempotencyResults.delete(key);
+              }
+            }
             const session = s.runSessions.get(normalizedRunId);
             if (!session || session.profileName !== name) {
               return { closed: false };

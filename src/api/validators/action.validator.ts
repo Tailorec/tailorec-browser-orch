@@ -155,6 +155,8 @@ const NavigateActionSchema = BaseActionSchema.extend({
   kind: z.literal('navigate'),
   url: z.string().min(1),
   createNewTab: OptionalBooleanSchema,
+  idempotencyKey: z.string().min(1).optional(),
+  idempotency_key: z.string().min(1).optional(),
 });
 
 /**
