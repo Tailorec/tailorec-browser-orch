@@ -249,6 +249,24 @@ describe('createBrowserRouteContext', () => {
       expect(deps.releaseBrowser).toHaveBeenCalled();
       expect(state.runSessions.get('run-1')?.runtime).toBeUndefined();
     });
+
+    it('enforces local browser max sessions (5)', async () => {
+      const { ctx, state } = createContext({ listPages: vi.fn(async () => []) });
+      const runtimeProfile = state.configuredProfiles.get('default');
+      for (let i = 1; i <= 5; i += 1) {
+        state.runSessions.set(`run-${i}`, {
+          runId: `run-${i}`,
+          profileName: 'default',
+          browserEndpoint: `http://127.0.0.1:${9200 + i}`,
+          runtimeProfile,
+          runtime: { provider: 'local', pid: i, userDataDir: `/tmp/chrome-${i}`, browserPort: 9200 + i, startedAt: Date.now() },
+        });
+      }
+
+      await expect(
+        ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
+      ).rejects.toThrow('local browser capacity exceeded');
+    });
   });
 
   describe('mapTabError()', () => {

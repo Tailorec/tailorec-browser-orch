@@ -15,6 +15,8 @@ import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js'
 import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
 const log = createSubsystemLogger('browser-context');
+const DEFAULT_LOCAL_MAX_SESSIONS = 5;
+const LOCAL_MAX_SESSIONS = Number(process.env.BROWSER_LOCAL_MAX_SESSIONS || DEFAULT_LOCAL_MAX_SESSIONS);
 
 /**
  * Browser server state
@@ -153,6 +155,18 @@ export function createBrowserRouteContext(opts: {
         }
 
         if (!session.runtime) {
+          if (session.runtimeProfile.provider === 'local') {
+            const activeLocalSessions = Array.from(s.runSessions.values()).filter(
+              (candidate) =>
+                candidate.profileName === name &&
+                candidate.runtimeProfile.provider === 'local' &&
+                candidate.runtime,
+            ).length;
+            if (activeLocalSessions >= LOCAL_MAX_SESSIONS) {
+              throw statusError(429, `local browser capacity exceeded: ${activeLocalSessions}/${LOCAL_MAX_SESSIONS}`);
+            }
+          }
+
           let ensurePromise = ensureInFlight.get(ensureKey);
           if (!ensurePromise) {
             ensurePromise = opts.ensureBrowser(session.runtimeProfile).finally(() => {
