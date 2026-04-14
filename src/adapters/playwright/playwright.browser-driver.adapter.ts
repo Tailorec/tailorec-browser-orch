@@ -1,7 +1,12 @@
 import type { Browser, BrowserContext, Page, Locator } from 'playwright-core';
 import { chromium } from 'playwright-core';
 import { createSubsystemLogger } from '../logging/logger.adapter.js';
-import { getHeadersWithAuth, fetchJson } from '../utils/cdp.utils.js';
+import {
+  getHeadersWithAuth,
+  normalizeCdpUrl,
+  resolvePlaywrightCdpEndpoint,
+} from '../utils/cdp.utils.js';
+import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
 const log = createSubsystemLogger('pw-browser-driver');
 
@@ -25,31 +30,6 @@ export type ConnectedBrowser = {
 };
 
 /**
- * Get Chrome WebSocket URL from CDP endpoint.
- */
-async function getChromeWebSocketUrl(cdpUrl: string, timeoutMs = 500): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    
-    try {
-      const version = await fetchJson<{ webSocketDebuggerUrl?: string }>(
-        `${cdpUrl.replace(/\/$/, '')}/json/version`,
-        timeoutMs,
-      );
-      clearTimeout(timeout);
-      const wsUrl = String(version?.webSocketDebuggerUrl ?? '').trim();
-      return wsUrl || null;
-    } catch {
-      clearTimeout(timeout);
-      return null;
-    }
-  } catch {
-    return null;
-  }
-}
-
-/**
  * PlaywrightBrowserDriverAdapter implements browser driver functionality
  * by connecting to Chrome over CDP using Playwright.
  * 
@@ -59,8 +39,8 @@ async function getChromeWebSocketUrl(cdpUrl: string, timeoutMs = 500): Promise<s
  * - Tab listing and management
  */
 export class PlaywrightBrowserDriverAdapter {
-  private cached: { browser: Browser; cdpUrl: string } | null = null;
-  private connecting: Promise<{ browser: Browser; cdpUrl: string }> | null = null;
+  private cachedByCdpUrl = new Map<string, Browser>();
+  private connectingByCdpUrl = new Map<string, Promise<{ browser: Browser; cdpUrl: string }>>();
   private observedContexts = new WeakSet<BrowserContext>();
   private observedPages = new WeakSet<Page>();
 
@@ -68,16 +48,21 @@ export class PlaywrightBrowserDriverAdapter {
    * Connect to a browser over CDP.
    */
   async connect(cdpUrl: string): Promise<Browser> {
-    const normalized = this.normalizeCdpUrl(cdpUrl);
-    
-    if (this.cached?.cdpUrl === normalized) {
+    const normalized = normalizeCdpUrl(cdpUrl);
+
+    const cached = this.cachedByCdpUrl.get(normalized);
+    if (cached?.isConnected()) {
       log.debug('reusing cached cdp browser connection', { cdp_url: normalized });
-      return this.cached.browser;
+      return cached;
     }
-    
-    if (this.connecting) {
+    if (cached && !cached.isConnected()) {
+      this.cachedByCdpUrl.delete(normalized);
+    }
+
+    const inFlight = this.connectingByCdpUrl.get(normalized);
+    if (inFlight) {
       log.debug('awaiting in-flight cdp connection', { cdp_url: normalized });
-      const connected = await this.connecting;
+      const connected = await inFlight;
       return connected.browser;
     }
 
@@ -87,31 +72,39 @@ export class PlaywrightBrowserDriverAdapter {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const timeout = 5000 + attempt * 2000;
-          log.info('connecting over CDP', { cdp_url: normalized, attempt: attempt + 1, timeout_ms: timeout });
+          log.info('connecting over CDP', {
+            browser_endpoint: redactBrowserEndpoint(normalized),
+            attempt: attempt + 1,
+            timeout_ms: timeout,
+          });
 
-          const wsUrl = await getChromeWebSocketUrl(normalized, timeout).catch(() => null);
-          const endpoint = wsUrl ?? normalized;
+          const endpoint = await resolvePlaywrightCdpEndpoint(normalized);
           const headers = getHeadersWithAuth(endpoint);
 
           const browser = await chromium.connectOverCDP(endpoint, { timeout, headers });
           const connected = { browser, cdpUrl: normalized };
-          
-          this.cached = connected;
+
+          this.cachedByCdpUrl.set(normalized, browser);
           this.observeBrowser(browser);
-          
+
           browser.on('disconnected', () => {
-            if (this.cached?.browser === browser) {
-              this.cached = null;
+            if (this.cachedByCdpUrl.get(normalized) === browser) {
+              this.cachedByCdpUrl.delete(normalized);
             }
-            log.warn('cdp browser disconnected', { cdp_url: normalized });
+            log.warn('cdp browser disconnected', {
+              browser_endpoint: redactBrowserEndpoint(normalized),
+            });
           });
           
-          log.info('cdp connect succeeded', { cdp_url: normalized, endpoint });
+          log.info('cdp connect succeeded', {
+            browser_endpoint: redactBrowserEndpoint(normalized),
+            connect_endpoint: redactBrowserEndpoint(endpoint),
+          });
           return connected;
         } catch (err) {
           lastErr = err;
           log.warn('cdp connect attempt failed', {
-            cdp_url: normalized,
+            browser_endpoint: redactBrowserEndpoint(normalized),
             attempt: attempt + 1,
             error: String(err),
           });
@@ -127,9 +120,9 @@ export class PlaywrightBrowserDriverAdapter {
     };
 
     const promise = connectWithRetry().finally(() => {
-      this.connecting = null;
+      this.connectingByCdpUrl.delete(normalized);
     });
-    this.connecting = promise;
+    this.connectingByCdpUrl.set(normalized, promise);
 
     const result = await promise;
     return result.browser;
@@ -139,7 +132,9 @@ export class PlaywrightBrowserDriverAdapter {
    * Disconnect and close a browser.
    */
   async disconnect(browser: Browser): Promise<void> {
-    log.info('closing playwright browser connection', { cdp_url: this.cached?.cdpUrl });
+    const cachedEntry = Array.from(this.cachedByCdpUrl.entries()).find(([, cached]) => cached === browser);
+    const cdpUrl = cachedEntry?.[0];
+    log.info('closing playwright browser connection', { cdp_url: cdpUrl });
     
     try {
       await browser.close();
@@ -147,8 +142,8 @@ export class PlaywrightBrowserDriverAdapter {
       // Ignore close errors
     }
     
-    if (this.cached?.browser === browser) {
-      this.cached = null;
+    if (cdpUrl && this.cachedByCdpUrl.get(cdpUrl) === browser) {
+      this.cachedByCdpUrl.delete(cdpUrl);
     }
   }
 
@@ -259,10 +254,6 @@ export class PlaywrightBrowserDriverAdapter {
     return page.locator(`[aria-ref="${normalized}"]`);
   }
 
-  private normalizeCdpUrl(raw: string): string {
-    return raw.replace(/\/$/, '');
-  }
-
   private async getAllPages(browser: Browser): Promise<Page[]> {
     const contexts = browser.contexts();
     return contexts.flatMap((c) => c.pages());
@@ -301,11 +292,7 @@ export class PlaywrightBrowserDriverAdapter {
     // Fallback to URL-based matching using /json/list endpoint
     if (cdpUrl) {
       try {
-        const baseUrl = cdpUrl
-          .replace(/\/+$/, '')
-          .replace(/^ws:/, 'http:')
-          .replace(/\/cdp$/, '');
-        const listUrl = `${baseUrl}/json/list`;
+        const listUrl = this.buildJsonListUrl(cdpUrl);
         const response = await fetch(listUrl, { headers: getHeadersWithAuth(listUrl) });
         
         if (response.ok) {
@@ -361,5 +348,18 @@ export class PlaywrightBrowserDriverAdapter {
 
   private ensureContextState(context: BrowserContext): void {
     // Placeholder for context state management
+  }
+
+  private toHttpUrl(endpoint: string): string {
+    const normalized = endpoint.replace(/\/+$/, '');
+    return normalized
+      .replace(/^wss:/, 'https:')
+      .replace(/^ws:/, 'http:');
+  }
+
+  private buildJsonListUrl(endpoint: string): string {
+    const url = new URL(this.toHttpUrl(endpoint));
+    url.pathname = `${url.pathname.replace(/\/+$/, '').replace(/\/cdp$/, '')}/json/list`;
+    return url.toString();
   }
 }

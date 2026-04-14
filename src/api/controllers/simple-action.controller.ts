@@ -3,7 +3,7 @@ import type { ExecuteActionUseCase } from '../../core/use-cases/execute-action.u
 import type { BrowserRouteContext } from '../context/browser.context.js';
 import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller');
 
@@ -70,7 +70,11 @@ export class SimpleActionController {
         timeoutMs: dto.timeoutMs,
       }),
       true,
-      (dto) => ({ createNewTab: dto.createNewTab === true && !dto.targetId }),
+      (dto) => ({
+        createNewTab: !dto.targetId,
+        idempotencyKey: (dto as { idempotencyKey?: string; idempotency_key?: string }).idempotencyKey
+          ?? (dto as { idempotencyKey?: string; idempotency_key?: string }).idempotency_key,
+      }),
     );
   }
 
@@ -80,22 +84,23 @@ export class SimpleActionController {
     parse: () => T,
     buildAction: (dto: T) => Parameters<ExecuteActionUseCase['execute']>[0]['action'],
     includeUrl = false,
-    tabOptions?: (dto: T) => { createNewTab?: boolean },
+    tabOptions?: (dto: T) => { createNewTab?: boolean; idempotencyKey?: string },
   ): Promise<void> {
     const started = Date.now();
     try {
       const dto = parse();
+      const runId = getRunId(req);
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId, tabOptions?.(dto));
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId, tabOptions?.(dto));
       const result = await this.executeActionUseCase.execute({
-        cdpUrl: profileCtx.profile.cdpUrl,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         action: buildAction(dto),
       });
 
       if (!result.ok) {
         const mapped = mapRouteError(this.browserContext, result.error || 'Action failed', 'Action failed');
-        sendErrorResponse(res, mapped.status, mapped.message);
+        sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
         return;
       }
 
@@ -112,7 +117,7 @@ export class SimpleActionController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 }

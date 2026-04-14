@@ -19,7 +19,7 @@ describe("integration: browser lifecycle", () => {
       const { app, profileCtx } = createSnapshotRouteHarness();
       const res = await request(app).post("/snapshot").send({});
       expect(res.status).toBe(200);
-      expect(profileCtx.profile.cdpUrl).toContain("9222");
+      expect(profileCtx.profile.browserEndpoint).toContain("9222");
     });
 
     it("launch with custom viewport", async () => {
@@ -87,21 +87,24 @@ describe("integration: browser lifecycle", () => {
 
   describe("Browser cleanup", () => {
     it("graceful browser close", async () => {
-      const { app } = createActionRouteHarness();
-      const res = await request(app).post("/act").send({ kind: "close" });
+      const { app, profileCtx } = createActionRouteHarness();
+      await request(app).post("/act").send({ kind: "click", ref: "e1" });
+      const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(200);
+      expect(profileCtx.closeRunSession).toHaveBeenCalled();
     });
 
     it("cleanup on error", async () => {
-      const { app, executeActionUseCase } = createActionRouteHarness();
-      executeActionUseCase.execute.mockResolvedValueOnce({ ok: false, error: "cleanup failed" });
-      const res = await request(app).post("/act").send({ kind: "close" });
+      const { app, profileCtx } = createActionRouteHarness();
+      await request(app).post("/act").send({ kind: "click", ref: "e1" });
+      profileCtx.closeRunSession.mockRejectedValueOnce(new Error("cleanup failed"));
+      const res = await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       expect(res.status).toBe(500);
     });
 
     it("cleanup preserves functionality", async () => {
       const { app } = createActionRouteHarness();
-      await request(app).post("/act").send({ kind: "close" });
+      await request(app).post("/act").send({ kind: "close", targetId: "tab-default" });
       const res = await request(app).post("/act").send({ kind: "click", ref: "e1" });
       expect(res.status).toBe(200);
     });

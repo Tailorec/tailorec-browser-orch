@@ -6,7 +6,7 @@ import { ActionValidator } from '../validators/action.validator.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { SessionService } from '../../core/services/session.service.js';
 import { DiscoveryService } from '../../core/services/discovery.service.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('action-controller-advanced');
 
@@ -25,7 +25,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateQueryState(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
 
       if (dto.refs?.length) {
@@ -46,7 +46,7 @@ export class AdvancedActionController {
       log.debug('query_state completed', { profile: profileCtx.profile.name, target_id: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Query state failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -85,19 +85,33 @@ export class AdvancedActionController {
       );
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Evaluate failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
   async handleClose(req: Request, res: Response): Promise<void> {
-    await this.execute(req, res, (req.body || {}).targetId, { kind: 'close' });
+    try {
+      const runId = getRunId(req);
+      const targetId = typeof (req.body || {}).targetId === 'string' ? (req.body as { targetId?: string }).targetId : undefined;
+      const profileCtx = getProfileContext(this.browserContext, req);
+      const closed = await profileCtx.closeRunSession(runId, targetId);
+      if (!closed.closed || !closed.targetId) {
+        sendErrorResponse(res, 404, 'Run session not found');
+        return;
+      }
+      this.sessionService.forgetSession(closed.targetId);
+      res.json({ ok: true, targetId: closed.targetId });
+    } catch (error) {
+      const mapped = mapRouteError(this.browserContext, error, 'Close failed');
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
+    }
   }
 
   async handleDiscoverDropdown(req: Request, res: Response): Promise<void> {
     try {
       const dto = this.validator.validateDiscoverDropdown(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const resolveRef = (ref: string): Locator => this.sessionService.refLocator(tab.targetId, ref);
       const result = await this.discoveryService.discoverDropdownOptions(
         page,
@@ -109,7 +123,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Discover dropdown failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -117,7 +131,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateCloseDropdown(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       await this.discoveryService.closeDropdown(
         page,
         dto.ref,
@@ -126,7 +140,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Close dropdown failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -134,7 +148,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDetectBlocker(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, dto.targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const result = await this.discoveryService.detectBlockingElement(
         page,
         dto.ref,
@@ -143,7 +157,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...(result ?? { isBlocked: false }) });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Detect blocker failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -151,7 +165,7 @@ export class AdvancedActionController {
     try {
       const dto = this.validator.validateDismissBlocker(req.body || {});
       const { profileCtx, tab, page } = await this.resolvePage(req, (req.body || {}).targetId);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const result = await this.discoveryService.dismissBlocker(
         page,
         dto.targetRef,
@@ -162,7 +176,7 @@ export class AdvancedActionController {
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Dismiss blocker failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -177,14 +191,14 @@ export class AdvancedActionController {
     try {
       const { profileCtx, tab } = await this.resolvePage(req, targetId);
       const result = await this.executeActionUseCase.execute({
-        cdpUrl: profileCtx.profile.cdpUrl,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         action,
       });
 
       if (!result.ok) {
         const mapped = mapRouteError(this.browserContext, result.error || 'Action failed', 'Action failed');
-        sendErrorResponse(res, mapped.status, mapped.message);
+        sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
         return;
       }
 
@@ -196,14 +210,15 @@ export class AdvancedActionController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Action failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
   private async resolvePage(req: Request, targetId?: string) {
+    const runId = getRunId(req);
     const profileCtx = getProfileContext(this.browserContext, req);
-    const tab = await profileCtx.ensureTabAvailable(targetId);
-    const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+    const tab = await profileCtx.ensureTabAvailable(runId, targetId);
+    const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
     return { profileCtx, tab, page };
   }
 }

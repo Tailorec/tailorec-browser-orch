@@ -190,6 +190,7 @@ test.describe("E2E: Browser Navigation", () => {
         Authorization: `Bearer ${getControlToken("run-nav-1")}`,
       },
       data: {
+        run_id: "run-nav-1",
         kind: "navigate",
         url: firstUrl,
         createNewTab: true,
@@ -203,6 +204,7 @@ test.describe("E2E: Browser Navigation", () => {
         Authorization: `Bearer ${getControlToken("run-nav-2")}`,
       },
       data: {
+        run_id: "run-nav-2",
         kind: "navigate",
         url: secondUrl,
         createNewTab: true,
@@ -223,6 +225,7 @@ test.describe("E2E: Browser Navigation", () => {
           Authorization: `Bearer ${getControlToken("run-nav-1")}`,
         },
         data: {
+          run_id: "run-nav-1",
           targetId: firstBody.targetId,
         },
       }),
@@ -231,6 +234,7 @@ test.describe("E2E: Browser Navigation", () => {
           Authorization: `Bearer ${getControlToken("run-nav-2")}`,
         },
         data: {
+          run_id: "run-nav-2",
           targetId: secondBody.targetId,
         },
       }),
@@ -248,5 +252,171 @@ test.describe("E2E: Browser Navigation", () => {
     expect(secondSnapshot.url).toContain("complex-form.html");
     expect(String(firstSnapshot.snapshot)).toContain("Contact Form");
     expect(String(secondSnapshot.snapshot)).toContain("Job Application Form");
+
+    const closeFirst = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-nav-1")}`,
+      },
+      data: {
+        run_id: "run-nav-1",
+        kind: "close",
+        targetId: firstBody.targetId,
+      },
+    });
+    expect(closeFirst.ok()).toBeTruthy();
+
+    const closeSecond = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-nav-2")}`,
+      },
+      data: {
+        run_id: "run-nav-2",
+        kind: "close",
+        targetId: secondBody.targetId,
+      },
+    });
+    expect(closeSecond.ok()).toBeTruthy();
+  });
+
+  test("closing one run does not destabilize another run", async () => {
+    const firstUrl = `file://${pagesDir}/simple-form.html`;
+    const secondUrl = `file://${pagesDir}/complex-form.html`;
+
+    const firstNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-1")}`,
+      },
+      data: {
+        run_id: "run-close-1",
+        kind: "navigate",
+        url: firstUrl,
+        createNewTab: true,
+      },
+    });
+    expect(firstNavigate.ok()).toBeTruthy();
+    const firstBody = await firstNavigate.json();
+
+    const secondNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-2")}`,
+      },
+      data: {
+        run_id: "run-close-2",
+        kind: "navigate",
+        url: secondUrl,
+        createNewTab: true,
+      },
+    });
+    expect(secondNavigate.ok()).toBeTruthy();
+    const secondBody = await secondNavigate.json();
+
+    const closeFirst = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-1")}`,
+      },
+      data: {
+        run_id: "run-close-1",
+        kind: "close",
+        targetId: firstBody.targetId,
+      },
+    });
+    expect(closeFirst.ok()).toBeTruthy();
+
+    const secondSnapshotResponse = await api.post("/snapshot?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-2")}`,
+      },
+      data: {
+        run_id: "run-close-2",
+        targetId: secondBody.targetId,
+      },
+    });
+    expect(secondSnapshotResponse.ok()).toBeTruthy();
+    const secondSnapshot = await secondSnapshotResponse.json();
+    expect(secondSnapshot.targetId).toBe(secondBody.targetId);
+    expect(secondSnapshot.url).toContain("complex-form.html");
+
+    const firstSnapshotAfterClose = await api.post("/snapshot?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-1")}`,
+      },
+      data: {
+        run_id: "run-close-1",
+        targetId: firstBody.targetId,
+      },
+    });
+    expect(firstSnapshotAfterClose.status()).toBe(404);
+
+    const closeSecond = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken("run-close-2")}`,
+      },
+      data: {
+        run_id: "run-close-2",
+        kind: "close",
+        targetId: secondBody.targetId,
+      },
+    });
+    expect(closeSecond.ok()).toBeTruthy();
+  });
+
+  test("enforces local max browser cap at 5", async () => {
+    const url = `file://${pagesDir}/simple-form.html`;
+    const opened: Array<{ runId: string; targetId: string }> = [];
+
+    for (let i = 1; i <= 5; i += 1) {
+      const runId = `run-cap-${i}`;
+      const navigate = await api.post("/act?profile=default", {
+        headers: {
+          Authorization: `Bearer ${getControlToken(runId)}`,
+        },
+        data: {
+          run_id: runId,
+          kind: "navigate",
+          url,
+          createNewTab: true,
+        },
+      });
+      expect(navigate.ok()).toBeTruthy();
+      const body = await navigate.json();
+      opened.push({ runId, targetId: String(body.targetId) });
+    }
+
+    const sixthRunId = "run-cap-6";
+    const sixthNavigate = await api.post("/act?profile=default", {
+      headers: {
+        Authorization: `Bearer ${getControlToken(sixthRunId)}`,
+      },
+      data: {
+        run_id: sixthRunId,
+        kind: "navigate",
+        url,
+        createNewTab: true,
+      },
+    });
+
+    expect(sixthNavigate.status()).toBe(429);
+    expect(sixthNavigate.headers()["retry-after"]).toBeTruthy();
+    const sixthBody = await sixthNavigate.json();
+    expect(sixthBody).toMatchObject({
+      ok: false,
+      code: "capacity_exceeded",
+      max: 5,
+      active: 5,
+    });
+
+    for (const openedRun of opened) {
+      const closeResponse = await api.post("/act?profile=default", {
+        headers: {
+          Authorization: `Bearer ${getControlToken(openedRun.runId)}`,
+        },
+        data: {
+          run_id: openedRun.runId,
+          kind: "close",
+          targetId: openedRun.targetId,
+        },
+      });
+      expect(closeResponse.ok()).toBeTruthy();
+    }
   });
 });

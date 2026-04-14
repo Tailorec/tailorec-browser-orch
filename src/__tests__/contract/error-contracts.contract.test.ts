@@ -11,6 +11,8 @@ import {
 import { createTestApp } from '../helpers/test-helpers.js';
 import { createActionRouteHarness } from '../integration/routes/helpers/route-harness.js';
 import { createSnapshotRouteHarness } from '../integration/routes/helpers/route-harness.js';
+import { createHooksRouteHarness } from '../integration/routes/helpers/route-harness.js';
+import { createMediaRouteHarness } from '../integration/routes/helpers/route-harness.js';
 
 function createErrorApp() {
   return createTestApp((router, middleware) => {
@@ -162,6 +164,33 @@ describe('contract: HTTP error response structure', () => {
     });
   });
 
+  describe('429 Too Many Requests', () => {
+    it('capacity errors expose retry metadata contract', async () => {
+      const { app, profileCtx } = createActionRouteHarness();
+      profileCtx.ensureTabAvailable.mockRejectedValueOnce(
+        Object.assign(new Error('local browser capacity exceeded: 5/5'), {
+          status: 429,
+          code: 'capacity_exceeded',
+          active: 5,
+          max: 5,
+          retryAfterSeconds: 5,
+        }),
+      );
+
+      const response = await request(app).post('/act').send({ kind: 'navigate', url: 'https://example.com' });
+      expect(response.status).toBe(429);
+      expect(response.headers['retry-after']).toBe('5');
+      expect(response.body).toEqual({
+        ok: false,
+        error: 'local browser capacity exceeded: 5/5',
+        code: 'capacity_exceeded',
+        active: 5,
+        max: 5,
+        retry_after_seconds: 5,
+      });
+    });
+  });
+
   describe('error response consistency', () => {
     for (const path of ['/validation', '/forbidden', '/not-found', '/timeout', '/conflict', '/unavailable', '/unexpected']) {
       it(`responds with shared envelope for ${path}`, async () => {
@@ -177,5 +206,86 @@ describe('contract: HTTP error response structure', () => {
       const response = await request(app).get('/validation').set('x-correlation-id', 'err-123');
       expect(response.headers['x-correlation-id']).toBe('err-123');
     });
+  });
+
+  describe('run-scoped endpoint error contract consistency', () => {
+    it('returns machine-readable missing_run_id code across endpoint families', async () => {
+      const { app: actionApp } = createActionRouteHarness({ autoInjectRunId: false });
+      const { app: snapshotApp } = createSnapshotRouteHarness({ autoInjectRunId: false });
+      const { app: hooksApp } = createHooksRouteHarness({ autoInjectRunId: false });
+      const { app: mediaApp } = createMediaRouteHarness({ autoInjectRunId: false });
+
+      const responses = await Promise.all([
+        request(actionApp).post('/act').send({ kind: 'click', ref: 'e1' }),
+        request(snapshotApp).post('/snapshot').send({ targetId: 'tab-1' }),
+        request(hooksApp).post('/hooks/dialog').send({ accept: true, targetId: 'tab-1' }),
+        request(mediaApp).post('/screenshot').send({ targetId: 'tab-1' }),
+      ]);
+
+      for (const response of responses) {
+        expect(response.status).toBe(400);
+        expect(response.body).toEqual({
+          ok: false,
+          error: 'run_id is required',
+          code: 'missing_run_id',
+        });
+      }
+    });
+
+    it('keeps stable 400 envelope across endpoint families', async () => {
+      const { app: actionApp } = createActionRouteHarness();
+      const { app: snapshotApp } = createSnapshotRouteHarness();
+      const { app: hooksApp } = createHooksRouteHarness();
+      const { app: mediaApp } = createMediaRouteHarness();
+
+      const responses = await Promise.all([
+        request(actionApp).post('/act').send({ kind: 'click' }),
+        request(snapshotApp).post('/snapshot/delta').send({ action: 'invalid' }),
+        request(hooksApp).post('/hooks/file-chooser').send({}),
+        request(mediaApp).post('/screenshot').send({ ref: 'e1', element: '#x' }),
+      ]);
+
+      for (const response of responses) {
+        expect(response.status).toBe(400);
+        expect(response.body).toMatchObject({ ok: false, error: expect.any(String) });
+      }
+    });
+
+    for (const statusCase of [
+      { status: 404, code: 'target_not_found', message: 'Target tab-foreign not found' },
+      { status: 409, code: 'ownership_violation', message: 'Target tab-foreign is owned by another run' },
+    ] as const) {
+      it(`keeps stable ${statusCase.status} envelope across endpoint families`, async () => {
+        const { app: actionApp, profileCtx: actionCtx } = createActionRouteHarness();
+        const { app: snapshotApp, profileCtx: snapshotCtx } = createSnapshotRouteHarness();
+        const { app: hooksApp, profileCtx: hooksCtx } = createHooksRouteHarness();
+        const { app: mediaApp, profileCtx: mediaCtx } = createMediaRouteHarness();
+
+        const endpointError = Object.assign(new Error(statusCase.message), {
+          status: statusCase.status,
+          code: statusCase.code,
+        });
+        actionCtx.ensureTabAvailable.mockRejectedValueOnce(endpointError);
+        snapshotCtx.ensureTabAvailable.mockRejectedValueOnce(endpointError);
+        hooksCtx.ensureTabAvailable.mockRejectedValueOnce(endpointError);
+        mediaCtx.ensureTabAvailable.mockRejectedValueOnce(endpointError);
+
+        const responses = await Promise.all([
+          request(actionApp).post('/act').send({ kind: 'click', ref: 'e1', targetId: 'tab-foreign' }),
+          request(snapshotApp).post('/snapshot').send({ targetId: 'tab-foreign' }),
+          request(hooksApp).post('/hooks/dialog').send({ accept: true, targetId: 'tab-foreign' }),
+          request(mediaApp).post('/screenshot').send({ targetId: 'tab-foreign' }),
+        ]);
+
+        for (const response of responses) {
+          expect(response.status).toBe(statusCase.status);
+          expect(response.body).toEqual({
+            ok: false,
+            error: statusCase.message,
+            code: statusCase.code,
+          });
+        }
+      });
+    }
   });
 });

@@ -5,7 +5,7 @@ import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js'
 import { DiscoveryService } from '../../core/services/discovery.service.js';
 import { SessionService } from '../../core/services/session.service.js';
 import type { BrowserRouteContext } from '../context/browser.context.js';
-import { getProfileContext, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
+import { getProfileContext, getRunId, mapRouteError, sendErrorResponse } from './controller-runtime.utils.js';
 
 const log = createSubsystemLogger('snapshot-controller');
 
@@ -21,15 +21,16 @@ export class SnapshotController {
     const body = (req.body || {}) as Record<string, unknown>;
     const targetId = typeof body.targetId === 'string' ? body.targetId.trim() || undefined : undefined;
     try {
+      const runId = getRunId(req);
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId);
+      const tab = await profileCtx.ensureTabAvailable(runId, targetId);
       const timeoutMs = this.toNumber(body.timeoutMs);
       const maxChars = this.toNumber(body.maxChars);
       const interactiveOnly = body.interactiveOnly === true;
       const compact = body.compact === true;
       const maxDepth = this.toNumber(body.maxDepth);
       const result = await this.takeSnapshotUseCase.execute({
-        cdpUrl: profileCtx.profile.cdpUrl,
+        cdpUrl: tab.browserEndpoint,
         targetId: tab.targetId,
         options: {
           timeoutMs,
@@ -56,7 +57,7 @@ export class SnapshotController {
       });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Snapshot failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -70,10 +71,11 @@ export class SnapshotController {
       return;
     }
     try {
+      const runId = getRunId(req);
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const tab = await profileCtx.ensureTabAvailable(runId, targetId, { useCurrentTab: true });
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
 
       const result =
         action === 'start'
@@ -88,7 +90,7 @@ export class SnapshotController {
       log.info('snapshot delta completed', { target_id: tab.targetId, action });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Snapshot delta failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 

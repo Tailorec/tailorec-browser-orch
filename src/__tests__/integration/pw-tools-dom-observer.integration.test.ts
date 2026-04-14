@@ -9,7 +9,7 @@ describe('snapshot error handling integration', () => {
     const { browserContext } = createBrowserContextMock();
     browserContext.mapTabError.mockReturnValue({
       status: 503,
-      message: 'Browser CDP unavailable. Retry in a few seconds.',
+      message: 'Browser endpoint unavailable. Retry in a few seconds.',
     });
 
     const controller = new SnapshotController(
@@ -30,7 +30,7 @@ describe('snapshot error handling integration', () => {
     expect(response.status).toBe(503);
     expect(response.body).toEqual({
       ok: false,
-      error: 'Browser CDP unavailable. Retry in a few seconds.',
+      error: 'Browser endpoint unavailable. Retry in a few seconds.',
     });
   });
 });

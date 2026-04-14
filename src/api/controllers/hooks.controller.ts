@@ -12,6 +12,7 @@ import {
 } from '../../adapters/playwright/playwright.downloads.adapter.js';
 import {
   getProfileContext,
+  getRunId,
   mapRouteError,
   resolveUploadPaths,
   sendErrorResponse,
@@ -41,8 +42,9 @@ export class HooksController {
       }
 
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
       const resolved = await resolveUploadPaths(dto.paths);
       stagedPaths = resolved.staged;
 
@@ -69,7 +71,7 @@ export class HooksController {
       log.info('file chooser armed', { target_id: tab.targetId, paths: dto.paths.length });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'File chooser failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     } finally {
       if (process.env.BROWSER_KEEP_STAGED_UPLOADS !== 'true') {
         await Promise.all(stagedPaths.map((tempPath) => fs.unlink(tempPath).catch(() => undefined)));
@@ -81,8 +83,9 @@ export class HooksController {
     try {
       const dto = this.validator.validateDialog(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
       const armId = this.sessionService.bumpDialogArmId(tab.targetId);
       await armDialog(page, {
         accept: dto.accept,
@@ -93,7 +96,7 @@ export class HooksController {
       res.json({ ok: true });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Dialog hook failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -101,8 +104,9 @@ export class HooksController {
     try {
       const dto = this.validator.validateDownloadWait(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
       const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await waitForDownload(page, {
         path: dto.path,
@@ -112,7 +116,7 @@ export class HooksController {
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Wait for download failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 
@@ -120,9 +124,10 @@ export class HooksController {
     try {
       const dto = this.validator.validateDownload(req.body || {});
       const profileCtx = getProfileContext(this.browserContext, req);
-      const tab = await profileCtx.ensureTabAvailable(dto.targetId);
-      const page = await this.sessionService.getPage(tab.targetId, profileCtx.profile.cdpUrl);
-      await this.sessionService.restoreRoleRefs(tab.targetId, profileCtx.profile.cdpUrl);
+      const runId = getRunId(req);
+      const tab = await profileCtx.ensureTabAvailable(runId, dto.targetId);
+      const page = await this.sessionService.getPage(tab.targetId, tab.browserEndpoint);
+      await this.sessionService.restoreRoleRefs(tab.targetId, tab.browserEndpoint);
       const armId = this.sessionService.bumpDownloadArmId(tab.targetId);
       const result = await download(page, {
         ref: dto.ref,
@@ -134,7 +139,7 @@ export class HooksController {
       res.json({ ok: true, targetId: tab.targetId, download: result });
     } catch (error) {
       const mapped = mapRouteError(this.browserContext, error, 'Download failed');
-      sendErrorResponse(res, mapped.status, mapped.message);
+      sendErrorResponse(res, mapped.status, mapped.message, mapped.details);
     }
   }
 }

@@ -69,8 +69,7 @@ type ContextState = {
  */
 export class SessionService {
   private sessions = new Map<string, BrowserSession>();
-  private browser: Browser | null = null;
-  private browserCdpUrl: string | null = null;
+  private browsersByCdpUrl = new Map<string, Browser>();
 
   // WeakMap state tracking (from legacy pw-session.ts)
   private pageStates = new WeakMap<Page, InternalPageState>();
@@ -144,16 +143,24 @@ export class SessionService {
    */
   async closeSession(targetId: string): Promise<void> {
     const session = this.sessions.get(targetId);
-    if (session) {
-      const key = this.roleRefsKey(session.cdpUrl, targetId);
+    if (!session) {
+      return;
+    }
+
+    const cdpUrl = this.normalizeCdpUrl(session.cdpUrl);
+    const browser = this.browsersByCdpUrl.get(cdpUrl);
+    this.forgetSession(targetId);
+
+    const hasSessionsForBrowser = Array.from(this.sessions.values()).some(
+      (candidate) => this.normalizeCdpUrl(candidate.cdpUrl) === cdpUrl,
+    );
+    if (browser && !hasSessionsForBrowser) {
       try {
-        await this.browserDriver.closePage(session.page);
+        await this.browserDriver.disconnect(browser);
       } catch {
-        // Ignore close failures for already-closed pages; cleanup still matters.
+        // Ignore disconnect failures; cleanup still matters.
       }
-      this.sessions.delete(targetId);
-      this.roleRefsByTarget.delete(key);
-      this.pageStates.delete(session.page);
+      this.browsersByCdpUrl.delete(cdpUrl);
     }
   }
 
@@ -368,25 +375,23 @@ export class SessionService {
    * Get browser instance
    */
   private async getBrowser(cdpUrl?: string): Promise<Browser> {
-    const normalizedCdpUrl = cdpUrl?.replace(/\/$/, '') ?? null;
-
-    if (
-      this.browser &&
-      (!this.browser.isConnected() ||
-        (normalizedCdpUrl !== null && this.browserCdpUrl !== null && this.browserCdpUrl !== normalizedCdpUrl))
-    ) {
-      this.browser = null;
-      this.browserCdpUrl = null;
-    }
-
-    if (!this.browser && normalizedCdpUrl) {
-      this.browser = await this.browserDriver.connect(normalizedCdpUrl);
-      this.browserCdpUrl = normalizedCdpUrl;
-    }
-    if (!this.browser) {
+    const normalizedCdpUrl = cdpUrl ? this.normalizeCdpUrl(cdpUrl) : '';
+    if (!normalizedCdpUrl) {
       throw new Error('Browser not connected. Provide cdpUrl to connect.');
     }
-    return this.browser;
+
+    const existing = this.browsersByCdpUrl.get(normalizedCdpUrl);
+    if (existing?.isConnected()) {
+      return existing;
+    }
+
+    if (existing && !existing.isConnected()) {
+      this.browsersByCdpUrl.delete(normalizedCdpUrl);
+    }
+
+    const connected = await this.browserDriver.connect(normalizedCdpUrl);
+    this.browsersByCdpUrl.set(normalizedCdpUrl, connected);
+    return connected;
   }
 
   /**
@@ -400,17 +405,19 @@ export class SessionService {
    * Clear all sessions
    */
   async clearAll(): Promise<void> {
-    const sessionEntries = Array.from(this.sessions.entries());
-    for (const [targetId, session] of sessionEntries) {
+    for (const browser of this.browsersByCdpUrl.values()) {
       try {
-        await this.browserDriver.closePage(session.page);
+        await this.browserDriver.disconnect(browser);
       } catch {
-        // Ignore close errors
+        // Ignore disconnect errors
       }
     }
-    this.sessions.clear();
-    this.browser = null;
-    this.browserCdpUrl = null;
+
+    for (const targetId of Array.from(this.sessions.keys())) {
+      this.forgetSession(targetId);
+    }
+
+    this.browsersByCdpUrl.clear();
   }
 
   /**

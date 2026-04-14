@@ -1,6 +1,4 @@
 import 'dotenv/config';
-import os from 'node:os';
-import path from 'node:path';
 import process from 'node:process';
 import { loadConfig, resolveProfile } from './config/config.js';
 import { createContainer } from './container/container.js';
@@ -62,8 +60,8 @@ async function main() {
   const {
     expressServer,
     middleware,
-    chromeLauncher,
     browserDriver,
+    browserRuntime,
     sessionService,
     discoveryService,
     executeActionUseCase,
@@ -82,26 +80,11 @@ async function main() {
   let state: BrowserServerState | null = null;
   const browserContext = createBrowserRouteContext({
     getState: () => state,
-    isChromeReachable: (cdpUrl, timeoutMs) => chromeLauncher.isReachable(cdpUrl, timeoutMs),
-    launchChrome: async (profile) =>
-      chromeLauncher.launch({
-        cdpPort: profile.cdpPort,
-        headless: config.browser.headless,
-        noSandbox: config.browser.noSandbox,
-        viewport: config.browser.viewport,
-        userDataDir: path.join(os.tmpdir(), `openclaw-browser-${profile.name}`),
-      }),
-    stopChrome: async (chrome) => {
-      if (!chrome) {
-        return;
-      }
-      const running = chromeLauncher.getRunning(chrome.cdpPort);
-      if (running) {
-        await chromeLauncher.stop(running);
-      }
-    },
-    listPages: async (cdpUrl) => {
-      const browser = await browserDriver.connect(cdpUrl);
+    isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
+    ensureBrowser: (profile) => browserRuntime.ensureBrowser(profile),
+    releaseBrowser: (profile, running) => browserRuntime.releaseBrowser(profile, running),
+    listPages: async (browserEndpoint) => {
+      const browser = await browserDriver.connect(browserEndpoint);
       const pages = await browserDriver.listPages(browser);
       return pages.map((entry) => ({
         targetId: entry.targetId,
@@ -109,13 +92,13 @@ async function main() {
         title: entry.title,
       }));
     },
-    focusPage: async (cdpUrl, targetId) => {
-      const browser = await browserDriver.connect(cdpUrl);
+    focusPage: async (browserEndpoint, targetId) => {
+      const browser = await browserDriver.connect(browserEndpoint);
       const page = await browserDriver.getPage(browser, targetId);
       await browserDriver.focusPage(page);
     },
-    createPage: async (cdpUrl, url) => {
-      const browser = await browserDriver.connect(cdpUrl);
+    createPage: async (browserEndpoint, url) => {
+      const browser = await browserDriver.connect(browserEndpoint);
       const page = await browserDriver.createPage(browser, url);
       const pages = await browserDriver.listPages(browser);
       const found = pages.find((entry) => entry.url === page.url()) || pages[pages.length - 1];
@@ -173,6 +156,8 @@ async function main() {
     port: started.port,
     configuredProfiles,
     profiles: new Map(),
+    runSessions: new Map(),
+    targetOwners: new Map(),
   };
 
   installControlLiveWebSocketServer(started.server, browserContext, sessionService);

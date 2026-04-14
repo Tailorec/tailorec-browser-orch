@@ -405,6 +405,20 @@ describe('request schemas contract', () => {
         expectActionSuccess({ kind: 'navigate', url: 'https://example.com', targetId: 'tab-123' }, { targetId: 'tab-123' });
       });
 
+      it('navigate accepts idempotencyKey', () => {
+        expectActionSuccess(
+          { kind: 'navigate', url: 'https://example.com', idempotencyKey: 'req-123' },
+          { idempotencyKey: 'req-123' },
+        );
+      });
+
+      it('navigate accepts idempotency_key', () => {
+        expectActionSuccess(
+          { kind: 'navigate', url: 'https://example.com', idempotency_key: 'req-123' },
+          { idempotency_key: 'req-123' },
+        );
+      });
+
       it('navigate missing url is invalid', () => {
         expectActionFailure({ kind: 'navigate' });
       });

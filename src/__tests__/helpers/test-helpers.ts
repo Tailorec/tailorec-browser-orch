@@ -66,19 +66,22 @@ export function createMockRes(): Response & {
 export function createBrowserContextMock() {
   const profile = {
     name: 'default',
-    cdpPort: 9222,
-    cdpUrl: 'http://127.0.0.1:9222',
-    cdpIsLoopback: true,
+    provider: 'local' as const,
+    browserPort: 9222,
+    browserEndpoint: 'http://127.0.0.1:9222',
+    browserEndpointIsLoopback: true,
     driver: 'chrome',
     color: 'blue',
   };
 
   const profileCtx = {
     profile,
-    ensureTabAvailable: vi.fn(async (targetId?: string) => ({
+    ensureTabAvailable: vi.fn(async (_runId: string, targetId?: string) => ({
       targetId: targetId ?? 'tab-1',
       url: 'https://example.test',
+      browserEndpoint: profile.browserEndpoint,
     })),
+    closeRunSession: vi.fn(async () => ({ closed: false })),
     stopRunningBrowser: vi.fn(async () => undefined),
   };
 
@@ -88,6 +91,8 @@ export function createBrowserContextMock() {
       port: 4000,
       configuredProfiles: new Map([['default', profile]]),
       profiles: new Map(),
+      runSessions: new Map(),
+      targetOwners: new Map(),
     })),
     forProfile: vi.fn(() => profileCtx),
     mapTabError: vi.fn(() => null),
@@ -98,12 +103,41 @@ export function createBrowserContextMock() {
 
 export function createTestApp(
   register: (router: Router, middleware: MiddlewareRegistry) => void,
+  options: { autoInjectRunId?: boolean } = {},
 ) {
   const app = express();
   const middleware = createMiddlewareRegistry();
   const router = Router();
+  const runScopedPaths = ['/act', '/snapshot', '/screenshot', '/download', '/wait/download'];
+  const runScopedPrefixes = ['/hooks/', '/snapshot/'];
+  const autoInjectRunId = options.autoInjectRunId ?? true;
 
   app.use(express.json());
+  app.use((req, _res, next) => {
+    if (req.method !== 'POST') {
+      next();
+      return;
+    }
+    const path = req.path ?? '';
+    const needsRunId = runScopedPaths.includes(path)
+      || runScopedPrefixes.some((prefix) => path.startsWith(prefix));
+    if (!needsRunId) {
+      next();
+      return;
+    }
+    if (!autoInjectRunId) {
+      next();
+      return;
+    }
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      req.body = {};
+    }
+    const body = req.body as Record<string, unknown>;
+    if (typeof body.run_id !== 'string' || body.run_id.trim().length === 0) {
+      body.run_id = 'test-run-1';
+    }
+    next();
+  });
   register(router, middleware);
   app.use(router);
   app.use(middleware.error);

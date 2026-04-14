@@ -21,6 +21,7 @@ type HarnessOptions = {
   pageUrl?: string;
   cdpUrl?: string;
   profileName?: string;
+  autoInjectRunId?: boolean;
 };
 
 export function createActionRouteHarness(options: HarnessOptions = {}) {
@@ -33,9 +34,10 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
   } as any;
 
   const sessionService = {
-    getPage: vi.fn(async () => ({ locator: vi.fn(), keyboard: { press: vi.fn() }, mouse: { click: vi.fn() } })),
+    getPage: vi.fn(async () => ({ locator: vi.fn(), keyboard: { press: vi.fn() }, mouse: { click: vi.fn() }, close: vi.fn(async () => undefined) })),
     restoreRoleRefs: vi.fn(async () => undefined),
     refLocator: vi.fn(() => ({ click: vi.fn(), blur: vi.fn() })),
+    forgetSession: vi.fn(() => undefined),
   } as any;
 
   const discoveryService = {
@@ -52,10 +54,15 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
+  }));
+  profileCtx.closeRunSession = vi.fn(async (_runId: string, targetId?: string) => ({
+    closed: true,
+    targetId: targetId ?? options.targetId ?? "tab-default",
   }));
 
   const simpleController = new SimpleActionController(executeActionUseCase, browserContext as any);
@@ -74,16 +81,19 @@ export function createActionRouteHarness(options: HarnessOptions = {}) {
     options.evaluateEnabled ?? true,
   );
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerActionRoutes(
-      router,
-      simpleController,
-      formController,
-      advancedController,
-      compatController,
-      middleware,
-    );
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerActionRoutes(
+        router,
+        simpleController,
+        formController,
+        advancedController,
+        compatController,
+        middleware,
+      );
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return {
     app,
@@ -127,10 +137,11 @@ export function createSnapshotRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
 
   const controller = new SnapshotController(
@@ -140,9 +151,12 @@ export function createSnapshotRouteHarness(options: HarnessOptions = {}) {
     browserContext as any,
   );
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerSnapshotRoutes(router, controller, middleware);
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerSnapshotRoutes(router, controller, middleware);
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return {
     app,
@@ -173,17 +187,21 @@ export function createHooksRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
 
   const controller = new HooksController(sessionService, browserContext as any);
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerHooksRoutes(router, controller, middleware);
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerHooksRoutes(router, controller, middleware);
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return { app, sessionService, browserContext, profileCtx, page };
 }
@@ -216,10 +234,11 @@ export function createMediaRouteHarness(options: HarnessOptions = {}) {
 
   const { browserContext, profileCtx } = createBrowserContextMock();
   profileCtx.profile.name = options.profileName ?? "default";
-  profileCtx.profile.cdpUrl = options.cdpUrl ?? "http://127.0.0.1:9222";
-  profileCtx.ensureTabAvailable = vi.fn(async (targetId?: string) => ({
+  profileCtx.profile.browserEndpoint = options.cdpUrl ?? "http://127.0.0.1:9222";
+  profileCtx.ensureTabAvailable = vi.fn(async (_runId: string, targetId?: string) => ({
     targetId: targetId ?? options.targetId ?? "tab-default",
     url: options.pageUrl ?? "https://example.org",
+    browserEndpoint: options.cdpUrl ?? "http://127.0.0.1:9222",
   }));
 
   const controller = new MediaController(
@@ -228,9 +247,12 @@ export function createMediaRouteHarness(options: HarnessOptions = {}) {
     browserContext as any,
   );
 
-  const app = createTestApp((router: Router, middleware) => {
-    registerMediaRoutes(router, controller, middleware);
-  });
+  const app = createTestApp(
+    (router: Router, middleware) => {
+      registerMediaRoutes(router, controller, middleware);
+    },
+    { autoInjectRunId: options.autoInjectRunId },
+  );
 
   return { app, sessionService, navigationAdapter, browserContext, profileCtx, page, refLocator };
 }

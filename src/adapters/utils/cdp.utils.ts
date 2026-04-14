@@ -61,6 +61,18 @@ export function appendCdpPath(cdpUrl: string, path: string): string {
 }
 
 /**
+ * Check whether a browser endpoint is already a websocket URL.
+ */
+export function isWebSocketEndpoint(endpoint: string): boolean {
+  try {
+    const parsed = new URL(endpoint);
+    return parsed.protocol === 'ws:' || parsed.protocol === 'wss:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Fetch JSON from URL with timeout
  */
 export async function fetchJson<T>(url: string, timeoutMs = 1500, init?: RequestInit): Promise<T> {
@@ -253,6 +265,24 @@ export async function resolveBrowserCdpWebSocketUrl(cdpUrl: string): Promise<str
     throw new Error('CDP /json/version missing webSocketDebuggerUrl');
   }
   return normalizeCdpWsUrl(wsRaw, cdpUrl);
+}
+
+/**
+ * Resolve the endpoint Playwright should use for connectOverCDP.
+ *
+ * Direct websocket endpoints are already ready for Playwright. HTTP(S) CDP
+ * endpoints are resolved through /json/version first.
+ */
+export async function resolvePlaywrightCdpEndpoint(cdpUrl: string): Promise<string> {
+  const normalized = normalizeCdpUrl(cdpUrl);
+  if (isWebSocketEndpoint(normalized)) {
+    return normalized;
+  }
+  try {
+    return await resolveBrowserCdpWebSocketUrl(normalized);
+  } catch {
+    return normalized;
+  }
 }
 
 export async function resolveTargetCdpWebSocketUrl(

@@ -1,6 +1,7 @@
 export type {
   LogLevel,
   LogFormat,
+  BrowserProvider,
   BrowserViewport,
   BrowserProfileConfig,
   BrowserConfig,

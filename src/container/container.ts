@@ -1,9 +1,11 @@
 import type { Container } from './container.types.js';
-import type { AppConfig } from '../config/config.types.js';
+import type { AppConfig, BrowserProvider } from '../config/config.types.js';
 import { createSubsystemLogger } from '../adapters/logging/logger.adapter.js';
 import { ExpressServerAdapter } from '../adapters/http/express.server.adapter.js';
 import { createMiddlewareRegistry } from '../api/middlewares/index.js';
 import { ChromeLauncherAdapter } from '../adapters/chrome/chrome-launcher.adapter.js';
+import { LocalBrowserRuntimeAdapter } from '../adapters/browser/local.browser-runtime.adapter.js';
+import { RemoteBrowserRuntimeAdapter } from '../adapters/browser/remote.browser-runtime.adapter.js';
 import { PlaywrightBrowserDriverAdapter } from '../adapters/playwright/playwright.browser-driver.adapter.js';
 import { PlaywrightNavigationAdapter } from '../adapters/playwright/playwright.navigation.adapter.js';
 import { PlaywrightInteractionsAdapter } from '../adapters/playwright/playwright.interactions.adapter.js';
@@ -26,8 +28,15 @@ export function createContainer(config: AppConfig): Container {
   const logger = createSubsystemLogger('app');
   const expressServer = new ExpressServerAdapter();
   const middleware = createMiddlewareRegistry();
-  const chromeLauncher = new ChromeLauncherAdapter();
   const browserDriver = new PlaywrightBrowserDriverAdapter();
+  const provider = resolveContainerBrowserProvider(config);
+  const browserRuntime = provider === 'local'
+    ? new LocalBrowserRuntimeAdapter(new ChromeLauncherAdapter(), {
+        headless: config.browser.headless,
+        noSandbox: config.browser.noSandbox,
+        viewport: config.browser.viewport,
+      })
+    : new RemoteBrowserRuntimeAdapter();
   const navigationAdapter = new PlaywrightNavigationAdapter();
   const interactionsAdapter = new PlaywrightInteractionsAdapter();
   const sessionStore = new InMemorySessionStoreAdapter();
@@ -52,8 +61,8 @@ export function createContainer(config: AppConfig): Container {
     logger,
     expressServer,
     middleware,
-    chromeLauncher,
     browserDriver,
+    browserRuntime,
     navigationAdapter,
     interactionsAdapter,
     sessionStore,
@@ -71,8 +80,17 @@ export function createContainer(config: AppConfig): Container {
 
   logger.info('container created', {
     browser_enabled: config.browser.enabled,
+    browser_provider: provider,
     headless: config.browser.headless,
   });
 
   return container;
+}
+
+function resolveContainerBrowserProvider(config: AppConfig): BrowserProvider {
+  const firstProfile = Object.values(config.browser.profiles)[0];
+  if (!firstProfile) {
+    throw new Error('No browser profiles configured');
+  }
+  return firstProfile.provider;
 }
