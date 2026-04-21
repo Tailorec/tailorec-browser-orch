@@ -470,6 +470,11 @@ export function createBrowserRouteContext(opts: {
           }
 
           const runtime = await ensurePromise;
+          if (!runtime) {
+            throw statusError(503, 'browser runtime unavailable after ensure', {
+              code: 'runtime_unavailable',
+            });
+          }
           session.runtime = runtime;
           if (session.runtimeProfile.provider === 'browserless' && runtime.browserEndpoint) {
             session.browserEndpoint = runtime.browserEndpoint;
