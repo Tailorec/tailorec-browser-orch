@@ -157,7 +157,7 @@ describe('createBrowserRouteContext', () => {
     });
 
     it('rejects unsupported multi-tab flow for existing target', async () => {
-      const { ctx, state } = createContext({
+      const { ctx, deps, state } = createContext({
         listPages: vi.fn(async () => [
           { targetId: 'tab-2', url: 'https://example.org' },
           { targetId: 'popup-1', url: 'https://popup.example' },
@@ -175,6 +175,9 @@ describe('createBrowserRouteContext', () => {
         status: 409,
         code: 'unsupported_flow',
       });
+      expect(state.runSessions.has('run-1')).toBe(false);
+      expect(state.targetOwners.has('tab-2')).toBe(false);
+      expect(deps.releaseBrowser).toHaveBeenCalled();
     });
 
     it('creates a new page when navigate requests a fresh browser session', async () => {

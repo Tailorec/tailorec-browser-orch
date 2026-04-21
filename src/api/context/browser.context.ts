@@ -248,7 +248,7 @@ export function createBrowserRouteContext(opts: {
     s: BrowserServerState,
     runId: string,
     session: RunOwnedSession,
-    reason: 'explicit_close' | 'idle_timeout' | 'max_lifetime' | 'degraded_timeout',
+    reason: 'explicit_close' | 'idle_timeout' | 'max_lifetime' | 'degraded_timeout' | 'unsupported_flow',
     targetId?: string,
   ): Promise<{ targetId?: string; closed: boolean }> => {
     const closeTargetId = targetId?.trim() || session.activeTargetId;
@@ -485,7 +485,9 @@ export function createBrowserRouteContext(opts: {
         }
       };
 
-      const throwUnsupportedFlowIfExtraTabs = (
+      const throwUnsupportedFlowIfExtraTabs = async (
+        runId: string,
+        session: RunOwnedSession,
         pages: Array<{ targetId: string; url: string; title?: string }>,
         activeTargetId: string,
       ) => {
@@ -493,6 +495,7 @@ export function createBrowserRouteContext(opts: {
           (page) => page.targetId !== activeTargetId && page.url && page.url !== 'about:blank',
         );
         if (extraNonBlankTabs.length > 0) {
+          await closeSessionInternal(s, runId, session, 'unsupported_flow', activeTargetId);
           throw statusError(409, 'new tab opened is unsupported in v1', {
             code: 'unsupported_flow',
           });
@@ -625,7 +628,7 @@ export function createBrowserRouteContext(opts: {
                 }
                 throw error;
               }
-              throwUnsupportedFlowIfExtraTabs(pages, targetId);
+              await throwUnsupportedFlowIfExtraTabs(normalizedRunId, session, pages, targetId);
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
                 try {
@@ -665,7 +668,7 @@ export function createBrowserRouteContext(opts: {
                 }
                 throw error;
               }
-              throwUnsupportedFlowIfExtraTabs(pages, activeTargetId);
+              await throwUnsupportedFlowIfExtraTabs(normalizedRunId, session, pages, activeTargetId);
               const current = pages.find((p) => p.targetId === activeTargetId);
               if (!current) {
                 clearOwnedTarget();
