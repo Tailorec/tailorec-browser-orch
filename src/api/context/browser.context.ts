@@ -478,6 +478,7 @@ export function createBrowserRouteContext(opts: {
           log.info('browser available on demand', {
             profile: name,
             run_id: session.runId,
+            session_id: session.sessionId,
             provider: session.runtimeProfile.provider,
             browser_endpoint: redactBrowserEndpoint(session.runtimeProfile.browserEndpoint),
             browser_port: runtime?.browserPort ?? session.runtimeProfile.browserPort,
@@ -643,6 +644,8 @@ export function createBrowserRouteContext(opts: {
                 setActiveTarget(targetId, found.url);
                 log.info('target focused', {
                   profile: name,
+                  run_id: normalizedRunId,
+                  session_id: session.sessionId,
                   target_id: targetId,
                   url: found.url,
                   duration_ms: Date.now() - startedAt,
@@ -687,6 +690,7 @@ export function createBrowserRouteContext(opts: {
               log.info('run current target focused', {
                 profile: name,
                 run_id: normalizedRunId,
+                session_id: session.sessionId,
                 target_id: current.targetId,
                 url: current.url,
                 duration_ms: Date.now() - startedAt,
@@ -750,6 +754,7 @@ export function createBrowserRouteContext(opts: {
             log.info('new tab created', {
               profile: name,
               run_id: normalizedRunId,
+              session_id: session.sessionId,
               target_id: result.targetId,
               url: result.url,
               duration_ms: Date.now() - startedAt,
