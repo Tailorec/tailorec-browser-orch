@@ -136,3 +136,41 @@ If the site attempts to open a second tab or popup, the flow is classified as un
 - The design requires coordinated changes in both browser-provider and open-agent. This is not an `openclaw-browser`-only refactor.
 - The current production mismatch between local behavior and deployed behavior is driven both by infrastructure wiring and by runtime ownership heuristics. The v1 design removes those heuristics rather than trying to harden them.
 - A future phase can relax the single-tab restriction only after isolated per-run session ownership is proven in production and shared ownership state is designed explicitly.
+
+## Path B Drift Addendum (Approved April 22, 2026)
+
+### Why this drift was approved
+
+- Deployment validation confirmed the currently deployed Browserless runtime does not expose create-session routes (`POST /session` or `POST /session/create`), even though management routes such as `GET /sessions` are available.
+- To avoid forking/drifting Browserless implementation while preserving the v1 product invariant, session provisioning is shifted to a provider-managed connection model (Path B).
+
+### Superseded assumptions
+
+The following assumptions are superseded for v1:
+
+- browser-provider provisioning through Browserless Session Create/Stop APIs as a hard dependency.
+- reliance on Browserless-issued session-create identifiers in API contracts.
+
+### Path B final model
+
+- The invariant remains strict: `1 run_id -> 1 isolated browser connection -> 1 tab only`.
+- `CreateRunSession(run_id)` eagerly establishes a dedicated run-owned CDP/WS connection to `BROWSER_ENDPOINT`.
+- `CloseRunSession(run_id)` closes the run-owned connection and remains idempotent.
+- First explicit `navigate` remains the only place where tab creation and target binding can occur.
+- Any second non-blank tab is classified as `unsupported_flow`, and the run session is closed.
+- No fallback behavior is permitted for endpoint/target mismatches; mismatches return `409`.
+- Browserless disconnects transition the run to `degraded` (`503` retriable), then hard-close after grace timeout.
+- No reconnect/rebind to a different session for the same run while degraded/burned.
+
+### Contract and observability impact
+
+- Public orchestration contract stays the same for open-agent: explicit `CreateRunSession` before browser use and `CloseRunSession` on terminal completion.
+- Provider continues returning `session_id`, but it is provider-generated in Path B (not Browserless session-create ID).
+- Browser transport internals (`ws_endpoint`) remain hidden from open-agent API responses.
+- Capacity policy remains fail-fast and env-driven via `BROWSER_BROWSERLESS_MAX_SESSIONS` with `429` + `retry_after_seconds`.
+- Structured logs must include `run_id` and provider `session_id` across create, bind, degraded, timeout, and close lifecycle events.
+
+### Non-goals unchanged
+
+- Multi-tab support remains out of scope for v1.
+- Redis/shared ownership, queueing admission, and horizontal scaling remain deferred.
