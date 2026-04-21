@@ -71,12 +71,63 @@ describe('browser runtime adapters', () => {
   });
 
   it('remote runtime is always available and never launches locally', async () => {
-    const runtime = new RemoteBrowserRuntimeAdapter();
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'sess-123',
+          connect: 'wss://browser.example.com/e/sess-123/chromium/playwright',
+          stop: 'https://browser.example.com/session/sess-123?token=test-token',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+      });
+    const runtime = new RemoteBrowserRuntimeAdapter({ fetchFn: mockFetch as unknown as typeof fetch });
 
     await expect(runtime.isAvailable(remoteProfile)).resolves.toBe(true);
-    await expect(runtime.ensureBrowser(remoteProfile)).resolves.toMatchObject({
+    const running = await runtime.ensureBrowser(remoteProfile);
+    expect(running).toMatchObject({
       provider: 'browserless',
+      browserSessionId: 'sess-123',
+      browserEndpoint: 'wss://browser.example.com/e/sess-123/chromium/playwright',
     });
-    await expect(runtime.releaseBrowser(remoteProfile)).resolves.toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://browser.example.com/session?token=test-token',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    await expect(runtime.releaseBrowser(remoteProfile, running)).resolves.toBeUndefined();
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      'https://browser.example.com/session/sess-123?token=test-token&force=true',
+      expect.objectContaining({
+        method: 'DELETE',
+      }),
+    );
+  });
+
+  it('remote runtime tolerates already-stopped sessions during release', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'sess-404',
+          connect: 'wss://browser.example.com/e/sess-404/chromium/playwright',
+          stop: 'https://browser.example.com/session/sess-404?token=test-token',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => 'not found',
+      });
+    const runtime = new RemoteBrowserRuntimeAdapter({ fetchFn: mockFetch as unknown as typeof fetch });
+    const running = await runtime.ensureBrowser(remoteProfile);
+    await expect(runtime.releaseBrowser(remoteProfile, running)).resolves.toBeUndefined();
   });
 });
