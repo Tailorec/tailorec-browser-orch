@@ -471,6 +471,12 @@ export function createBrowserRouteContext(opts: {
 
           const runtime = await ensurePromise;
           session.runtime = runtime;
+          if (session.runtimeProfile.provider === 'browserless' && runtime.browserEndpoint) {
+            session.browserEndpoint = runtime.browserEndpoint;
+          }
+          if (session.runtimeProfile.provider === 'browserless' && runtime.browserSessionId) {
+            session.sessionId = runtime.browserSessionId;
+          }
           session.degradedAt = undefined;
           session.degradedReason = undefined;
           session.degradedCloseAt = undefined;
