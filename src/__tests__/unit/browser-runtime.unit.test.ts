@@ -71,116 +71,24 @@ describe('browser runtime adapters', () => {
   });
 
   it('remote runtime is always available and never launches locally', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'sess-123',
-          connect: 'wss://browser.example.com/e/sess-123/chromium/playwright',
-          stop: 'https://browser.example.com/session/sess-123?token=test-token',
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => '',
-      });
-    const runtime = new RemoteBrowserRuntimeAdapter({ fetchFn: mockFetch as unknown as typeof fetch });
+    const runtime = new RemoteBrowserRuntimeAdapter();
 
     await expect(runtime.isAvailable(remoteProfile)).resolves.toBe(true);
-    const running = await runtime.ensureBrowser(remoteProfile);
-    expect(running).toMatchObject({
+    await expect(runtime.ensureBrowser(remoteProfile)).resolves.toMatchObject({
       provider: 'browserless',
-      browserSessionId: 'sess-123',
-      browserEndpoint: 'wss://browser.example.com/e/sess-123/chromium/playwright',
     });
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://browser.example.com/session?token=test-token',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-
-    await expect(runtime.releaseBrowser(remoteProfile, running)).resolves.toBeUndefined();
-    expect(mockFetch).toHaveBeenLastCalledWith(
-      'https://browser.example.com/session/sess-123?token=test-token&force=true',
-      expect.objectContaining({
-        method: 'DELETE',
-      }),
-    );
+    await expect(runtime.releaseBrowser(remoteProfile)).resolves.toBeUndefined();
   });
 
-  it('remote runtime tolerates already-stopped sessions during release', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'sess-404',
-          connect: 'wss://browser.example.com/e/sess-404/chromium/playwright',
-          stop: 'https://browser.example.com/session/sess-404?token=test-token',
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        text: async () => 'not found',
-      });
-    const runtime = new RemoteBrowserRuntimeAdapter({ fetchFn: mockFetch as unknown as typeof fetch });
-    const running = await runtime.ensureBrowser(remoteProfile);
-    await expect(runtime.releaseBrowser(remoteProfile, running)).resolves.toBeUndefined();
-  });
-
-  it('remote runtime retries legacy session create path on 404', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        text: async () => 'not found',
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'sess-legacy',
-          connect: 'wss://browser.example.com/e/sess-legacy/chromium/playwright',
-          stop: 'https://browser.example.com/session/sess-legacy?token=test-token',
-        }),
-      });
-    const runtime = new RemoteBrowserRuntimeAdapter({ fetchFn: mockFetch as unknown as typeof fetch });
-
-    const running = await runtime.ensureBrowser(remoteProfile);
-    expect(running.browserSessionId).toBe('sess-legacy');
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      1,
-      'https://browser.example.com/session?token=test-token',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://browser.example.com/session/create?token=test-token',
-      expect.objectContaining({ method: 'POST' }),
-    );
-  });
-
-  it('remote runtime supports custom browserless session api path', async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        id: 'sess-custom',
-        connect: 'wss://browser.example.com/e/sess-custom/chromium/playwright',
-        stop: 'https://browser.example.com/session/sess-custom?token=test-token',
+  it('remote runtime release is a no-op even with runtime metadata', async () => {
+    const runtime = new RemoteBrowserRuntimeAdapter();
+    await expect(
+      runtime.releaseBrowser(remoteProfile, {
+        provider: 'browserless',
+        startedAt: Date.now(),
+        browserEndpoint: 'wss://browser.example.com/',
+        browserSessionId: 'provider-session',
       }),
-    });
-    const runtime = new RemoteBrowserRuntimeAdapter({
-      fetchFn: mockFetch as unknown as typeof fetch,
-      sessionApiPath: '/session/create',
-    });
-
-    const running = await runtime.ensureBrowser(remoteProfile);
-    expect(running.browserSessionId).toBe('sess-custom');
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://browser.example.com/session/create?token=test-token',
-      expect.objectContaining({ method: 'POST' }),
-    );
+    ).resolves.toBeUndefined();
   });
 });

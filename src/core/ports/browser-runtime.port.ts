@@ -8,7 +8,6 @@ export type RunningBrowserRuntime = {
   browserPort?: number;
   browserEndpoint?: string;
   browserSessionId?: string;
-  browserStopUrl?: string;
 };
 
 /**
