@@ -27,3 +27,4 @@ export { registerControlRoutes } from './control.routes.js';
 export { registerHooksRoutes } from './hooks.routes.js';
 export { registerBasicRoutes } from './basic.routes.js';
 export { registerMediaRoutes } from './media.routes.js';
+export { registerRunSessionRoutes } from './run-session.routes.js';

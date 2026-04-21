@@ -10,3 +10,4 @@ export { HooksController } from './hooks.controller.js';
 export { BasicController } from './basic.controller.js';
 export { MediaController } from './media.controller.js';
 export { ActionCompatController } from './action-compat.controller.js';
+export { RunSessionController } from './run-session.controller.js';
