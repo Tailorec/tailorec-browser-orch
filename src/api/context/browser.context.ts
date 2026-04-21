@@ -493,28 +493,14 @@ export function createBrowserRouteContext(opts: {
               }
             }
             const runSession = s.runSessions.get(normalizedRunId);
-            if (runSession && runSession.profileName !== name) {
+            if (!runSession) {
+              throw statusError(409, 'run session is not initialized. Call CreateRunSession first.');
+            }
+            if (runSession.profileName !== name) {
               throw statusError(409, 'run_id is already bound to a different profile');
             }
-            const session = runSession ?? {
-              sessionId: randomUUID(),
-              runId: normalizedRunId,
-              profileName: name,
-              browserEndpoint: resolvedProfile.browserEndpoint,
-              runtimeProfile: resolvedProfile,
-            };
+            const session = runSession;
             touchSession(session);
-
-            if (!runSession && options?.createNewTab && resolvedProfile.provider === 'local') {
-              const port = await reserveLoopbackPort();
-              session.runtimeProfile = {
-                ...resolvedProfile,
-                browserPort: port,
-                browserEndpoint: `http://127.0.0.1:${port}`,
-                browserEndpointIsLoopback: true,
-              };
-              session.browserEndpoint = session.runtimeProfile.browserEndpoint;
-            }
             const setActiveTarget = (activeTargetId: string, activeTargetUrl?: string) => {
               session.activeTargetId = activeTargetId;
               session.activeTargetUrl = activeTargetUrl;
