@@ -112,20 +112,13 @@ export function installControlLiveWebSocketServer(
 
     const resolveExistingTarget = async () => {
       const runSession = ctx.state().runSessions.get(runId);
-      const browserEndpoint = runSession?.browserEndpoint ?? profileCtx.profile.browserEndpoint;
-      const pages = await sessionService.listSessions(browserEndpoint);
-      if (pages.length === 0) {
+      if (!runSession) {
+        throw new Error('run session is not initialized. Call CreateRunSession first.');
+      }
+      if (!runSession.activeTargetId) {
         throw new Error('targetId is required. Call navigate first to create a browser session.');
       }
-
-      if (pages.length === 1) {
-        return pages[0];
-      }
-
-      // Browserless can expose an extra blank page alongside the active page.
-      // Prefer the most recently listed non-blank page, but never create a new tab here.
-      const nonBlankPages = pages.filter((page) => page.url && page.url !== 'about:blank');
-      return nonBlankPages.at(-1) ?? pages.at(-1)!;
+      return { targetId: runSession.activeTargetId };
     };
 
     const resolvePage = async () => {
