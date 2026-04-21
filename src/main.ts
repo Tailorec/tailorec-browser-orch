@@ -17,6 +17,7 @@ import {
   SimpleActionController,
   SnapshotController,
   ActionCompatController,
+  RunSessionController,
 } from './api/controllers/index.js';
 import {
   registerActionRoutes,
@@ -24,6 +25,7 @@ import {
   registerControlRoutes,
   registerHooksRoutes,
   registerMediaRoutes,
+  registerRunSessionRoutes,
   registerSnapshotRoutes,
 } from './api/routes/index.js';
 import { installControlLiveWebSocketServer } from './adapters/http/control-live.server.js';
@@ -138,6 +140,7 @@ async function main() {
   );
   const controlController = new ControlController();
   const basicController = new BasicController(browserContext);
+  const runSessionController = new RunSessionController(browserContext);
 
   const app = expressServer.getApp();
   expressServer.useJsonParser('50mb');
@@ -147,6 +150,7 @@ async function main() {
   registerSnapshotRoutes(app, snapshotController, middleware);
   registerHooksRoutes(app, hooksController, middleware);
   registerMediaRoutes(app, mediaController, middleware);
+  registerRunSessionRoutes(app, runSessionController, middleware);
   registerActionRoutes(app, simpleController, formController, advancedController, compatController, middleware);
   app.use(middleware.error);
 
