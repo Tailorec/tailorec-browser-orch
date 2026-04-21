@@ -29,7 +29,7 @@ const DEFAULT_GLOBAL_MAX_SESSIONS = 200;
 const GLOBAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_MAX_SESSIONS, DEFAULT_GLOBAL_MAX_SESSIONS);
 const DEFAULT_LOCAL_MAX_SESSIONS = 5;
 const LOCAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_LOCAL_MAX_SESSIONS, DEFAULT_LOCAL_MAX_SESSIONS);
-const DEFAULT_BROWSERLESS_MAX_SESSIONS = 200;
+const DEFAULT_BROWSERLESS_MAX_SESSIONS = 20;
 const BROWSERLESS_MAX_SESSIONS = parsePositiveInt(
   process.env.BROWSER_BROWSERLESS_MAX_SESSIONS,
   DEFAULT_BROWSERLESS_MAX_SESSIONS,
@@ -411,6 +411,20 @@ export function createBrowserRouteContext(opts: {
         }
       };
 
+      const throwUnsupportedFlowIfExtraTabs = (
+        pages: Array<{ targetId: string; url: string; title?: string }>,
+        activeTargetId: string,
+      ) => {
+        const extraNonBlankTabs = pages.filter(
+          (page) => page.targetId !== activeTargetId && page.url && page.url !== 'about:blank',
+        );
+        if (extraNonBlankTabs.length > 0) {
+          throw statusError(409, 'new tab opened is unsupported in v1', {
+            code: 'unsupported_flow',
+          });
+        }
+      };
+
       return {
         profile: resolvedProfile,
 
@@ -525,6 +539,7 @@ export function createBrowserRouteContext(opts: {
               }
               await ensureBrowserRunning(session);
               const pages = await opts.listPages(session.browserEndpoint);
+              throwUnsupportedFlowIfExtraTabs(pages, targetId);
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
                 await opts.focusPage(session.browserEndpoint, targetId);
@@ -547,6 +562,7 @@ export function createBrowserRouteContext(opts: {
               }
               await ensureBrowserRunning(session);
               const pages = await opts.listPages(session.browserEndpoint);
+              throwUnsupportedFlowIfExtraTabs(pages, activeTargetId);
               const current = pages.find((p) => p.targetId === activeTargetId);
               if (!current) {
                 clearOwnedTarget();

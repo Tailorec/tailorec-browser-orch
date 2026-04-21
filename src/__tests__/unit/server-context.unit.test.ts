@@ -116,10 +116,7 @@ describe('createBrowserRouteContext', () => {
 
     it('focuses the current tab when explicitly requested without a targetId', async () => {
       const { ctx, deps, state } = createContext({
-        listPages: vi.fn(async () => [
-          { targetId: 'tab-other', url: 'https://other.test' },
-          { targetId: 'tab-current', url: 'https://current.test' },
-        ]),
+        listPages: vi.fn(async () => [{ targetId: 'tab-current', url: 'https://current.test' }]),
       });
       state.profiles.set('default', {
         name: 'default',
@@ -144,10 +141,7 @@ describe('createBrowserRouteContext', () => {
 
     it('focuses an existing requested targetId', async () => {
       const { ctx, deps, state } = createContext({
-        listPages: vi.fn(async () => [
-          { targetId: 'tab-1', url: 'https://example.test' },
-          { targetId: 'tab-2', url: 'https://example.org' },
-        ]),
+        listPages: vi.fn(async () => [{ targetId: 'tab-2', url: 'https://example.org' }]),
       });
       state.profiles.set('default', {
         name: 'default',
@@ -160,6 +154,27 @@ describe('createBrowserRouteContext', () => {
       const result = await ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-2');
       expect(result).toMatchObject({ targetId: 'tab-2', url: 'https://example.org' });
       expect(deps.focusPage).toHaveBeenCalledWith(result.browserEndpoint, 'tab-2');
+    });
+
+    it('rejects unsupported multi-tab flow for existing target', async () => {
+      const { ctx, state } = createContext({
+        listPages: vi.fn(async () => [
+          { targetId: 'tab-2', url: 'https://example.org' },
+          { targetId: 'popup-1', url: 'https://popup.example' },
+        ]),
+      });
+      state.profiles.set('default', {
+        name: 'default',
+        config: state.configuredProfiles.get('default'),
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+      });
+      state.targetOwners.set('tab-2', 'run-1');
+      await ctx.forProfile('default').ensureRunSession('run-1');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-2')).rejects.toMatchObject({
+        status: 409,
+        code: 'unsupported_flow',
+      });
     });
 
     it('creates a new page when navigate requests a fresh browser session', async () => {
@@ -293,7 +308,7 @@ describe('createBrowserRouteContext', () => {
       );
     });
 
-    it('enforces global browser max sessions (200)', async () => {
+    it('enforces browserless max sessions (20)', async () => {
       const { ctx, state } = createContext(
         { listPages: vi.fn(async () => []) },
         {
@@ -304,13 +319,37 @@ describe('createBrowserRouteContext', () => {
         },
       );
       const runtimeProfile = state.configuredProfiles.get('default');
-      for (let i = 1; i <= 200; i += 1) {
+      for (let i = 1; i <= 20; i += 1) {
         state.runSessions.set(`run-${i}`, {
           runId: `run-${i}`,
           profileName: 'default',
           browserEndpoint: `wss://browser.example.com?session=${i}`,
           runtimeProfile,
           runtime: { provider: 'browserless', startedAt: Date.now() },
+        });
+      }
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
+        'browserless capacity exceeded',
+      );
+    });
+
+    it('enforces global browser max sessions (200)', async () => {
+      const { ctx, state } = createContext({ listPages: vi.fn(async () => []) });
+      const runtimeProfile = state.configuredProfiles.get('default');
+      for (let i = 1; i <= 200; i += 1) {
+        state.runSessions.set(`run-${i}`, {
+          runId: `run-${i}`,
+          profileName: `profile-${i}`,
+          browserEndpoint: `http://127.0.0.1:${9200 + i}`,
+          runtimeProfile,
+          runtime: {
+            provider: 'local',
+            pid: i,
+            userDataDir: `/tmp/chrome-${i}`,
+            browserPort: 9200 + i,
+            startedAt: Date.now(),
+          },
         });
       }
 
