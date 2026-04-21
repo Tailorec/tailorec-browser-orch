@@ -6,7 +6,6 @@ import {
   createSubsystemLogger,
   initializeLogging,
 } from './adapters/logging/logger.adapter.js';
-import { createTargetViaCdp } from './adapters/utils/cdp.utils.js';
 import { createBrowserRouteContext, type BrowserServerState } from './api/context/browser.context.js';
 import {
   AdvancedActionController,
@@ -112,15 +111,19 @@ async function main() {
       await browserDriver.focusPage(page);
     },
     createPage: async (browserEndpoint, url) => {
-      const created = await createTargetViaCdp({
-        cdpUrl: browserEndpoint,
-        url: url ?? 'about:blank',
-      });
       const browser = await browserDriver.connect(browserEndpoint);
-      const page = await browserDriver.getPage(browser, created.targetId, browserEndpoint);
+      const before = await browserDriver.listPages(browser);
+      const beforeIds = new Set(before.map((entry) => entry.targetId));
+      await browserDriver.createPage(browser, url ?? 'about:blank');
+      const after = await browserDriver.listPages(browser);
+      const created = after.find((entry) => !beforeIds.has(entry.targetId));
+      if (!created) {
+        throw new Error('failed to resolve created tab target id');
+      }
+      const focusedPage = await browserDriver.getPage(browser, created.targetId, browserEndpoint);
       return {
         targetId: created.targetId,
-        url: page.url(),
+        url: focusedPage.url(),
       };
     },
   });
