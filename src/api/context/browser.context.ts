@@ -59,6 +59,11 @@ const SESSION_CLEANUP_SWEEP_MS = parseNonNegativeInt(
   process.env.BROWSER_SESSION_CLEANUP_SWEEP_MS,
   DEFAULT_SESSION_CLEANUP_SWEEP_MS,
 );
+const DEFAULT_SESSION_DEGRADED_CLOSE_GRACE_MS = 60_000;
+const SESSION_DEGRADED_CLOSE_GRACE_MS = parseNonNegativeInt(
+  process.env.BROWSER_SESSION_DEGRADED_CLOSE_GRACE_MS,
+  DEFAULT_SESSION_DEGRADED_CLOSE_GRACE_MS,
+);
 
 /**
  * Browser server state
@@ -92,6 +97,9 @@ export type RunOwnedSession = {
   activeTargetUrl?: string;
   createdAt?: number;
   lastTouchedAt?: number;
+  degradedAt?: number;
+  degradedReason?: string;
+  degradedCloseAt?: number;
 };
 
 /**
@@ -144,6 +152,19 @@ function statusError(
   if (typeof details?.active === 'number') error.active = details.active;
   if (typeof details?.max === 'number') error.max = details.max;
   return error;
+}
+
+function isBrowserDisconnectError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('connectOverCDP') ||
+    msg.includes('WebSocket is not open') ||
+    msg.includes('Session closed') ||
+    msg.includes('Browser has been closed') ||
+    msg.includes('browser has disconnected') ||
+    msg.includes('Target page, context or browser has been closed')
+  );
 }
 
 async function reserveLoopbackPort(): Promise<number> {
@@ -227,7 +248,7 @@ export function createBrowserRouteContext(opts: {
     s: BrowserServerState,
     runId: string,
     session: RunOwnedSession,
-    reason: 'explicit_close' | 'idle_timeout' | 'max_lifetime',
+    reason: 'explicit_close' | 'idle_timeout' | 'max_lifetime' | 'degraded_timeout',
     targetId?: string,
   ): Promise<{ targetId?: string; closed: boolean }> => {
     const closeTargetId = targetId?.trim() || session.activeTargetId;
@@ -235,6 +256,7 @@ export function createBrowserRouteContext(opts: {
       throw statusError(409, `Target ${targetId} is not owned by run ${runId}`);
     }
 
+    ensureInFlight.delete(`${session.profileName}:${runId}`);
     if (session.runtime) {
       try {
         await opts.releaseBrowser(session.runtimeProfile, session.runtime);
@@ -264,15 +286,21 @@ export function createBrowserRouteContext(opts: {
   const sweepExpiredSessions = async (now = Date.now()) => {
     const s = opts.getState();
     if (!s) return;
-    const candidates: Array<{ runId: string; reason: 'idle_timeout' | 'max_lifetime' }> = [];
+    const candidates: Array<{ runId: string; reason: 'idle_timeout' | 'max_lifetime' | 'degraded_timeout' }> = [];
     for (const [runId, session] of s.runSessions.entries()) {
       const createdAt = session.createdAt ?? now;
       const lastTouchedAt = session.lastTouchedAt ?? createdAt;
+      const isDegradedExpired =
+        SESSION_DEGRADED_CLOSE_GRACE_MS > 0 &&
+        typeof session.degradedCloseAt === 'number' &&
+        now >= session.degradedCloseAt;
       const isMaxLifetimeExpired =
-        SESSION_MAX_LIFETIME_MS > 0 && now - createdAt >= SESSION_MAX_LIFETIME_MS;
+        !isDegradedExpired && SESSION_MAX_LIFETIME_MS > 0 && now - createdAt >= SESSION_MAX_LIFETIME_MS;
       const isIdleExpired =
         !isMaxLifetimeExpired && SESSION_IDLE_TIMEOUT_MS > 0 && now - lastTouchedAt >= SESSION_IDLE_TIMEOUT_MS;
-      if (isMaxLifetimeExpired) {
+      if (isDegradedExpired) {
+        candidates.push({ runId, reason: 'degraded_timeout' });
+      } else if (isMaxLifetimeExpired) {
         candidates.push({ runId, reason: 'max_lifetime' });
       } else if (isIdleExpired) {
         candidates.push({ runId, reason: 'idle_timeout' });
@@ -287,9 +315,13 @@ export function createBrowserRouteContext(opts: {
         const createdAt = latest.createdAt ?? now;
         const lastTouchedAt = latest.lastTouchedAt ?? createdAt;
         const stillExpired =
-          candidate.reason === 'max_lifetime'
-            ? SESSION_MAX_LIFETIME_MS > 0 && now - createdAt >= SESSION_MAX_LIFETIME_MS
-            : SESSION_IDLE_TIMEOUT_MS > 0 && now - lastTouchedAt >= SESSION_IDLE_TIMEOUT_MS;
+          candidate.reason === 'degraded_timeout'
+            ? SESSION_DEGRADED_CLOSE_GRACE_MS > 0 &&
+              typeof latest.degradedCloseAt === 'number' &&
+              now >= latest.degradedCloseAt
+            : candidate.reason === 'max_lifetime'
+              ? SESSION_MAX_LIFETIME_MS > 0 && now - createdAt >= SESSION_MAX_LIFETIME_MS
+              : SESSION_IDLE_TIMEOUT_MS > 0 && now - lastTouchedAt >= SESSION_IDLE_TIMEOUT_MS;
         if (stillExpired) {
           await closeSessionInternal(s, candidate.runId, latest, candidate.reason);
         }
@@ -324,11 +356,50 @@ export function createBrowserRouteContext(opts: {
 
       log.debug('profile context created', { profile: name });
 
+      const degradedRetryAfterSeconds = (session: RunOwnedSession, now = Date.now()): number | undefined => {
+        if (typeof session.degradedCloseAt !== 'number') return undefined;
+        const remainingMs = session.degradedCloseAt - now;
+        return remainingMs > 0 ? Math.max(1, Math.ceil(remainingMs / 1000)) : undefined;
+      };
+
+      const markSessionDegraded = (session: RunOwnedSession, error: unknown, now = Date.now()) => {
+        if (session.degradedAt) {
+          return;
+        }
+        session.degradedAt = now;
+        session.degradedReason = error instanceof Error ? error.message : String(error);
+        session.degradedCloseAt = now + SESSION_DEGRADED_CLOSE_GRACE_MS;
+        touchSession(session, now);
+        s.runSessions.set(session.runId, session);
+        log.warn('run session degraded', {
+          profile: session.profileName,
+          run_id: session.runId,
+          session_id: session.sessionId,
+          error: session.degradedReason,
+          auto_close_in_ms: SESSION_DEGRADED_CLOSE_GRACE_MS,
+        });
+      };
+
+      const throwIfSessionDegraded = (session: RunOwnedSession, now = Date.now()) => {
+        if (!session.degradedAt) {
+          return;
+        }
+        throw statusError(503, 'run session is degraded', {
+          code: 'session_degraded',
+          retryAfterSeconds: degradedRetryAfterSeconds(session, now),
+        });
+      };
+
       const ensureBrowserRunning = async (session: RunOwnedSession) => {
+        throwIfSessionDegraded(session);
         const ensureKey = `${name}:${session.runId}`;
         const available = await opts.isBrowserAvailable(session.runtimeProfile, session.runtime);
 
         if (session.runtime && !available) {
+          if (session.runtimeProfile.provider === 'browserless') {
+            markSessionDegraded(session, new Error('browserless session disconnected'));
+            throwIfSessionDegraded(session);
+          }
           try {
             await opts.releaseBrowser(session.runtimeProfile, session.runtime);
           } catch {
@@ -400,6 +471,9 @@ export function createBrowserRouteContext(opts: {
 
           const runtime = await ensurePromise;
           session.runtime = runtime;
+          session.degradedAt = undefined;
+          session.degradedReason = undefined;
+          session.degradedCloseAt = undefined;
           s.profiles.set(name, { name, config: session.runtimeProfile, runtime });
           log.info('browser available on demand', {
             profile: name,
@@ -439,6 +513,9 @@ export function createBrowserRouteContext(opts: {
             const existing = s.runSessions.get(normalizedRunId);
             if (existing && existing.profileName !== name) {
               throw statusError(409, 'run_id is already bound to a different profile');
+            }
+            if (existing) {
+              throwIfSessionDegraded(existing);
             }
 
             const session = existing ?? {
@@ -538,11 +615,28 @@ export function createBrowserRouteContext(opts: {
                 throw statusError(409, `Target ${targetId} is owned by another run`);
               }
               await ensureBrowserRunning(session);
-              const pages = await opts.listPages(session.browserEndpoint);
+              let pages: Array<{ targetId: string; url: string; title?: string }>;
+              try {
+                pages = await opts.listPages(session.browserEndpoint);
+              } catch (error) {
+                if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
+                  markSessionDegraded(session, error);
+                  throwIfSessionDegraded(session);
+                }
+                throw error;
+              }
               throwUnsupportedFlowIfExtraTabs(pages, targetId);
               const found = pages.find((p) => p.targetId === targetId);
               if (found) {
-                await opts.focusPage(session.browserEndpoint, targetId);
+                try {
+                  await opts.focusPage(session.browserEndpoint, targetId);
+                } catch (error) {
+                  if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
+                    markSessionDegraded(session, error);
+                    throwIfSessionDegraded(session);
+                  }
+                  throw error;
+                }
                 setActiveTarget(targetId, found.url);
                 log.info('target focused', {
                   profile: name,
@@ -561,14 +655,31 @@ export function createBrowserRouteContext(opts: {
                 return null;
               }
               await ensureBrowserRunning(session);
-              const pages = await opts.listPages(session.browserEndpoint);
+              let pages: Array<{ targetId: string; url: string; title?: string }>;
+              try {
+                pages = await opts.listPages(session.browserEndpoint);
+              } catch (error) {
+                if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
+                  markSessionDegraded(session, error);
+                  throwIfSessionDegraded(session);
+                }
+                throw error;
+              }
               throwUnsupportedFlowIfExtraTabs(pages, activeTargetId);
               const current = pages.find((p) => p.targetId === activeTargetId);
               if (!current) {
                 clearOwnedTarget();
                 return null;
               }
-              await opts.focusPage(session.browserEndpoint, current.targetId);
+              try {
+                await opts.focusPage(session.browserEndpoint, current.targetId);
+              } catch (error) {
+                if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
+                  markSessionDegraded(session, error);
+                  throwIfSessionDegraded(session);
+                }
+                throw error;
+              }
               setActiveTarget(current.targetId, current.url);
               log.info('run current target focused', {
                 profile: name,
@@ -622,7 +733,16 @@ export function createBrowserRouteContext(opts: {
 
             await ensureBrowserRunning(session);
 
-            const result = await opts.createPage(session.browserEndpoint);
+            let result: { targetId: string; url: string };
+            try {
+              result = await opts.createPage(session.browserEndpoint);
+            } catch (error) {
+              if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
+                markSessionDegraded(session, error);
+                throwIfSessionDegraded(session);
+              }
+              throw error;
+            }
             setActiveTarget(result.targetId, result.url);
             log.info('new tab created', {
               profile: name,

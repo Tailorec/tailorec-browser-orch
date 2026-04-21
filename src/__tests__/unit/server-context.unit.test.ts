@@ -553,6 +553,122 @@ describe('createBrowserRouteContext', () => {
       expect(state.targetOwners.has('max-tab')).toBe(false);
     });
 
+    it('marks browserless sessions degraded on disconnect and returns retriable 503', async () => {
+      const { ctx, state } = createContext(
+        {
+          listPages: vi.fn(async () => {
+            throw new Error('WebSocket is not open');
+          }),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-degraded');
+      const session = state.runSessions.get('run-degraded');
+      if (!session) {
+        throw new Error('missing run session');
+      }
+      session.activeTargetId = 'tab-degraded';
+      session.activeTargetUrl = 'https://degraded.example';
+      state.runSessions.set('run-degraded', session);
+      state.targetOwners.set('tab-degraded', 'run-degraded');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-degraded', 'tab-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+      expect(state.runSessions.get('run-degraded')?.degradedAt).toBeTypeOf('number');
+      expect(state.runSessions.get('run-degraded')?.degradedCloseAt).toBeTypeOf('number');
+    });
+
+    it('auto-closes degraded sessions after grace timeout', async () => {
+      const { ctx, deps, state } = createContext(
+        {
+          listPages: vi.fn(async () => {
+            throw new Error('WebSocket is not open');
+          }),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-degraded');
+      const degraded = state.runSessions.get('run-degraded');
+      if (!degraded) {
+        throw new Error('missing run session');
+      }
+      degraded.activeTargetId = 'tab-degraded';
+      degraded.activeTargetUrl = 'https://degraded.example';
+      state.runSessions.set('run-degraded', degraded);
+      state.targetOwners.set('tab-degraded', 'run-degraded');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-degraded', 'tab-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+
+      const marked = state.runSessions.get('run-degraded');
+      if (!marked) {
+        throw new Error('missing degraded run session');
+      }
+      marked.degradedCloseAt = Date.now() - 1;
+      state.runSessions.set('run-degraded', marked);
+
+      await ctx.forProfile('default').ensureRunSession('run-fresh');
+
+      expect(state.runSessions.has('run-degraded')).toBe(false);
+      expect(state.targetOwners.has('tab-degraded')).toBe(false);
+      expect(deps.releaseBrowser).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'browserless' }),
+        expect.any(Object),
+      );
+    });
+
+    it('blocks run session reuse while degraded', async () => {
+      const { ctx, state } = createContext(
+        {
+          listPages: vi.fn(async () => {
+            throw new Error('WebSocket is not open');
+          }),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-degraded');
+      const session = state.runSessions.get('run-degraded');
+      if (!session) {
+        throw new Error('missing run session');
+      }
+      session.activeTargetId = 'tab-degraded';
+      session.activeTargetUrl = 'https://degraded.example';
+      state.runSessions.set('run-degraded', session);
+      state.targetOwners.set('tab-degraded', 'run-degraded');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-degraded', 'tab-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+    });
+
     it('closing one run does not disturb another run session', async () => {
       const { ctx, state } = createContext();
       const runtimeProfile = state.configuredProfiles.get('default');
