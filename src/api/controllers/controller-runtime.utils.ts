@@ -39,6 +39,14 @@ export function getRunId(req: Request): string {
   return runId;
 }
 
+export function getRunIdFromParamsOrBody(req: Request): string {
+  const paramRunId = typeof req.params?.runId === 'string' ? req.params.runId.trim() : '';
+  if (paramRunId) {
+    return paramRunId;
+  }
+  return getRunId(req);
+}
+
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

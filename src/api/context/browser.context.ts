@@ -8,6 +8,7 @@
  */
 
 import type { Server } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
@@ -81,6 +82,7 @@ export type RunningProfile = {
 };
 
 export type RunOwnedSession = {
+  sessionId: string;
   runId: string;
   profileName: string;
   browserEndpoint: string;
@@ -97,6 +99,7 @@ export type RunOwnedSession = {
  */
 export interface ProfileContext {
   profile: ResolvedBrowserProfile;
+  ensureRunSession(runId: string): Promise<{ runId: string; sessionId: string; created: boolean }>;
   ensureTabAvailable(
     runId: string,
     targetId?: string,
@@ -251,10 +254,11 @@ export function createBrowserRouteContext(opts: {
     log.info('run session closed', {
       profile: session.profileName,
       run_id: runId,
+      session_id: session.sessionId,
       target_id: closeTargetId,
       reason,
     });
-    return { targetId: closeTargetId, closed: Boolean(closeTargetId) };
+    return { targetId: closeTargetId, closed: true };
   };
 
   const sweepExpiredSessions = async (now = Date.now()) => {
@@ -410,6 +414,56 @@ export function createBrowserRouteContext(opts: {
       return {
         profile: resolvedProfile,
 
+        async ensureRunSession(runId: string): Promise<{ runId: string; sessionId: string; created: boolean }> {
+          await sweepExpiredSessions();
+          const normalizedRunId = runId.trim();
+          if (!normalizedRunId) {
+            throw statusError(400, 'run_id is required');
+          }
+          const lockKey = `${name}:${normalizedRunId}`;
+          return await withRunLock(lockKey, async () => {
+            const existing = s.runSessions.get(normalizedRunId);
+            if (existing && existing.profileName !== name) {
+              throw statusError(409, 'run_id is already bound to a different profile');
+            }
+
+            const session = existing ?? {
+              sessionId: randomUUID(),
+              runId: normalizedRunId,
+              profileName: name,
+              browserEndpoint: resolvedProfile.browserEndpoint,
+              runtimeProfile: resolvedProfile,
+            };
+            const created = !existing;
+
+            if (!existing && resolvedProfile.provider === 'local') {
+              const port = await reserveLoopbackPort();
+              session.runtimeProfile = {
+                ...resolvedProfile,
+                browserPort: port,
+                browserEndpoint: `http://127.0.0.1:${port}`,
+                browserEndpointIsLoopback: true,
+              };
+              session.browserEndpoint = session.runtimeProfile.browserEndpoint;
+            }
+
+            touchSession(session);
+            s.runSessions.set(normalizedRunId, session);
+            await ensureBrowserRunning(session);
+            log.info(created ? 'run session created' : 'run session reused', {
+              profile: name,
+              run_id: normalizedRunId,
+              session_id: session.sessionId,
+              provider: session.runtimeProfile.provider,
+            });
+            return {
+              runId: normalizedRunId,
+              sessionId: session.sessionId,
+              created,
+            };
+          });
+        },
+
         async ensureTabAvailable(
           runId: string,
           targetId?: string,
@@ -443,6 +497,7 @@ export function createBrowserRouteContext(opts: {
               throw statusError(409, 'run_id is already bound to a different profile');
             }
             const session = runSession ?? {
+              sessionId: randomUUID(),
               runId: normalizedRunId,
               profileName: name,
               browserEndpoint: resolvedProfile.browserEndpoint,
