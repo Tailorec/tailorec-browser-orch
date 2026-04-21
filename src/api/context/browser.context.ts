@@ -186,9 +186,16 @@ async function reserveLoopbackPort(): Promise<number> {
 }
 
 function withTrackingId(browserEndpoint: string, trackingId: string): string {
+  const toBrowserlessTrackingId = (value: string): string => {
+    const normalized = value.replace(/[^a-zA-Z0-9]/g, '');
+    if (!normalized) {
+      return 'run';
+    }
+    return normalized.slice(0, 31);
+  };
   const url = new URL(browserEndpoint);
   if (!url.searchParams.has('trackingId')) {
-    url.searchParams.set('trackingId', trackingId);
+    url.searchParams.set('trackingId', toBrowserlessTrackingId(trackingId));
   }
   return url.toString();
 }

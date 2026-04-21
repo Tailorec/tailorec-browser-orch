@@ -238,7 +238,7 @@ describe('createBrowserRouteContext', () => {
       await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
       expect(deps.createPage).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=/),
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
       );
     });
 
@@ -266,7 +266,7 @@ describe('createBrowserRouteContext', () => {
       const created = await ctx.forProfile('default').ensureRunSession('run-lifecycle');
       expect(created.created).toBe(true);
       expect(connectBrowserEndpoint).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=/),
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
       );
 
       await ctx.forProfile('default').closeRunSession('run-lifecycle');
