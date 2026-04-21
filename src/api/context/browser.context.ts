@@ -185,6 +185,14 @@ async function reserveLoopbackPort(): Promise<number> {
   });
 }
 
+function withTrackingId(browserEndpoint: string, trackingId: string): string {
+  const url = new URL(browserEndpoint);
+  if (!url.searchParams.has('trackingId')) {
+    url.searchParams.set('trackingId', trackingId);
+  }
+  return url.toString();
+}
+
 /**
  * Create browser route context
  */
@@ -199,6 +207,8 @@ export function createBrowserRouteContext(opts: {
     profile: ResolvedBrowserProfile,
     running?: RunningProfile['runtime'],
   ) => Promise<void>;
+  connectBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
+  disconnectBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
   listPages: (browserEndpoint: string) => Promise<Array<{ targetId: string; url: string; title?: string }>>;
   focusPage: (browserEndpoint: string, targetId: string) => Promise<void>;
   createPage: (browserEndpoint: string, url?: string) => Promise<{ targetId: string; url: string }>;
@@ -262,6 +272,17 @@ export function createBrowserRouteContext(opts: {
         await opts.releaseBrowser(session.runtimeProfile, session.runtime);
       } catch (err) {
         log.warn('browser stop failed', {
+          profile: session.profileName,
+          run_id: runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (opts.disconnectBrowserEndpoint) {
+      try {
+        await opts.disconnectBrowserEndpoint(session.browserEndpoint);
+      } catch (err) {
+        log.warn('browser disconnect failed', {
           profile: session.profileName,
           run_id: runId,
           error: err instanceof Error ? err.message : String(err),
@@ -485,13 +506,16 @@ export function createBrowserRouteContext(opts: {
           session.degradedAt = undefined;
           session.degradedReason = undefined;
           session.degradedCloseAt = undefined;
+          if (opts.connectBrowserEndpoint) {
+            await opts.connectBrowserEndpoint(session.browserEndpoint);
+          }
           s.profiles.set(name, { name, config: session.runtimeProfile, runtime });
           log.info('browser available on demand', {
             profile: name,
             run_id: session.runId,
             session_id: session.sessionId,
             provider: session.runtimeProfile.provider,
-            browser_endpoint: redactBrowserEndpoint(session.runtimeProfile.browserEndpoint),
+            browser_endpoint: redactBrowserEndpoint(session.browserEndpoint),
             browser_port: runtime?.browserPort ?? session.runtimeProfile.browserPort,
           });
         }
@@ -551,6 +575,9 @@ export function createBrowserRouteContext(opts: {
                 browserEndpointIsLoopback: true,
               };
               session.browserEndpoint = session.runtimeProfile.browserEndpoint;
+            }
+            if (!existing && resolvedProfile.provider === 'browserless') {
+              session.browserEndpoint = withTrackingId(resolvedProfile.browserEndpoint, session.sessionId);
             }
 
             touchSession(session);

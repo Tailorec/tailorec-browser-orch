@@ -147,6 +147,15 @@ export class PlaywrightBrowserDriverAdapter {
     }
   }
 
+  async disconnectByCdpUrl(cdpUrl: string): Promise<void> {
+    const normalized = normalizeCdpUrl(cdpUrl);
+    const browser = this.cachedByCdpUrl.get(normalized);
+    if (!browser) {
+      return;
+    }
+    await this.disconnect(browser);
+  }
+
   /**
    * Create a new page in the browser.
    */

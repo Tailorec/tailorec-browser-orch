@@ -237,7 +237,42 @@ describe('createBrowserRouteContext', () => {
       await ctx.forProfile('default').ensureRunSession('run-1');
       await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
-      expect(deps.createPage).toHaveBeenCalledWith('wss://browser.example.com?token=test-token');
+      expect(deps.createPage).toHaveBeenCalledWith(
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=/),
+      );
+    });
+
+    it('eagerly connects and disconnects browserless endpoint per run session lifecycle', async () => {
+      const connectBrowserEndpoint = vi.fn(async () => undefined);
+      const disconnectBrowserEndpoint = vi.fn(async () => undefined);
+      const { ctx, deps } = createContext(
+        {
+          connectBrowserEndpoint,
+          disconnectBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      const created = await ctx.forProfile('default').ensureRunSession('run-lifecycle');
+      expect(created.created).toBe(true);
+      expect(connectBrowserEndpoint).toHaveBeenCalledWith(
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=/),
+      );
+
+      await ctx.forProfile('default').closeRunSession('run-lifecycle');
+      expect(disconnectBrowserEndpoint).toHaveBeenCalledTimes(1);
+      expect(disconnectBrowserEndpoint).toHaveBeenCalledWith(expect.any(String));
+      expect(deps.releaseBrowser).toHaveBeenCalled();
     });
 
     it('retries after a connection refused error while resolving a target', async () => {

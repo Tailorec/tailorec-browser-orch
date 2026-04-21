@@ -86,6 +86,17 @@ async function main() {
     isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
     ensureBrowser: (profile) => browserRuntime.ensureBrowser(profile),
     releaseBrowser: (profile, running) => browserRuntime.releaseBrowser(profile, running),
+    connectBrowserEndpoint: async (browserEndpoint) => {
+      await browserDriver.connect(browserEndpoint);
+    },
+    disconnectBrowserEndpoint: async (browserEndpoint) => {
+      const driver = browserDriver as typeof browserDriver & {
+        disconnectByCdpUrl?: (cdpUrl: string) => Promise<void>;
+      };
+      if (driver.disconnectByCdpUrl) {
+        await driver.disconnectByCdpUrl(browserEndpoint);
+      }
+    },
     listPages: async (browserEndpoint) => {
       const browser = await browserDriver.connect(browserEndpoint);
       const pages = await browserDriver.listPages(browser);
