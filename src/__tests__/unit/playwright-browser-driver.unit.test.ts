@@ -9,7 +9,7 @@ describe('PlaywrightBrowserDriverAdapter', () => {
     global.fetch = originalFetch;
   });
 
-  it('converts wss endpoints to https for json list fallback', async () => {
+  it('does not use json list url fallback for target lookup', async () => {
     const adapter = new PlaywrightBrowserDriverAdapter();
     const page = {
       url: vi.fn(() => 'https://example.test'),
@@ -35,12 +35,7 @@ describe('PlaywrightBrowserDriverAdapter', () => {
       'wss://browser.example.com?token=test-token',
     );
 
-    expect(found).toBe(page);
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://browser.example.com/json/list?token=test-token',
-      expect.objectContaining({
-        headers: expect.any(Object),
-      }),
-    );
+    expect(found).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import {
   createSubsystemLogger,
   initializeLogging,
 } from './adapters/logging/logger.adapter.js';
+import { createTargetViaCdp } from './adapters/utils/cdp.utils.js';
 import { createBrowserRouteContext, type BrowserServerState } from './api/context/browser.context.js';
 import {
   AdvancedActionController,
@@ -100,12 +101,14 @@ async function main() {
       await browserDriver.focusPage(page);
     },
     createPage: async (browserEndpoint, url) => {
+      const created = await createTargetViaCdp({
+        cdpUrl: browserEndpoint,
+        url: url ?? 'about:blank',
+      });
       const browser = await browserDriver.connect(browserEndpoint);
-      const page = await browserDriver.createPage(browser, url);
-      const pages = await browserDriver.listPages(browser);
-      const found = pages.find((entry) => entry.url === page.url()) || pages[pages.length - 1];
+      const page = await browserDriver.getPage(browser, created.targetId, browserEndpoint);
       return {
-        targetId: found?.targetId || '',
+        targetId: created.targetId,
         url: page.url(),
       };
     },
