@@ -130,4 +130,57 @@ describe('browser runtime adapters', () => {
     const running = await runtime.ensureBrowser(remoteProfile);
     await expect(runtime.releaseBrowser(remoteProfile, running)).resolves.toBeUndefined();
   });
+
+  it('remote runtime retries legacy session create path on 404', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => 'not found',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'sess-legacy',
+          connect: 'wss://browser.example.com/e/sess-legacy/chromium/playwright',
+          stop: 'https://browser.example.com/session/sess-legacy?token=test-token',
+        }),
+      });
+    const runtime = new RemoteBrowserRuntimeAdapter({ fetchFn: mockFetch as unknown as typeof fetch });
+
+    const running = await runtime.ensureBrowser(remoteProfile);
+    expect(running.browserSessionId).toBe('sess-legacy');
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      'https://browser.example.com/session?token=test-token',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://browser.example.com/session/create?token=test-token',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('remote runtime supports custom browserless session api path', async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'sess-custom',
+        connect: 'wss://browser.example.com/e/sess-custom/chromium/playwright',
+        stop: 'https://browser.example.com/session/sess-custom?token=test-token',
+      }),
+    });
+    const runtime = new RemoteBrowserRuntimeAdapter({
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sessionApiPath: '/session/create',
+    });
+
+    const running = await runtime.ensureBrowser(remoteProfile);
+    expect(running.browserSessionId).toBe('sess-custom');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://browser.example.com/session/create?token=test-token',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });
