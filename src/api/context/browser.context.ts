@@ -809,6 +809,17 @@ export function createBrowserRouteContext(opts: {
               }
               throw error;
             }
+            let pagesAfterCreate: Array<{ targetId: string; url: string; title?: string }> = [];
+            try {
+              pagesAfterCreate = await opts.listPages(session.browserEndpoint);
+            } catch (error) {
+              if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
+                markSessionDegraded(session, error);
+                throwIfSessionDegraded(session);
+              }
+              throw error;
+            }
+            await throwUnsupportedFlowIfExtraTabs(normalizedRunId, session, pagesAfterCreate, result.targetId);
             setActiveTarget(result.targetId, result.url);
             log.info('new tab created', {
               profile: name,
