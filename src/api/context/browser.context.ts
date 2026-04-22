@@ -589,7 +589,21 @@ export function createBrowserRouteContext(opts: {
 
             touchSession(session);
             s.runSessions.set(normalizedRunId, session);
-            await ensureBrowserRunning(session);
+            try {
+              await ensureBrowserRunning(session);
+            } catch (error) {
+              if (created) {
+                const latest = s.runSessions.get(normalizedRunId);
+                if (latest?.sessionId === session.sessionId) {
+                  if (latest.activeTargetId) {
+                    s.targetOwners.delete(latest.activeTargetId);
+                  }
+                  s.runSessions.delete(normalizedRunId);
+                  clearIdempotencyForRun(latest.profileName, normalizedRunId);
+                }
+              }
+              throw error;
+            }
             log.info(created ? 'run session created' : 'run session reused', {
               profile: name,
               run_id: normalizedRunId,
