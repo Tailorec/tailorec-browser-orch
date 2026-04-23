@@ -147,6 +147,15 @@ export class PlaywrightBrowserDriverAdapter {
     }
   }
 
+  async disconnectByCdpUrl(cdpUrl: string): Promise<void> {
+    const normalized = normalizeCdpUrl(cdpUrl);
+    const browser = this.cachedByCdpUrl.get(normalized);
+    if (!browser) {
+      return;
+    }
+    await this.disconnect(browser);
+  }
+
   /**
    * Create a new page in the browser.
    */
@@ -220,20 +229,13 @@ export class PlaywrightBrowserDriverAdapter {
       throw new Error('No pages available in the connected browser.');
     }
     
-    const first = pages[0];
-    
     if (!targetId) {
-      return first;
+      return pages[0];
     }
     
     const found = await this.findPageByTargetId(browser, targetId, cdpUrl);
     
     if (!found) {
-      // Fallback to single page if only one exists
-      if (pages.length === 1) {
-        log.warn('target lookup fallback to single page', { target_id: targetId, cdp_url: cdpUrl });
-        return first;
-      }
       throw new Error('tab not found');
     }
     
@@ -277,7 +279,7 @@ export class PlaywrightBrowserDriverAdapter {
   private async findPageByTargetId(
     browser: Browser,
     targetId: string,
-    cdpUrl?: string,
+    _cdpUrl?: string,
   ): Promise<Page | null> {
     const pages = await this.getAllPages(browser);
     
@@ -286,32 +288,6 @@ export class PlaywrightBrowserDriverAdapter {
       const tid = await this.getPageTargetId(page).catch(() => null);
       if (tid && tid === targetId) {
         return page;
-      }
-    }
-    
-    // Fallback to URL-based matching using /json/list endpoint
-    if (cdpUrl) {
-      try {
-        const listUrl = this.buildJsonListUrl(cdpUrl);
-        const response = await fetch(listUrl, { headers: getHeadersWithAuth(listUrl) });
-        
-        if (response.ok) {
-          const targets = (await response.json()) as Array<{
-            id: string;
-            url: string;
-            title?: string;
-          }>;
-          
-          const target = targets.find((t) => t.id === targetId);
-          if (target) {
-            const urlMatch = pages.filter((p) => p.url() === target.url);
-            if (urlMatch.length === 1) {
-              return urlMatch[0];
-            }
-          }
-        }
-      } catch {
-        // Ignore fetch errors and fall through to return null
       }
     }
     
@@ -350,16 +326,4 @@ export class PlaywrightBrowserDriverAdapter {
     // Placeholder for context state management
   }
 
-  private toHttpUrl(endpoint: string): string {
-    const normalized = endpoint.replace(/\/+$/, '');
-    return normalized
-      .replace(/^wss:/, 'https:')
-      .replace(/^ws:/, 'http:');
-  }
-
-  private buildJsonListUrl(endpoint: string): string {
-    const url = new URL(this.toHttpUrl(endpoint));
-    url.pathname = `${url.pathname.replace(/\/+$/, '').replace(/\/cdp$/, '')}/json/list`;
-    return url.toString();
-  }
 }

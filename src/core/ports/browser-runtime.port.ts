@@ -6,6 +6,8 @@ export type RunningBrowserRuntime = {
   pid?: number;
   userDataDir?: string;
   browserPort?: number;
+  browserEndpoint?: string;
+  browserSessionId?: string;
 };
 
 /**

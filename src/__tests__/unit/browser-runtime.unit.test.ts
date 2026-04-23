@@ -79,4 +79,16 @@ describe('browser runtime adapters', () => {
     });
     await expect(runtime.releaseBrowser(remoteProfile)).resolves.toBeUndefined();
   });
+
+  it('remote runtime release is a no-op even with runtime metadata', async () => {
+    const runtime = new RemoteBrowserRuntimeAdapter();
+    await expect(
+      runtime.releaseBrowser(remoteProfile, {
+        provider: 'browserless',
+        startedAt: Date.now(),
+        browserEndpoint: 'wss://browser.example.com/',
+        browserSessionId: 'provider-session',
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

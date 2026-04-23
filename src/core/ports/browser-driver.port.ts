@@ -63,9 +63,10 @@ export interface IBrowserDriver {
    * Get page by target ID
    * @param browser - The browser instance
    * @param targetId - Optional target ID to find
+   * @param cdpUrl - Optional browser endpoint for provider-specific lookup
    * @returns The matching page
    */
-  getPage(browser: Browser, targetId?: string): Promise<Page>;
+  getPage(browser: Browser, targetId?: string, cdpUrl?: string): Promise<Page>;
 
   /**
    * Create locator from reference

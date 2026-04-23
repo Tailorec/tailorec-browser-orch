@@ -17,6 +17,7 @@ import {
   SimpleActionController,
   SnapshotController,
   ActionCompatController,
+  RunSessionController,
 } from './api/controllers/index.js';
 import {
   registerActionRoutes,
@@ -24,6 +25,7 @@ import {
   registerControlRoutes,
   registerHooksRoutes,
   registerMediaRoutes,
+  registerRunSessionRoutes,
   registerSnapshotRoutes,
 } from './api/routes/index.js';
 import { installControlLiveWebSocketServer } from './adapters/http/control-live.server.js';
@@ -49,6 +51,7 @@ async function main() {
     logFilePath: config.logging.filePath,
     logMaxBytes: config.logging.maxBytes,
     logBackupCount: config.logging.backupCount,
+    environment: config.nodeEnv,
   });
 
   if (!config.browser.enabled) {
@@ -83,6 +86,17 @@ async function main() {
     isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
     ensureBrowser: (profile) => browserRuntime.ensureBrowser(profile),
     releaseBrowser: (profile, running) => browserRuntime.releaseBrowser(profile, running),
+    connectBrowserEndpoint: async (browserEndpoint) => {
+      await browserDriver.connect(browserEndpoint);
+    },
+    disconnectBrowserEndpoint: async (browserEndpoint) => {
+      const driver = browserDriver as typeof browserDriver & {
+        disconnectByCdpUrl?: (cdpUrl: string) => Promise<void>;
+      };
+      if (driver.disconnectByCdpUrl) {
+        await driver.disconnectByCdpUrl(browserEndpoint);
+      }
+    },
     listPages: async (browserEndpoint) => {
       const browser = await browserDriver.connect(browserEndpoint);
       const pages = await browserDriver.listPages(browser);
@@ -99,12 +113,18 @@ async function main() {
     },
     createPage: async (browserEndpoint, url) => {
       const browser = await browserDriver.connect(browserEndpoint);
-      const page = await browserDriver.createPage(browser, url);
-      const pages = await browserDriver.listPages(browser);
-      const found = pages.find((entry) => entry.url === page.url()) || pages[pages.length - 1];
+      const before = await browserDriver.listPages(browser);
+      const beforeIds = new Set(before.map((entry) => entry.targetId));
+      await browserDriver.createPage(browser, url ?? 'about:blank');
+      const after = await browserDriver.listPages(browser);
+      const created = after.find((entry) => !beforeIds.has(entry.targetId));
+      if (!created) {
+        throw new Error('failed to resolve created tab target id');
+      }
+      const focusedPage = await browserDriver.getPage(browser, created.targetId, browserEndpoint);
       return {
-        targetId: found?.targetId || '',
-        url: page.url(),
+        targetId: created.targetId,
+        url: focusedPage.url(),
       };
     },
   });
@@ -138,6 +158,7 @@ async function main() {
   );
   const controlController = new ControlController();
   const basicController = new BasicController(browserContext);
+  const runSessionController = new RunSessionController(browserContext);
 
   const app = expressServer.getApp();
   expressServer.useJsonParser('50mb');
@@ -147,6 +168,7 @@ async function main() {
   registerSnapshotRoutes(app, snapshotController, middleware);
   registerHooksRoutes(app, hooksController, middleware);
   registerMediaRoutes(app, mediaController, middleware);
+  registerRunSessionRoutes(app, runSessionController, middleware);
   registerActionRoutes(app, simpleController, formController, advancedController, compatController, middleware);
   app.use(middleware.error);
 

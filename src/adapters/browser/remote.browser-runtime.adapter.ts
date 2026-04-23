@@ -20,6 +20,6 @@ export class RemoteBrowserRuntimeAdapter implements IBrowserRuntime {
     _profile: ResolvedBrowserProfile,
     _running?: RunningBrowserRuntime,
   ): Promise<void> {
-    // Remote providers are not launched locally in v1.
+    // Remote providers are not launched locally.
   }
 }

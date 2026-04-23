@@ -27,7 +27,7 @@ The runtime loads env vars at startup through `dotenv/config` in `src/main.ts`.
 
 ### Logging
 
-- `LOG_LEVEL`: `debug|info|warn|error`
+- `LOG_LEVEL`: `debug|info|warn|error` (in `production`/`staging`, effective level is clamped to `warn` minimum)
 - `LOG_FORMAT`: `json|console`
 - `LOG_TO_FILE`: `true|false`
 - `LOG_FILE_PATH`: default `logs/app.log`
@@ -92,6 +92,8 @@ LOG_BACKUP_COUNT=5
 - invalid boolean or viewport values fall back to defaults
 - `local` requires `BROWSER_CDP_PORT`
 - `browserless` requires `BROWSER_ENDPOINT`
+- the default `Dockerfile` is for `browserless`; use `Dockerfile.local` if you need a containerized local browser
 - all configured profiles must resolve to the same provider in v1
 - the service keeps a single active browser connection per process in v1
 - remote endpoints may include secrets; logs and `/status` redact endpoint credentials and query parameter values
+- in `production`/`staging`, warning logs from known third-party logger namespaces are suppressed

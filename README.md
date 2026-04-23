@@ -15,9 +15,15 @@ Standalone browser automation service for LLM-driven workflows. The service expo
 
 ```bash
 npm install
+# required only when running the local browser provider or Playwright E2E tests
 npx playwright install chromium
 npm run dev
 ```
+
+Docker images:
+
+- `Dockerfile`: slim production image for `BROWSER_PROVIDER=browserless`
+- `Dockerfile.local`: Playwright-based image for `BROWSER_PROVIDER=local`
 
 Service URLs:
 
@@ -123,7 +129,7 @@ Primary environment variables:
 - `BROWSER_HEADLESS` default `true` in `.env.example`
 - `BROWSER_NO_SANDBOX`
 - `BROWSER_VIEWPORT` format `WIDTHxHEIGHT`
-- `LOG_LEVEL`
+- `LOG_LEVEL` (in `production`/`staging`, effective log level is clamped to at least `warn`)
 - `LOG_FORMAT`
 - `LOG_TO_FILE`
 - `LOG_FILE_PATH`
@@ -148,6 +154,16 @@ AGENT_RUNTIME_JWT_SECRET=replace-me
 BROWSER_PROVIDER=browserless
 BROWSER_ENDPOINT=wss://browser.example.com?token=YOUR_TOKEN
 BROWSER_HEADLESS=true
+```
+
+Container builds:
+
+```bash
+# browserless / production
+docker build -t tailorec-browser .
+
+# local browser runtime
+docker build -f Dockerfile.local -t tailorec-browser-local .
 ```
 
 Current v1 constraints:

@@ -90,6 +90,7 @@ describe('createBrowserRouteContext', () => {
         config: state.configuredProfiles.get('default'),
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
+      await ctx.forProfile('default').ensureRunSession('run-1');
 
       await expect(ctx.forProfile('default').ensureTabAvailable('run-1')).rejects.toThrow(
         'targetId is required. Call navigate first to create a browser session.',
@@ -103,6 +104,7 @@ describe('createBrowserRouteContext', () => {
         config: state.configuredProfiles.get('default'),
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
+      await ctx.forProfile('default').ensureRunSession('run-1');
 
       const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
 
@@ -114,10 +116,7 @@ describe('createBrowserRouteContext', () => {
 
     it('focuses the current tab when explicitly requested without a targetId', async () => {
       const { ctx, deps, state } = createContext({
-        listPages: vi.fn(async () => [
-          { targetId: 'tab-other', url: 'https://other.test' },
-          { targetId: 'tab-current', url: 'https://current.test' },
-        ]),
+        listPages: vi.fn(async () => [{ targetId: 'tab-current', url: 'https://current.test' }]),
       });
       state.profiles.set('default', {
         name: 'default',
@@ -142,10 +141,7 @@ describe('createBrowserRouteContext', () => {
 
     it('focuses an existing requested targetId', async () => {
       const { ctx, deps, state } = createContext({
-        listPages: vi.fn(async () => [
-          { targetId: 'tab-1', url: 'https://example.test' },
-          { targetId: 'tab-2', url: 'https://example.org' },
-        ]),
+        listPages: vi.fn(async () => [{ targetId: 'tab-2', url: 'https://example.org' }]),
       });
       state.profiles.set('default', {
         name: 'default',
@@ -154,9 +150,34 @@ describe('createBrowserRouteContext', () => {
       });
 
       state.targetOwners.set('tab-2', 'run-1');
+      await ctx.forProfile('default').ensureRunSession('run-1');
       const result = await ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-2');
       expect(result).toMatchObject({ targetId: 'tab-2', url: 'https://example.org' });
-      expect(deps.focusPage).toHaveBeenCalledWith('http://127.0.0.1:9222', 'tab-2');
+      expect(deps.focusPage).toHaveBeenCalledWith(result.browserEndpoint, 'tab-2');
+    });
+
+    it('rejects unsupported multi-tab flow for existing target', async () => {
+      const { ctx, deps, state } = createContext({
+        listPages: vi.fn(async () => [
+          { targetId: 'tab-2', url: 'https://example.org' },
+          { targetId: 'popup-1', url: 'https://popup.example' },
+        ]),
+      });
+      state.profiles.set('default', {
+        name: 'default',
+        config: state.configuredProfiles.get('default'),
+        runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
+      });
+      state.targetOwners.set('tab-2', 'run-1');
+      await ctx.forProfile('default').ensureRunSession('run-1');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-2')).rejects.toMatchObject({
+        status: 409,
+        code: 'unsupported_flow',
+      });
+      expect(state.runSessions.has('run-1')).toBe(false);
+      expect(state.targetOwners.has('tab-2')).toBe(false);
+      expect(deps.releaseBrowser).toHaveBeenCalled();
     });
 
     it('creates a new page when navigate requests a fresh browser session', async () => {
@@ -166,6 +187,7 @@ describe('createBrowserRouteContext', () => {
         config: state.configuredProfiles.get('default'),
         runtime: { provider: 'local', pid: 1, userDataDir: '/tmp/chrome', browserPort: 9222, startedAt: Date.now() },
       });
+      await ctx.forProfile('default').ensureRunSession('run-1');
 
       const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(result).toMatchObject({ targetId: 'new-tab', url: 'about:blank' });
@@ -174,6 +196,7 @@ describe('createBrowserRouteContext', () => {
 
     it('ensures a local browser when navigate creates a fresh session', async () => {
       const { ctx, deps } = createContext({ isBrowserAvailable: vi.fn(async () => false), listPages: vi.fn(async () => []) });
+      await ctx.forProfile('default').ensureRunSession('run-1');
       const result = await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(result).toMatchObject({ targetId: 'new-tab', url: 'about:blank' });
       expect(deps.ensureBrowser).toHaveBeenCalled();
@@ -211,9 +234,45 @@ describe('createBrowserRouteContext', () => {
         },
       );
 
+      await ctx.forProfile('default').ensureRunSession('run-1');
       await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
-      expect(deps.createPage).toHaveBeenCalledWith('wss://browser.example.com?token=test-token');
+      expect(deps.createPage).toHaveBeenCalledWith(
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
+      );
+    });
+
+    it('eagerly connects and disconnects browserless endpoint per run session lifecycle', async () => {
+      const connectBrowserEndpoint = vi.fn(async () => undefined);
+      const disconnectBrowserEndpoint = vi.fn(async () => undefined);
+      const { ctx, deps } = createContext(
+        {
+          connectBrowserEndpoint,
+          disconnectBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      const created = await ctx.forProfile('default').ensureRunSession('run-lifecycle');
+      expect(created.created).toBe(true);
+      expect(connectBrowserEndpoint).toHaveBeenCalledWith(
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
+      );
+
+      await ctx.forProfile('default').closeRunSession('run-lifecycle');
+      expect(disconnectBrowserEndpoint).toHaveBeenCalledTimes(1);
+      expect(disconnectBrowserEndpoint).toHaveBeenCalledWith(expect.any(String));
+      expect(deps.releaseBrowser).toHaveBeenCalled();
     });
 
     it('retries after a connection refused error while resolving a target', async () => {
@@ -229,6 +288,7 @@ describe('createBrowserRouteContext', () => {
       });
 
       state.targetOwners.set('tab-1', 'run-1');
+      await ctx.forProfile('default').ensureRunSession('run-1');
       const result = await ctx.forProfile('default').ensureTabAvailable('run-1', 'tab-1');
       expect(result).toMatchObject({ targetId: 'tab-1', url: 'https://example.test' });
       expect(deps.listPages).toHaveBeenCalledTimes(2);
@@ -263,9 +323,9 @@ describe('createBrowserRouteContext', () => {
         });
       }
 
-      await expect(
-        ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
-      ).rejects.toThrow('local browser capacity exceeded');
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
+        'local browser capacity exceeded',
+      );
     });
 
     it('counts local capacity across profiles', async () => {
@@ -281,12 +341,12 @@ describe('createBrowserRouteContext', () => {
         });
       }
 
-      await expect(
-        ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
-      ).rejects.toThrow('local browser capacity exceeded');
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
+        'local browser capacity exceeded',
+      );
     });
 
-    it('enforces global browser max sessions (200)', async () => {
+    it('enforces browserless max sessions (20)', async () => {
       const { ctx, state } = createContext(
         { listPages: vi.fn(async () => []) },
         {
@@ -297,7 +357,7 @@ describe('createBrowserRouteContext', () => {
         },
       );
       const runtimeProfile = state.configuredProfiles.get('default');
-      for (let i = 1; i <= 200; i += 1) {
+      for (let i = 1; i <= 20; i += 1) {
         state.runSessions.set(`run-${i}`, {
           runId: `run-${i}`,
           profileName: 'default',
@@ -307,9 +367,33 @@ describe('createBrowserRouteContext', () => {
         });
       }
 
-      await expect(
-        ctx.forProfile('default').ensureTabAvailable('run-overflow', undefined, { createNewTab: true }),
-      ).rejects.toThrow('global browser capacity exceeded');
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
+        'browserless capacity exceeded',
+      );
+    });
+
+    it('enforces global browser max sessions (200)', async () => {
+      const { ctx, state } = createContext({ listPages: vi.fn(async () => []) });
+      const runtimeProfile = state.configuredProfiles.get('default');
+      for (let i = 1; i <= 200; i += 1) {
+        state.runSessions.set(`run-${i}`, {
+          runId: `run-${i}`,
+          profileName: `profile-${i}`,
+          browserEndpoint: `http://127.0.0.1:${9200 + i}`,
+          runtimeProfile,
+          runtime: {
+            provider: 'local',
+            pid: i,
+            userDataDir: `/tmp/chrome-${i}`,
+            browserPort: 9200 + i,
+            startedAt: Date.now(),
+          },
+        });
+      }
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
+        'global browser capacity exceeded',
+      );
     });
 
     it('serializes concurrent create requests for the same run', async () => {
@@ -322,6 +406,7 @@ describe('createBrowserRouteContext', () => {
           return { targetId: 'new-tab', url: 'about:blank' };
         }),
       });
+      await ctx.forProfile('default').ensureRunSession('run-1');
 
       const [first, second] = await Promise.all([
         ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true }),
@@ -342,6 +427,7 @@ describe('createBrowserRouteContext', () => {
           .mockImplementationOnce(async () => ({ targetId: 'new-tab-1', url: 'about:blank' }))
           .mockImplementationOnce(async () => ({ targetId: 'new-tab-2', url: 'about:blank' })),
       });
+      await ctx.forProfile('default').ensureRunSession('run-1');
 
       const first = await ctx
         .forProfile('default')
@@ -373,6 +459,7 @@ describe('createBrowserRouteContext', () => {
           return { targetId, url: 'about:blank' };
         }),
       });
+      await ctx.forProfile('default').ensureRunSession('run-race');
 
       const calls = Array.from({ length: 10 }, () =>
         ctx.forProfile('default').ensureTabAvailable('run-race', undefined, { createNewTab: true }),
@@ -401,6 +488,7 @@ describe('createBrowserRouteContext', () => {
       });
       state.targetOwners.set('idle-tab', 'run-idle');
 
+      await ctx.forProfile('default').ensureRunSession('run-fresh');
       await ctx.forProfile('default').ensureTabAvailable('run-fresh', undefined, { createNewTab: true });
 
       expect(state.runSessions.has('run-idle')).toBe(false);
@@ -430,7 +518,9 @@ describe('createBrowserRouteContext', () => {
       });
       state.targetOwners.set('idle-tab', 'run-idle');
 
-      await expect(ctx.forProfile('default').ensureTabAvailable('run-idle', 'idle-tab')).rejects.toThrow('Target idle-tab not found');
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-idle', 'idle-tab')).rejects.toThrow(
+        'run session is not initialized. Call CreateRunSession first.',
+      );
       expect(state.runSessions.has('run-idle')).toBe(false);
       expect(state.targetOwners.has('idle-tab')).toBe(false);
     });
@@ -459,6 +549,7 @@ describe('createBrowserRouteContext', () => {
       });
       state.targetOwners.set('max-tab', 'run-max');
 
+      await ctx.forProfile('default').ensureRunSession('run-fresh');
       await ctx.forProfile('default').ensureTabAvailable('run-fresh', undefined, { createNewTab: true });
 
       expect(state.runSessions.has('run-max')).toBe(false);
@@ -493,9 +584,127 @@ describe('createBrowserRouteContext', () => {
       });
       state.targetOwners.set('max-tab', 'run-max');
 
-      await expect(ctx.forProfile('default').ensureTabAvailable('run-max', 'max-tab')).rejects.toThrow('Target max-tab not found');
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-max', 'max-tab')).rejects.toThrow(
+        'run session is not initialized. Call CreateRunSession first.',
+      );
       expect(state.runSessions.has('run-max')).toBe(false);
       expect(state.targetOwners.has('max-tab')).toBe(false);
+    });
+
+    it('marks browserless sessions degraded on disconnect and returns retriable 503', async () => {
+      const { ctx, state } = createContext(
+        {
+          listPages: vi.fn(async () => {
+            throw new Error('WebSocket is not open');
+          }),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-degraded');
+      const session = state.runSessions.get('run-degraded');
+      if (!session) {
+        throw new Error('missing run session');
+      }
+      session.activeTargetId = 'tab-degraded';
+      session.activeTargetUrl = 'https://degraded.example';
+      state.runSessions.set('run-degraded', session);
+      state.targetOwners.set('tab-degraded', 'run-degraded');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-degraded', 'tab-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+      expect(state.runSessions.get('run-degraded')?.degradedAt).toBeTypeOf('number');
+      expect(state.runSessions.get('run-degraded')?.degradedCloseAt).toBeTypeOf('number');
+    });
+
+    it('auto-closes degraded sessions after grace timeout', async () => {
+      const { ctx, deps, state } = createContext(
+        {
+          listPages: vi.fn(async () => {
+            throw new Error('WebSocket is not open');
+          }),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-degraded');
+      const degraded = state.runSessions.get('run-degraded');
+      if (!degraded) {
+        throw new Error('missing run session');
+      }
+      degraded.activeTargetId = 'tab-degraded';
+      degraded.activeTargetUrl = 'https://degraded.example';
+      state.runSessions.set('run-degraded', degraded);
+      state.targetOwners.set('tab-degraded', 'run-degraded');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-degraded', 'tab-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+
+      const marked = state.runSessions.get('run-degraded');
+      if (!marked) {
+        throw new Error('missing degraded run session');
+      }
+      marked.degradedCloseAt = Date.now() - 1;
+      state.runSessions.set('run-degraded', marked);
+
+      await ctx.forProfile('default').ensureRunSession('run-fresh');
+
+      expect(state.runSessions.has('run-degraded')).toBe(false);
+      expect(state.targetOwners.has('tab-degraded')).toBe(false);
+      expect(deps.releaseBrowser).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'browserless' }),
+        expect.any(Object),
+      );
+    });
+
+    it('blocks run session reuse while degraded', async () => {
+      const { ctx, state } = createContext(
+        {
+          listPages: vi.fn(async () => {
+            throw new Error('WebSocket is not open');
+          }),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-degraded');
+      const session = state.runSessions.get('run-degraded');
+      if (!session) {
+        throw new Error('missing run session');
+      }
+      session.activeTargetId = 'tab-degraded';
+      session.activeTargetUrl = 'https://degraded.example';
+      state.runSessions.set('run-degraded', session);
+      state.targetOwners.set('tab-degraded', 'run-degraded');
+
+      await expect(ctx.forProfile('default').ensureTabAvailable('run-degraded', 'tab-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
     });
 
     it('closing one run does not disturb another run session', async () => {
