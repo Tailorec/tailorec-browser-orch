@@ -129,7 +129,7 @@ Primary environment variables:
 - `BROWSER_HEADLESS` default `true` in `.env.example`
 - `BROWSER_NO_SANDBOX`
 - `BROWSER_VIEWPORT` format `WIDTHxHEIGHT`
-- `LOG_LEVEL`
+- `LOG_LEVEL` (in `production`/`staging`, effective log level is clamped to at least `warn`)
 - `LOG_FORMAT`
 - `LOG_TO_FILE`
 - `LOG_FILE_PATH`

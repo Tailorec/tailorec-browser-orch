@@ -26,6 +26,8 @@ export type LoggerConfig = {
   logFilePath?: string;
   logMaxBytes?: number;
   logBackupCount?: number;
+  environment?: string;
+  suppressThirdPartyWarningsInProduction?: boolean;
 };
 
 type LogRecord = {
@@ -117,7 +119,18 @@ let activeConfig: Required<LoggerConfig> = {
   logFilePath: 'logs/app.log',
   logMaxBytes: 10 * 1024 * 1024,
   logBackupCount: 5,
+  environment: 'development',
+  suppressThirdPartyWarningsInProduction: true,
 };
+
+const thirdPartyLoggerPrefixes = [
+  'playwright',
+  'express',
+  'node',
+  'ws',
+  'zod',
+  'dotenv',
+];
 
 function parseLevel(raw: string | undefined): LogLevel {
   switch ((raw ?? '').toLowerCase()) {
@@ -135,9 +148,32 @@ function parseFormat(raw: string | undefined): LogFormat {
   return raw === 'console' ? 'console' : 'json';
 }
 
+function effectiveLevel(level: LogLevel, environment: string): LogLevel {
+  const isProduction = environment === 'production' || environment === 'staging';
+  if (!isProduction) {
+    return level;
+  }
+  return levelWeights[level] < levelWeights.warn ? 'warn' : level;
+}
+
+function shouldSuppressWarning(level: LogLevel, loggerName: string): boolean {
+  if (level !== 'warn') {
+    return false;
+  }
+  return thirdPartyLoggerPrefixes.some((prefix) => loggerName.startsWith(prefix));
+}
+
 function initializeLogger(cfg: LoggerConfig = {}): void {
+  const environment = (
+    cfg.environment
+    ?? (initialized ? activeConfig.environment : process.env.NODE_ENV)
+    ?? 'development'
+  ).toLowerCase();
+
+  const requestedLevel = cfg.level ?? (initialized ? activeConfig.level : parseLevel(process.env.LOG_LEVEL));
+
   const nextConfig: Required<LoggerConfig> = {
-    level: cfg.level ?? (initialized ? activeConfig.level : parseLevel(process.env.LOG_LEVEL)),
+    level: effectiveLevel(requestedLevel, environment),
     format: cfg.format ?? (initialized ? activeConfig.format : parseFormat(process.env.LOG_FORMAT)),
     logToFile: cfg.logToFile ?? (initialized ? activeConfig.logToFile : process.env.LOG_TO_FILE === 'true'),
     logFilePath: cfg.logFilePath ?? (initialized ? activeConfig.logFilePath : process.env.LOG_FILE_PATH || 'logs/app.log'),
@@ -147,6 +183,9 @@ function initializeLogger(cfg: LoggerConfig = {}): void {
     logBackupCount: cfg.logBackupCount ?? (
       initialized ? activeConfig.logBackupCount : Number(process.env.LOG_BACKUP_COUNT || 5)
     ),
+    environment,
+    suppressThirdPartyWarningsInProduction: cfg.suppressThirdPartyWarningsInProduction
+      ?? (initialized ? activeConfig.suppressThirdPartyWarningsInProduction : true),
   };
 
   activeConfig = nextConfig;
@@ -161,10 +200,12 @@ function initializeLogger(cfg: LoggerConfig = {}): void {
     level: 'info',
     logger: 'logging',
     message: 'logging initialized',
-    log_level: activeConfig.level,
+    requested_log_level: requestedLevel,
+    effective_log_level: activeConfig.level,
     log_format: activeConfig.format,
     log_to_file: activeConfig.logToFile,
     log_file_path: activeConfig.logFilePath,
+    environment: activeConfig.environment,
   });
 }
 
@@ -292,6 +333,15 @@ export function createSubsystemLogger(name: string): Logger {
     message: string,
     extra?: Record<string, unknown>,
   ): void => {
+    const isProduction = activeConfig.environment === 'production' || activeConfig.environment === 'staging';
+    if (
+      isProduction
+      && activeConfig.suppressThirdPartyWarningsInProduction
+      && shouldSuppressWarning(level, name)
+    ) {
+      return;
+    }
+
     if (!shouldLog(level)) {
       return;
     }

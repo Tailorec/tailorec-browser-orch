@@ -51,6 +51,7 @@ async function main() {
     logFilePath: config.logging.filePath,
     logMaxBytes: config.logging.maxBytes,
     logBackupCount: config.logging.backupCount,
+    environment: config.nodeEnv,
   });
 
   if (!config.browser.enabled) {
