@@ -92,6 +92,7 @@ LOG_BACKUP_COUNT=5
 - invalid boolean or viewport values fall back to defaults
 - `local` requires `BROWSER_CDP_PORT`
 - `browserless` requires `BROWSER_ENDPOINT`
+- the default `Dockerfile` is for `browserless`; use `Dockerfile.local` if you need a containerized local browser
 - all configured profiles must resolve to the same provider in v1
 - the service keeps a single active browser connection per process in v1
 - remote endpoints may include secrets; logs and `/status` redact endpoint credentials and query parameter values

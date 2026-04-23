@@ -4,6 +4,7 @@
 
 ```bash
 npm install
+# required only for local provider / E2E
 npx playwright install chromium
 cp .env.example .env
 npm run dev
