@@ -310,12 +310,14 @@ export function createBrowserRouteContext(opts: {
     }
 
     try {
-      await browserlessAllocator.waitForWorkerRunning({
+      const runningState = await browserlessAllocator.waitForWorkerRunning({
         taskId: session.browserlessTaskId,
         endpoint: session.browserlessWorkerEndpoint,
         timeoutMs: BROWSERLESS_READY_TIMEOUT_MS,
         pollIntervalMs: BROWSERLESS_READY_POLL_INTERVAL_MS,
       });
+      session.browserlessWorkerEndpoint = runningState.endpoint;
+      session.browserEndpoint = withTrackingId(runningState.endpoint, session.sessionId);
     } catch (error) {
       throw statusError(503, 'browserless worker failed to reach running state', {
         code: 'runtime_unavailable',

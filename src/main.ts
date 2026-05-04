@@ -29,14 +29,9 @@ import {
   registerSnapshotRoutes,
 } from './api/routes/index.js';
 import { installControlLiveWebSocketServer } from './adapters/http/control-live.server.js';
-import { InMemoryBrowserlessAllocatorAdapter } from './adapters/browser/in-memory-browserless-allocator.adapter.js';
+import { createBrowserlessAllocatorFromEnv } from './adapters/browser/browserless-allocator.factory.js';
 
 const log = createSubsystemLogger('main');
-
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
 
 process.on('uncaughtException', (err) => {
   log.exception('Uncaught exception', err);
@@ -87,11 +82,7 @@ async function main() {
   }
 
   let state: BrowserServerState | null = null;
-  const browserlessAllocator = new InMemoryBrowserlessAllocatorAdapter({
-    maxSessionsPerWorker: parsePositiveInt(process.env.BROWSER_BROWSERLESS_SESSIONS_PER_WORKER, 5),
-    maxTotalSessions: parsePositiveInt(process.env.BROWSER_BROWSERLESS_MAX_TOTAL_SESSIONS, 20),
-    idleGraceMs: parsePositiveInt(process.env.BROWSER_BROWSERLESS_IDLE_GRACE_MS, 30_000),
-  });
+  const browserlessAllocator = createBrowserlessAllocatorFromEnv();
   const browserContext = createBrowserRouteContext({
     getState: () => state,
     isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
