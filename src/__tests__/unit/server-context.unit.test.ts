@@ -98,7 +98,7 @@ describe('createBrowserRouteContext', () => {
     });
 
     it('creates a new tab when explicitly requested without a targetId', async () => {
-      const { ctx, deps, state } = createContext();
+      const { ctx, deps, state } = createContext({ listPages: vi.fn(async () => []) });
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
@@ -220,6 +220,7 @@ describe('createBrowserRouteContext', () => {
     it('does not treat remote profiles as locally launched browsers when navigate creates a fresh session', async () => {
       const { ctx, deps } = createContext(
         {
+          listPages: vi.fn(async () => []),
           isBrowserAvailable: vi.fn(async () => true),
           ensureBrowser: vi.fn(async () => ({
             provider: 'browserless' as const,
@@ -273,6 +274,93 @@ describe('createBrowserRouteContext', () => {
       expect(disconnectBrowserEndpoint).toHaveBeenCalledTimes(1);
       expect(disconnectBrowserEndpoint).toHaveBeenCalledWith(expect.any(String));
       expect(deps.releaseBrowser).toHaveBeenCalled();
+    });
+
+    it('pins browserless sessions to allocator-owned worker identity', async () => {
+      const assignRun = vi.fn(async () => ({
+        runId: 'run-pinned',
+        taskId: 'task-1',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        assignedAt: 123,
+      }));
+      const getAssignment = vi.fn(async () => null);
+      const { ctx, state } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun,
+            getAssignment,
+            releaseRun: vi.fn(async () => undefined),
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-pinned');
+
+      expect(assignRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: 'run-pinned',
+          profile: expect.objectContaining({
+            provider: 'browserless',
+          }),
+        }),
+      );
+      expect(state.runSessions.get('run-pinned')).toMatchObject({
+        browserlessTaskId: 'task-1',
+        browserlessWorkerEndpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        browserlessAssignedAt: 123,
+      });
+      expect(state.runSessions.get('run-pinned')?.browserEndpoint).toMatch(
+        /^wss:\/\/10\.0\.1\.25\/devtools\/browser\?token=test-token&trackingId=[^&]{1,31}$/,
+      );
+    });
+
+    it('releases browserless allocator assignment when closing a run session', async () => {
+      const releaseRun = vi.fn(async () => undefined);
+      const { ctx } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun: vi.fn(async () => ({
+              runId: 'run-close',
+              taskId: 'task-1',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              assignedAt: Date.now(),
+            })),
+            getAssignment: vi.fn(async () => null),
+            releaseRun,
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-close');
+      await ctx.forProfile('default').closeRunSession('run-close');
+
+      expect(releaseRun).toHaveBeenCalledWith('run-close');
     });
 
     it('retries after a connection refused error while resolving a target', async () => {

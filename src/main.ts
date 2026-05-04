@@ -29,6 +29,7 @@ import {
   registerSnapshotRoutes,
 } from './api/routes/index.js';
 import { installControlLiveWebSocketServer } from './adapters/http/control-live.server.js';
+import { InMemoryBrowserlessAllocatorAdapter } from './adapters/browser/in-memory-browserless-allocator.adapter.js';
 
 const log = createSubsystemLogger('main');
 
@@ -81,6 +82,7 @@ async function main() {
   }
 
   let state: BrowserServerState | null = null;
+  const browserlessAllocator = new InMemoryBrowserlessAllocatorAdapter();
   const browserContext = createBrowserRouteContext({
     getState: () => state,
     isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
@@ -127,6 +129,7 @@ async function main() {
         url: focusedPage.url(),
       };
     },
+    browserlessAllocator,
   });
 
   const simpleController = new SimpleActionController(executeActionUseCase, browserContext);
@@ -181,6 +184,12 @@ async function main() {
     runSessions: new Map(),
     targetOwners: new Map(),
   };
+
+  const orphanReconciliation = await browserlessAllocator.reconcileOrphans();
+  log.info('browserless allocator reconciled startup orphans', {
+    discovered_workers: orphanReconciliation.discoveredWorkerCount,
+    stopped_workers: orphanReconciliation.stoppedWorkerCount,
+  });
 
   installControlLiveWebSocketServer(started.server, browserContext, sessionService);
   log.info('Service ready', { port: started.port, profiles: Array.from(configuredProfiles.keys()) });

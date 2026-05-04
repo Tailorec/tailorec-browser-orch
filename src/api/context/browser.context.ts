@@ -12,6 +12,8 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
+import type { IBrowserlessAllocator } from '../../core/ports/browserless-allocator.port.js';
+import { InMemoryBrowserlessAllocatorAdapter } from '../../adapters/browser/in-memory-browserless-allocator.adapter.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
@@ -91,6 +93,9 @@ export type RunOwnedSession = {
   runId: string;
   profileName: string;
   browserEndpoint: string;
+  browserlessTaskId?: string;
+  browserlessWorkerEndpoint?: string;
+  browserlessAssignedAt?: number;
   runtimeProfile: ResolvedBrowserProfile;
   runtime?: RunningBrowserRuntime;
   activeTargetId?: string;
@@ -219,9 +224,11 @@ export function createBrowserRouteContext(opts: {
   listPages: (browserEndpoint: string) => Promise<Array<{ targetId: string; url: string; title?: string }>>;
   focusPage: (browserEndpoint: string, targetId: string) => Promise<void>;
   createPage: (browserEndpoint: string, url?: string) => Promise<{ targetId: string; url: string }>;
+  browserlessAllocator?: IBrowserlessAllocator;
 }): BrowserRouteContext {
   const ensureInFlight = new Map<string, Promise<RunningProfile['runtime']>>();
   const runLocks = new Map<string, Promise<void>>();
+  const browserlessAllocator = opts.browserlessAllocator ?? new InMemoryBrowserlessAllocatorAdapter();
   const createIdempotencyResults = new Map<
     string,
     { expiresAt: number; response: { targetId: string; url: string; browserEndpoint: string } }
@@ -250,6 +257,24 @@ export function createBrowserRouteContext(opts: {
       session.createdAt = now;
     }
     session.lastTouchedAt = now;
+  };
+
+  const ensureBrowserlessPinnedWorker = async (session: RunOwnedSession) => {
+    if (session.runtimeProfile.provider !== 'browserless') {
+      return;
+    }
+
+    const existingAssignment = await browserlessAllocator.getAssignment(session.runId);
+    const assignment = existingAssignment ?? await browserlessAllocator.assignRun({
+      runId: session.runId,
+      sessionId: session.sessionId,
+      profile: session.runtimeProfile,
+    });
+
+    session.browserlessTaskId = assignment.taskId;
+    session.browserlessWorkerEndpoint = assignment.endpoint;
+    session.browserlessAssignedAt = assignment.assignedAt;
+    session.browserEndpoint = withTrackingId(assignment.endpoint, session.sessionId);
   };
 
   const clearIdempotencyForRun = (profileName: string, runId: string) => {
@@ -301,12 +326,16 @@ export function createBrowserRouteContext(opts: {
     }
     s.runSessions.delete(runId);
     clearIdempotencyForRun(session.profileName, runId);
+    if (session.runtimeProfile.provider === 'browserless') {
+      await browserlessAllocator.releaseRun(runId);
+    }
     log.info('run session closed', {
       profile: session.profileName,
       run_id: runId,
       session_id: session.sessionId,
       target_id: closeTargetId,
       reason,
+      browserless_task_id: session.browserlessTaskId,
     });
     return { targetId: closeTargetId, closed: true };
   };
@@ -505,7 +534,9 @@ export function createBrowserRouteContext(opts: {
           }
           session.runtime = runtime;
           if (session.runtimeProfile.provider === 'browserless' && runtime.browserEndpoint) {
-            session.browserEndpoint = runtime.browserEndpoint;
+            session.browserEndpoint = session.browserlessWorkerEndpoint
+              ? withTrackingId(session.browserlessWorkerEndpoint, session.sessionId)
+              : runtime.browserEndpoint;
           }
           if (session.runtimeProfile.provider === 'browserless' && runtime.browserSessionId) {
             session.sessionId = runtime.browserSessionId;
@@ -584,7 +615,10 @@ export function createBrowserRouteContext(opts: {
               session.browserEndpoint = session.runtimeProfile.browserEndpoint;
             }
             if (!existing && resolvedProfile.provider === 'browserless') {
-              session.browserEndpoint = withTrackingId(resolvedProfile.browserEndpoint, session.sessionId);
+              await ensureBrowserlessPinnedWorker(session);
+            }
+            if (existing && resolvedProfile.provider === 'browserless') {
+              await ensureBrowserlessPinnedWorker(session);
             }
 
             touchSession(session);
@@ -600,6 +634,9 @@ export function createBrowserRouteContext(opts: {
                   }
                   s.runSessions.delete(normalizedRunId);
                   clearIdempotencyForRun(latest.profileName, normalizedRunId);
+                  if (latest.runtimeProfile.provider === 'browserless') {
+                    await browserlessAllocator.releaseRun(normalizedRunId);
+                  }
                 }
               }
               throw error;
@@ -609,6 +646,7 @@ export function createBrowserRouteContext(opts: {
               run_id: normalizedRunId,
               session_id: session.sessionId,
               provider: session.runtimeProfile.provider,
+              browserless_task_id: session.browserlessTaskId,
             });
             return {
               runId: normalizedRunId,
