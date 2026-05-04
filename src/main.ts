@@ -90,6 +90,7 @@ async function main() {
   const browserlessAllocator = new InMemoryBrowserlessAllocatorAdapter({
     maxSessionsPerWorker: parsePositiveInt(process.env.BROWSER_BROWSERLESS_SESSIONS_PER_WORKER, 5),
     maxTotalSessions: parsePositiveInt(process.env.BROWSER_BROWSERLESS_MAX_TOTAL_SESSIONS, 20),
+    idleGraceMs: parsePositiveInt(process.env.BROWSER_BROWSERLESS_IDLE_GRACE_MS, 30_000),
   });
   const browserContext = createBrowserRouteContext({
     getState: () => state,
