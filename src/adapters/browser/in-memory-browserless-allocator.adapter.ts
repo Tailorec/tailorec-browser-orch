@@ -11,6 +11,7 @@ type TrackedWorker = {
   endpoint: string;
   assignedRunIds: Set<string>;
   createdAt: number;
+  runningAt: number;
   lastAssignedAt: number;
 };
 
@@ -38,6 +39,7 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
         endpoint,
         assignedRunIds: new Set(),
         createdAt: now,
+        runningAt: now,
         lastAssignedAt: now,
       };
       this.nextTaskNumber += 1;
@@ -77,6 +79,24 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
     if (worker.assignedRunIds.size === 0) {
       this.workersByEndpoint.delete(assignment.endpoint);
     }
+  }
+
+  async waitForWorkerRunning(input: {
+    taskId: string;
+    endpoint: string;
+    timeoutMs: number;
+    pollIntervalMs: number;
+  }) {
+    const worker = this.workersByEndpoint.get(input.endpoint);
+    if (!worker || worker.taskId !== input.taskId) {
+      throw new Error(`browserless worker ${input.taskId} is not tracked`);
+    }
+
+    return {
+      taskId: worker.taskId,
+      endpoint: worker.endpoint,
+      runningAt: worker.runningAt,
+    };
   }
 
   async getStatusSnapshot(): Promise<BrowserlessAllocatorStatusSnapshot> {

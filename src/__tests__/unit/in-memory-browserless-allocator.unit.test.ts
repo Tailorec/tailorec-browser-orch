@@ -58,6 +58,28 @@ describe('InMemoryBrowserlessAllocatorAdapter', () => {
     expect(status.workers[0]?.assignedRunIds).toEqual(['run-2']);
   });
 
+  it('reports tracked workers as running for readiness waits', async () => {
+    const allocator = new InMemoryBrowserlessAllocatorAdapter();
+
+    const assignment = await allocator.assignRun({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      profile,
+    });
+
+    await expect(
+      allocator.waitForWorkerRunning({
+        taskId: assignment.taskId,
+        endpoint: assignment.endpoint,
+        timeoutMs: 1_000,
+        pollIntervalMs: 100,
+      }),
+    ).resolves.toMatchObject({
+      taskId: assignment.taskId,
+      endpoint: assignment.endpoint,
+    });
+  });
+
   it('exposes orphan reconciliation as a stable no-op in the in-memory implementation', async () => {
     const allocator = new InMemoryBrowserlessAllocatorAdapter();
 

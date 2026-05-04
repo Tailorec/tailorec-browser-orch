@@ -7,6 +7,12 @@ export type BrowserlessWorkerAssignment = {
   assignedAt: number;
 };
 
+export type BrowserlessWorkerRunningState = {
+  taskId: string;
+  endpoint: string;
+  runningAt: number;
+};
+
 export type BrowserlessWorkerSnapshot = {
   taskId: string;
   endpoint: string;
@@ -35,6 +41,13 @@ export interface IBrowserlessAllocator {
   getAssignment(runId: string): Promise<BrowserlessWorkerAssignment | null>;
 
   releaseRun(runId: string): Promise<void>;
+
+  waitForWorkerRunning(input: {
+    taskId: string;
+    endpoint: string;
+    timeoutMs: number;
+    pollIntervalMs: number;
+  }): Promise<BrowserlessWorkerRunningState>;
 
   getStatusSnapshot(): Promise<BrowserlessAllocatorStatusSnapshot>;
 
