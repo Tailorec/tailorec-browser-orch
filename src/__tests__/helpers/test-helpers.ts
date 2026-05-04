@@ -94,6 +94,12 @@ export function createBrowserContextMock() {
       runSessions: new Map(),
       targetOwners: new Map(),
     })),
+    getBrowserlessAllocatorStatus: vi.fn(async () => ({
+      totalAssignedRuns: 0,
+      maxTotalSessions: 20,
+      maxSessionsPerWorker: 5,
+      workers: [],
+    })),
     forProfile: vi.fn(() => profileCtx),
     mapTabError: vi.fn(() => null),
   };

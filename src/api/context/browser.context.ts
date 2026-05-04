@@ -12,7 +12,11 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
-import { BrowserlessCapacityExceededError, type IBrowserlessAllocator } from '../../core/ports/browserless-allocator.port.js';
+import {
+  BrowserlessCapacityExceededError,
+  type BrowserlessAllocatorStatusSnapshot,
+  type IBrowserlessAllocator,
+} from '../../core/ports/browserless-allocator.port.js';
 import { InMemoryBrowserlessAllocatorAdapter } from '../../adapters/browser/in-memory-browserless-allocator.adapter.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
@@ -133,6 +137,7 @@ export interface ProfileContext {
 export interface BrowserRouteContext {
   state(): BrowserServerState;
   forProfile(name: string): ProfileContext;
+  getBrowserlessAllocatorStatus(): Promise<BrowserlessAllocatorStatusSnapshot>;
   mapTabError(err: unknown): { status: number; message: string } | null;
 }
 
@@ -460,6 +465,10 @@ export function createBrowserRouteContext(opts: {
       const s = opts.getState();
       if (!s) throw new Error('Server not started');
       return s;
+    },
+
+    async getBrowserlessAllocatorStatus(): Promise<BrowserlessAllocatorStatusSnapshot> {
+      return await browserlessAllocator.getStatusSnapshot();
     },
 
     forProfile(name: string) {
