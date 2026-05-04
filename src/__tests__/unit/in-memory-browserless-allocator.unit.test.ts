@@ -39,6 +39,12 @@ describe('InMemoryBrowserlessAllocatorAdapter', () => {
       assignedRunIds: ['run-1', 'run-2'],
       maxSessions: 5,
       idleSince: null,
+      ownership: {
+        ownerScope: 'openclaw-browser',
+        ownerId: expect.any(String),
+      },
+      unavailableSince: null,
+      unavailableReason: null,
     });
     expect(status.maxTotalSessions).toBe(20);
     expect(status.maxSessionsPerWorker).toBe(5);
@@ -143,6 +149,41 @@ describe('InMemoryBrowserlessAllocatorAdapter', () => {
     });
   });
 
+  it('marks an unavailable worker so it is not reused for later runs', async () => {
+    const allocator = new InMemoryBrowserlessAllocatorAdapter({
+      maxSessionsPerWorker: 1,
+    });
+
+    const first = await allocator.assignRun({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      profile,
+    });
+
+    await allocator.markWorkerUnavailable({
+      taskId: first.taskId,
+      endpoint: first.endpoint,
+      reason: 'worker disconnected',
+    });
+
+    await allocator.releaseRun('run-1');
+
+    const second = await allocator.assignRun({
+      runId: 'run-2',
+      sessionId: 'session-2',
+      profile,
+    });
+
+    expect(second.taskId).toBe('configured-browserless-2');
+    const status = await allocator.getStatusSnapshot();
+    expect(status.workers).toHaveLength(1);
+    expect(status.workers[0]).toMatchObject({
+      taskId: 'configured-browserless-2',
+      unavailableSince: null,
+      unavailableReason: null,
+    });
+  });
+
   it('packs runs onto the oldest non-full worker before creating a new one', async () => {
     const allocator = new InMemoryBrowserlessAllocatorAdapter({
       maxSessionsPerWorker: 2,
@@ -177,22 +218,42 @@ describe('InMemoryBrowserlessAllocatorAdapter', () => {
     });
   });
 
-  it('exposes orphan reconciliation as a stable no-op in the in-memory implementation', async () => {
-    const allocator = new InMemoryBrowserlessAllocatorAdapter();
-
-    await allocator.assignRun({
-      runId: 'run-1',
-      sessionId: 'session-1',
-      profile,
+  it('stops prior-owner workers during orphan reconciliation', async () => {
+    const stopOwnedWorker = vi.fn(async () => undefined);
+    const allocator = new InMemoryBrowserlessAllocatorAdapter({
+      ownerScope: 'openclaw-browser',
+      ownerId: 'current-owner',
+      listOwnedWorkers: async () => [
+        {
+          taskId: 'task-current',
+          endpoint: 'wss://browser.example.com/current',
+          ownership: { ownerScope: 'openclaw-browser', ownerId: 'current-owner' },
+        },
+        {
+          taskId: 'task-orphan',
+          endpoint: 'wss://browser.example.com/orphan',
+          ownership: { ownerScope: 'openclaw-browser', ownerId: 'old-owner' },
+        },
+        {
+          taskId: 'task-foreign',
+          endpoint: 'wss://browser.example.com/foreign',
+          ownership: { ownerScope: 'another-service', ownerId: 'foreign-owner' },
+        },
+      ],
+      stopOwnedWorker,
     });
 
     const reconciliation = await allocator.reconcileOrphans();
-    const status = await allocator.getStatusSnapshot();
 
     expect(reconciliation).toEqual({
-      discoveredWorkerCount: 0,
-      stoppedWorkerCount: 0,
+      discoveredWorkerCount: 3,
+      stoppedWorkerCount: 1,
     });
-    expect(status.totalAssignedRuns).toBe(1);
+    expect(stopOwnedWorker).toHaveBeenCalledTimes(1);
+    expect(stopOwnedWorker).toHaveBeenCalledWith({
+      taskId: 'task-orphan',
+      endpoint: 'wss://browser.example.com/orphan',
+      ownership: { ownerScope: 'openclaw-browser', ownerId: 'old-owner' },
+    });
   });
 });

@@ -1,7 +1,10 @@
+import process from 'node:process';
 import type {
+  BrowserlessOwnedWorkerRecord,
   BrowserlessAllocatorStatusSnapshot,
   BrowserlessOrphanReconciliationResult,
   BrowserlessWorkerAssignment,
+  BrowserlessWorkerOwnership,
   IBrowserlessAllocator,
 } from '../../core/ports/browserless-allocator.port.js';
 import { BrowserlessCapacityExceededError } from '../../core/ports/browserless-allocator.port.js';
@@ -16,6 +19,9 @@ type TrackedWorker = {
   lastAssignedAt: number;
   maxSessions: number;
   idleSince: number | null;
+  ownership: BrowserlessWorkerOwnership;
+  unavailableSince: number | null;
+  unavailableReason: string | null;
   idleShutdownTimer?: ReturnType<typeof setTimeout>;
 };
 
@@ -23,6 +29,10 @@ type InMemoryBrowserlessAllocatorOptions = {
   maxSessionsPerWorker?: number;
   maxTotalSessions?: number;
   idleGraceMs?: number;
+  ownerScope?: string;
+  ownerId?: string;
+  listOwnedWorkers?: () => Promise<BrowserlessOwnedWorkerRecord[]>;
+  stopOwnedWorker?: (worker: BrowserlessOwnedWorkerRecord) => Promise<void>;
 };
 
 export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
@@ -31,12 +41,21 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
   private readonly maxSessionsPerWorker: number;
   private readonly maxTotalSessions: number;
   private readonly idleGraceMs: number;
+  private readonly ownership: BrowserlessWorkerOwnership;
+  private readonly listOwnedWorkers: () => Promise<BrowserlessOwnedWorkerRecord[]>;
+  private readonly stopOwnedWorker: (worker: BrowserlessOwnedWorkerRecord) => Promise<void>;
   private nextTaskNumber = 1;
 
   constructor(options: InMemoryBrowserlessAllocatorOptions = {}) {
     this.maxSessionsPerWorker = options.maxSessionsPerWorker ?? 5;
     this.maxTotalSessions = options.maxTotalSessions ?? 20;
     this.idleGraceMs = options.idleGraceMs ?? 30_000;
+    this.ownership = {
+      ownerScope: options.ownerScope ?? 'openclaw-browser',
+      ownerId: options.ownerId ?? `openclaw-browser-${process.pid}-${Date.now()}`,
+    };
+    this.listOwnedWorkers = options.listOwnedWorkers ?? (async () => []);
+    this.stopOwnedWorker = options.stopOwnedWorker ?? (async () => undefined);
   }
 
   private buildWorkerEndpoint(profile: ResolvedBrowserProfile, workerTaskId: string): string {
@@ -104,7 +123,10 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
     }
     const existingWorker = Array.from(this.workersByEndpoint.values())
       .sort((left, right) => left.createdAt - right.createdAt)
-      .find((candidate) => candidate.assignedRunIds.size < candidate.maxSessions);
+      .find(
+        (candidate) =>
+          candidate.unavailableSince === null && candidate.assignedRunIds.size < candidate.maxSessions,
+      );
     let worker = existingWorker;
 
     if (!worker) {
@@ -118,6 +140,9 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
         lastAssignedAt: now,
         maxSessions: this.maxSessionsPerWorker,
         idleSince: null,
+        ownership: this.ownership,
+        unavailableSince: null,
+        unavailableReason: null,
       };
       this.nextTaskNumber += 1;
       this.workersByEndpoint.set(worker.endpoint, worker);
@@ -155,7 +180,11 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
 
     worker.assignedRunIds.delete(runId);
     if (worker.assignedRunIds.size === 0) {
-      this.scheduleIdleShutdown(worker, Date.now());
+      if (worker.unavailableSince !== null) {
+        this.stopWorkerIfIdle(worker);
+      } else {
+        this.scheduleIdleShutdown(worker, Date.now());
+      }
     }
   }
 
@@ -169,12 +198,32 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
     if (!worker || worker.taskId !== input.taskId) {
       throw new Error(`browserless worker ${input.taskId} is not tracked`);
     }
+    if (worker.unavailableSince !== null) {
+      throw new Error(
+        worker.unavailableReason
+          ? `browserless worker ${input.taskId} is unavailable: ${worker.unavailableReason}`
+          : `browserless worker ${input.taskId} is unavailable`,
+      );
+    }
 
     return {
       taskId: worker.taskId,
       endpoint: worker.endpoint,
       runningAt: worker.runningAt,
     };
+  }
+
+  async markWorkerUnavailable(input: { taskId: string; endpoint: string; reason?: string }): Promise<void> {
+    const worker = this.workersByEndpoint.get(input.endpoint);
+    if (!worker || worker.taskId !== input.taskId) {
+      return;
+    }
+    this.clearIdleShutdown(worker);
+    worker.unavailableSince = Date.now();
+    worker.unavailableReason = input.reason ?? null;
+    if (worker.assignedRunIds.size === 0) {
+      this.stopWorkerIfIdle(worker);
+    }
   }
 
   async getStatusSnapshot(): Promise<BrowserlessAllocatorStatusSnapshot> {
@@ -186,6 +235,9 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       lastAssignedAt: worker.lastAssignedAt,
       maxSessions: worker.maxSessions,
       idleSince: worker.idleSince,
+      ownership: worker.ownership,
+      unavailableSince: worker.unavailableSince,
+      unavailableReason: worker.unavailableReason,
     }));
     return {
       totalAssignedRuns: this.assignmentsByRunId.size,
@@ -196,9 +248,23 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
   }
 
   async reconcileOrphans(): Promise<BrowserlessOrphanReconciliationResult> {
+    const discoveredWorkers = await this.listOwnedWorkers();
+    let stoppedWorkerCount = 0;
+
+    for (const worker of discoveredWorkers) {
+      if (worker.ownership.ownerScope !== this.ownership.ownerScope) {
+        continue;
+      }
+      if (worker.ownership.ownerId === this.ownership.ownerId) {
+        continue;
+      }
+      await this.stopOwnedWorker(worker);
+      stoppedWorkerCount += 1;
+    }
+
     return {
-      discoveredWorkerCount: 0,
-      stoppedWorkerCount: 0,
+      discoveredWorkerCount: discoveredWorkers.length,
+      stoppedWorkerCount,
     };
   }
 }

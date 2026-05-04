@@ -24,6 +24,17 @@ export type BrowserlessWorkerRunningState = {
   runningAt: number;
 };
 
+export type BrowserlessWorkerOwnership = {
+  ownerScope: string;
+  ownerId: string;
+};
+
+export type BrowserlessOwnedWorkerRecord = {
+  taskId: string;
+  endpoint: string;
+  ownership: BrowserlessWorkerOwnership;
+};
+
 export type BrowserlessWorkerSnapshot = {
   taskId: string;
   endpoint: string;
@@ -32,6 +43,9 @@ export type BrowserlessWorkerSnapshot = {
   lastAssignedAt: number;
   maxSessions: number;
   idleSince: number | null;
+  ownership: BrowserlessWorkerOwnership;
+  unavailableSince: number | null;
+  unavailableReason: string | null;
 };
 
 export type BrowserlessAllocatorStatusSnapshot = {
@@ -63,6 +77,12 @@ export interface IBrowserlessAllocator {
     timeoutMs: number;
     pollIntervalMs: number;
   }): Promise<BrowserlessWorkerRunningState>;
+
+  markWorkerUnavailable(input: {
+    taskId: string;
+    endpoint: string;
+    reason?: string;
+  }): Promise<void>;
 
   getStatusSnapshot(): Promise<BrowserlessAllocatorStatusSnapshot>;
 
