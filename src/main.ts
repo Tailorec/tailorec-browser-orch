@@ -33,6 +33,11 @@ import { InMemoryBrowserlessAllocatorAdapter } from './adapters/browser/in-memor
 
 const log = createSubsystemLogger('main');
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
 process.on('uncaughtException', (err) => {
   log.exception('Uncaught exception', err);
   process.exit(1);
@@ -82,7 +87,10 @@ async function main() {
   }
 
   let state: BrowserServerState | null = null;
-  const browserlessAllocator = new InMemoryBrowserlessAllocatorAdapter();
+  const browserlessAllocator = new InMemoryBrowserlessAllocatorAdapter({
+    maxSessionsPerWorker: parsePositiveInt(process.env.BROWSER_BROWSERLESS_SESSIONS_PER_WORKER, 5),
+    maxTotalSessions: parsePositiveInt(process.env.BROWSER_BROWSERLESS_MAX_TOTAL_SESSIONS, 20),
+  });
   const browserContext = createBrowserRouteContext({
     getState: () => state,
     isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),

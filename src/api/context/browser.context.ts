@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
-import type { IBrowserlessAllocator } from '../../core/ports/browserless-allocator.port.js';
+import { BrowserlessCapacityExceededError, type IBrowserlessAllocator } from '../../core/ports/browserless-allocator.port.js';
 import { InMemoryBrowserlessAllocatorAdapter } from '../../adapters/browser/in-memory-browserless-allocator.adapter.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
@@ -31,11 +31,6 @@ const DEFAULT_GLOBAL_MAX_SESSIONS = 200;
 const GLOBAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_MAX_SESSIONS, DEFAULT_GLOBAL_MAX_SESSIONS);
 const DEFAULT_LOCAL_MAX_SESSIONS = 5;
 const LOCAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_LOCAL_MAX_SESSIONS, DEFAULT_LOCAL_MAX_SESSIONS);
-const DEFAULT_BROWSERLESS_MAX_SESSIONS = 20;
-const BROWSERLESS_MAX_SESSIONS = parsePositiveInt(
-  process.env.BROWSER_BROWSERLESS_MAX_SESSIONS,
-  DEFAULT_BROWSERLESS_MAX_SESSIONS,
-);
 const DEFAULT_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const CREATE_IDEMPOTENCY_TTL_MS = parsePositiveInt(
   process.env.BROWSER_CREATE_IDEMPOTENCY_TTL_MS,
@@ -276,11 +271,26 @@ export function createBrowserRouteContext(opts: {
     }
 
     const existingAssignment = await browserlessAllocator.getAssignment(session.runId);
-    const assignment = existingAssignment ?? await browserlessAllocator.assignRun({
-      runId: session.runId,
-      sessionId: session.sessionId,
-      profile: session.runtimeProfile,
-    });
+    let assignment = existingAssignment;
+    if (!assignment) {
+      try {
+        assignment = await browserlessAllocator.assignRun({
+          runId: session.runId,
+          sessionId: session.sessionId,
+          profile: session.runtimeProfile,
+        });
+      } catch (error) {
+        if (error instanceof BrowserlessCapacityExceededError) {
+          throw statusError(429, error.message, {
+            code: 'capacity_exceeded',
+            retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
+            active: error.active,
+            max: error.max,
+          });
+        }
+        throw error;
+      }
+    }
 
     session.browserlessTaskId = assignment.taskId;
     session.browserlessWorkerEndpoint = assignment.endpoint;
@@ -543,24 +553,6 @@ export function createBrowserRouteContext(opts: {
                   retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
                   active: activeLocalSessions,
                   max: LOCAL_MAX_SESSIONS,
-                },
-              );
-            }
-          }
-
-          if (session.runtimeProfile.provider === 'browserless') {
-            const activeBrowserlessSessions = Array.from(s.runSessions.values()).filter(
-              (candidate) => candidate.runtimeProfile.provider === 'browserless' && candidate.runtime,
-            ).length;
-            if (activeBrowserlessSessions >= BROWSERLESS_MAX_SESSIONS) {
-              throw statusError(
-                429,
-                `browserless capacity exceeded: ${activeBrowserlessSessions}/${BROWSERLESS_MAX_SESSIONS}`,
-                {
-                  code: 'capacity_exceeded',
-                  retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
-                  active: activeBrowserlessSessions,
-                  max: BROWSERLESS_MAX_SESSIONS,
                 },
               );
             }

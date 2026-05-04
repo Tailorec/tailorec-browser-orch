@@ -240,7 +240,7 @@ describe('createBrowserRouteContext', () => {
       await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
       expect(deps.createPage).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&workerId=configured-browserless-1&trackingId=[^&]{1,31}$/),
       );
     });
 
@@ -268,7 +268,7 @@ describe('createBrowserRouteContext', () => {
       const created = await ctx.forProfile('default').ensureRunSession('run-lifecycle');
       expect(created.created).toBe(true);
       expect(connectBrowserEndpoint).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&workerId=configured-browserless-1&trackingId=[^&]{1,31}$/),
       );
 
       await ctx.forProfile('default').closeRunSession('run-lifecycle');
@@ -583,8 +583,8 @@ describe('createBrowserRouteContext', () => {
       );
     });
 
-    it('enforces browserless max sessions (20)', async () => {
-      const { ctx, state } = createContext(
+    it('maps allocator browserless capacity exhaustion to 429', async () => {
+      const { ctx } = createContext(
         { listPages: vi.fn(async () => []) },
         {
           provider: 'browserless',
@@ -593,20 +593,17 @@ describe('createBrowserRouteContext', () => {
           browserEndpointIsLoopback: false,
         },
       );
-      const runtimeProfile = state.configuredProfiles.get('default');
+
       for (let i = 1; i <= 20; i += 1) {
-        state.runSessions.set(`run-${i}`, {
-          runId: `run-${i}`,
-          profileName: 'default',
-          browserEndpoint: `wss://browser.example.com?session=${i}`,
-          runtimeProfile,
-          runtime: { provider: 'browserless', startedAt: Date.now() },
-        });
+        await ctx.forProfile('default').ensureRunSession(`run-${i}`);
       }
 
-      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
-        'browserless capacity exceeded',
-      );
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toMatchObject({
+        status: 429,
+        code: 'capacity_exceeded',
+        active: 20,
+        max: 20,
+      });
     });
 
     it('enforces global browser max sessions (200)', async () => {
