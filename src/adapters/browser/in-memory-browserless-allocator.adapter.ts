@@ -4,6 +4,7 @@ import type {
   BrowserlessWorkerAssignment,
   IBrowserlessAllocator,
 } from '../../core/ports/browserless-allocator.port.js';
+import { BrowserlessCapacityExceededError } from '../../core/ports/browserless-allocator.port.js';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 
 type TrackedWorker = {
@@ -13,12 +14,31 @@ type TrackedWorker = {
   createdAt: number;
   runningAt: number;
   lastAssignedAt: number;
+  maxSessions: number;
+};
+
+type InMemoryBrowserlessAllocatorOptions = {
+  maxSessionsPerWorker?: number;
+  maxTotalSessions?: number;
 };
 
 export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
   private readonly workersByEndpoint = new Map<string, TrackedWorker>();
   private readonly assignmentsByRunId = new Map<string, BrowserlessWorkerAssignment>();
+  private readonly maxSessionsPerWorker: number;
+  private readonly maxTotalSessions: number;
   private nextTaskNumber = 1;
+
+  constructor(options: InMemoryBrowserlessAllocatorOptions = {}) {
+    this.maxSessionsPerWorker = options.maxSessionsPerWorker ?? 5;
+    this.maxTotalSessions = options.maxTotalSessions ?? 20;
+  }
+
+  private buildWorkerEndpoint(profile: ResolvedBrowserProfile, workerTaskId: string): string {
+    const url = new URL(profile.browserEndpoint);
+    url.searchParams.set('workerId', workerTaskId);
+    return url.toString();
+  }
 
   async assignRun(input: {
     runId: string;
@@ -30,20 +50,32 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       return existing;
     }
 
-    const endpoint = input.profile.browserEndpoint;
     const now = Date.now();
-    let worker = this.workersByEndpoint.get(endpoint);
+    if (this.assignmentsByRunId.size >= this.maxTotalSessions) {
+      throw new BrowserlessCapacityExceededError(
+        `browserless capacity exceeded: ${this.assignmentsByRunId.size}/${this.maxTotalSessions}`,
+        this.assignmentsByRunId.size,
+        this.maxTotalSessions,
+      );
+    }
+    const existingWorker = Array.from(this.workersByEndpoint.values())
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .find((candidate) => candidate.assignedRunIds.size < candidate.maxSessions);
+    let worker = existingWorker;
+
     if (!worker) {
+      const taskId = `configured-browserless-${this.nextTaskNumber}`;
       worker = {
-        taskId: `configured-browserless-${this.nextTaskNumber}`,
-        endpoint,
+        taskId,
+        endpoint: this.buildWorkerEndpoint(input.profile, taskId),
         assignedRunIds: new Set(),
         createdAt: now,
         runningAt: now,
         lastAssignedAt: now,
+        maxSessions: this.maxSessionsPerWorker,
       };
       this.nextTaskNumber += 1;
-      this.workersByEndpoint.set(endpoint, worker);
+      this.workersByEndpoint.set(worker.endpoint, worker);
     }
 
     worker.assignedRunIds.add(input.runId);
@@ -106,9 +138,12 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       assignedRunIds: Array.from(worker.assignedRunIds),
       createdAt: worker.createdAt,
       lastAssignedAt: worker.lastAssignedAt,
+      maxSessions: worker.maxSessions,
     }));
     return {
       totalAssignedRuns: this.assignmentsByRunId.size,
+      maxTotalSessions: this.maxTotalSessions,
+      maxSessionsPerWorker: this.maxSessionsPerWorker,
       workers,
     };
   }

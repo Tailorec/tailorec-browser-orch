@@ -1,5 +1,16 @@
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 
+export class BrowserlessCapacityExceededError extends Error {
+  constructor(
+    message: string,
+    readonly active: number,
+    readonly max: number,
+  ) {
+    super(message);
+    this.name = 'BrowserlessCapacityExceededError';
+  }
+}
+
 export type BrowserlessWorkerAssignment = {
   runId: string;
   taskId: string;
@@ -19,10 +30,13 @@ export type BrowserlessWorkerSnapshot = {
   assignedRunIds: string[];
   createdAt: number;
   lastAssignedAt: number;
+  maxSessions: number;
 };
 
 export type BrowserlessAllocatorStatusSnapshot = {
   totalAssignedRuns: number;
+  maxTotalSessions: number;
+  maxSessionsPerWorker: number;
   workers: BrowserlessWorkerSnapshot[];
 };
 
