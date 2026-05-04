@@ -296,6 +296,7 @@ describe('createBrowserRouteContext', () => {
               endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
               runningAt: 123,
             })),
+            markWorkerUnavailable: vi.fn(async () => undefined),
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -351,6 +352,7 @@ describe('createBrowserRouteContext', () => {
               endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
               runningAt: Date.now(),
             })),
+            markWorkerUnavailable: vi.fn(async () => undefined),
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -393,6 +395,7 @@ describe('createBrowserRouteContext', () => {
             getAssignment: vi.fn(async () => null),
             releaseRun: vi.fn(async () => undefined),
             waitForWorkerRunning,
+            markWorkerUnavailable: vi.fn(async () => undefined),
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -440,6 +443,7 @@ describe('createBrowserRouteContext', () => {
             waitForWorkerRunning: vi.fn(async () => {
               throw new Error('timed out waiting for ECS task');
             }),
+            markWorkerUnavailable: vi.fn(async () => undefined),
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -486,6 +490,7 @@ describe('createBrowserRouteContext', () => {
               endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
               runningAt: 123,
             })),
+            markWorkerUnavailable: vi.fn(async () => undefined),
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -510,6 +515,74 @@ describe('createBrowserRouteContext', () => {
       });
       expect(state.runSessions.has('run-probe-fail')).toBe(false);
       expect(releaseRun).toHaveBeenCalledWith('run-probe-fail');
+    });
+
+    it('fails createRunSession retriably after a pinned browserless worker dies', async () => {
+      const assignment = {
+        runId: 'run-retry-degraded',
+        taskId: 'task-retry-degraded',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        assignedAt: 123,
+      };
+      const assignRun = vi.fn(async () => assignment);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
+      const getAssignment = vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(assignment);
+      const probeBrowserEndpoint = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('WebSocket is not open'));
+      const { ctx, state } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun,
+            getAssignment,
+            releaseRun: vi.fn(async () => undefined),
+            waitForWorkerRunning: vi.fn(async () => ({
+              taskId: 'task-retry-degraded',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              runningAt: 123,
+            })),
+            markWorkerUnavailable,
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          probeBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-retry-degraded')).resolves.toMatchObject({
+        runId: 'run-retry-degraded',
+        created: true,
+      });
+      await expect(ctx.forProfile('default').ensureRunSession('run-retry-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+
+      expect(assignRun).toHaveBeenCalledTimes(1);
+      expect(markWorkerUnavailable).toHaveBeenCalledWith({
+        taskId: 'task-retry-degraded',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        reason: 'WebSocket is not open',
+      });
+      expect(state.runSessions.get('run-retry-degraded')).toMatchObject({
+        degradedAt: expect.any(Number),
+        degradedCloseAt: expect.any(Number),
+      });
     });
 
     it('retries after a connection refused error while resolving a target', async () => {

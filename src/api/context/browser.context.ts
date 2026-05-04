@@ -495,6 +495,28 @@ export function createBrowserRouteContext(opts: {
         });
       };
 
+      const markBrowserlessSessionDegraded = async (session: RunOwnedSession, error: unknown, now = Date.now()) => {
+        markSessionDegraded(session, error, now);
+        if (!session.browserlessTaskId || !session.browserlessWorkerEndpoint) {
+          return;
+        }
+        try {
+          await browserlessAllocator.markWorkerUnavailable({
+            taskId: session.browserlessTaskId,
+            endpoint: session.browserlessWorkerEndpoint,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        } catch (allocatorError) {
+          log.warn('browserless worker unavailable mark failed', {
+            profile: session.profileName,
+            run_id: session.runId,
+            session_id: session.sessionId,
+            browserless_task_id: session.browserlessTaskId,
+            error: allocatorError instanceof Error ? allocatorError.message : String(allocatorError),
+          });
+        }
+      };
+
       const throwIfSessionDegraded = (session: RunOwnedSession, now = Date.now()) => {
         if (!session.degradedAt) {
           return;
@@ -512,7 +534,7 @@ export function createBrowserRouteContext(opts: {
 
         if (session.runtime && !available) {
           if (session.runtimeProfile.provider === 'browserless') {
-            markSessionDegraded(session, new Error('browserless session disconnected'));
+            await markBrowserlessSessionDegraded(session, new Error('browserless session disconnected'));
             throwIfSessionDegraded(session);
           }
           try {
@@ -521,6 +543,19 @@ export function createBrowserRouteContext(opts: {
             // Ignore stop errors
           }
           session.runtime = undefined;
+        }
+
+        if (session.runtime && session.runtimeProfile.provider === 'browserless') {
+          try {
+            if (opts.probeBrowserEndpoint) {
+              await opts.probeBrowserEndpoint(session.browserEndpoint);
+            } else if (opts.connectBrowserEndpoint) {
+              await opts.connectBrowserEndpoint(session.browserEndpoint);
+            }
+          } catch (error) {
+            await markBrowserlessSessionDegraded(session, error);
+            throwIfSessionDegraded(session);
+          }
         }
 
         if (!session.runtime) {
@@ -762,7 +797,7 @@ export function createBrowserRouteContext(opts: {
                 pages = await opts.listPages(session.browserEndpoint);
               } catch (error) {
                 if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                  markSessionDegraded(session, error);
+                  await markBrowserlessSessionDegraded(session, error);
                   throwIfSessionDegraded(session);
                 }
                 throw error;
@@ -774,7 +809,7 @@ export function createBrowserRouteContext(opts: {
                   await opts.focusPage(session.browserEndpoint, targetId);
                 } catch (error) {
                   if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                    markSessionDegraded(session, error);
+                    await markBrowserlessSessionDegraded(session, error);
                     throwIfSessionDegraded(session);
                   }
                   throw error;
@@ -804,7 +839,7 @@ export function createBrowserRouteContext(opts: {
                 pages = await opts.listPages(session.browserEndpoint);
               } catch (error) {
                 if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                  markSessionDegraded(session, error);
+                  await markBrowserlessSessionDegraded(session, error);
                   throwIfSessionDegraded(session);
                 }
                 throw error;
@@ -819,7 +854,7 @@ export function createBrowserRouteContext(opts: {
                 await opts.focusPage(session.browserEndpoint, current.targetId);
               } catch (error) {
                 if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                  markSessionDegraded(session, error);
+                  await markBrowserlessSessionDegraded(session, error);
                   throwIfSessionDegraded(session);
                 }
                 throw error;
@@ -883,7 +918,7 @@ export function createBrowserRouteContext(opts: {
               result = await opts.createPage(session.browserEndpoint);
             } catch (error) {
               if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                markSessionDegraded(session, error);
+                await markBrowserlessSessionDegraded(session, error);
                 throwIfSessionDegraded(session);
               }
               throw error;
@@ -893,7 +928,7 @@ export function createBrowserRouteContext(opts: {
               pagesAfterCreate = await opts.listPages(session.browserEndpoint);
             } catch (error) {
               if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                markSessionDegraded(session, error);
+                await markBrowserlessSessionDegraded(session, error);
                 throwIfSessionDegraded(session);
               }
               throw error;
