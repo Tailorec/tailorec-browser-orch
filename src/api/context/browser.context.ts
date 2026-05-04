@@ -66,6 +66,16 @@ const SESSION_DEGRADED_CLOSE_GRACE_MS = parseNonNegativeInt(
   process.env.BROWSER_SESSION_DEGRADED_CLOSE_GRACE_MS,
   DEFAULT_SESSION_DEGRADED_CLOSE_GRACE_MS,
 );
+const DEFAULT_BROWSERLESS_READY_TIMEOUT_MS = 60_000;
+const BROWSERLESS_READY_TIMEOUT_MS = parsePositiveInt(
+  process.env.BROWSER_BROWSERLESS_READY_TIMEOUT_MS,
+  DEFAULT_BROWSERLESS_READY_TIMEOUT_MS,
+);
+const DEFAULT_BROWSERLESS_READY_POLL_INTERVAL_MS = 1_000;
+const BROWSERLESS_READY_POLL_INTERVAL_MS = parsePositiveInt(
+  process.env.BROWSER_BROWSERLESS_READY_POLL_INTERVAL_MS,
+  DEFAULT_BROWSERLESS_READY_POLL_INTERVAL_MS,
+);
 
 /**
  * Browser server state
@@ -221,6 +231,7 @@ export function createBrowserRouteContext(opts: {
   ) => Promise<void>;
   connectBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
   disconnectBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
+  probeBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
   listPages: (browserEndpoint: string) => Promise<Array<{ targetId: string; url: string; title?: string }>>;
   focusPage: (browserEndpoint: string, targetId: string) => Promise<void>;
   createPage: (browserEndpoint: string, url?: string) => Promise<{ targetId: string; url: string }>;
@@ -275,6 +286,43 @@ export function createBrowserRouteContext(opts: {
     session.browserlessWorkerEndpoint = assignment.endpoint;
     session.browserlessAssignedAt = assignment.assignedAt;
     session.browserEndpoint = withTrackingId(assignment.endpoint, session.sessionId);
+  };
+
+  const waitForBrowserlessReadiness = async (session: RunOwnedSession) => {
+    if (session.runtimeProfile.provider !== 'browserless') {
+      return;
+    }
+
+    if (!session.browserlessTaskId || !session.browserlessWorkerEndpoint) {
+      throw statusError(503, 'browserless worker assignment is missing', {
+        code: 'runtime_unavailable',
+      });
+    }
+
+    try {
+      await browserlessAllocator.waitForWorkerRunning({
+        taskId: session.browserlessTaskId,
+        endpoint: session.browserlessWorkerEndpoint,
+        timeoutMs: BROWSERLESS_READY_TIMEOUT_MS,
+        pollIntervalMs: BROWSERLESS_READY_POLL_INTERVAL_MS,
+      });
+    } catch (error) {
+      throw statusError(503, 'browserless worker failed to reach running state', {
+        code: 'runtime_unavailable',
+      });
+    }
+
+    try {
+      if (opts.probeBrowserEndpoint) {
+        await opts.probeBrowserEndpoint(session.browserEndpoint);
+      } else if (opts.connectBrowserEndpoint) {
+        await opts.connectBrowserEndpoint(session.browserEndpoint);
+      }
+    } catch (error) {
+      throw statusError(503, 'browserless worker failed readiness probe', {
+        code: 'runtime_unavailable',
+      });
+    }
   };
 
   const clearIdempotencyForRun = (profileName: string, runId: string) => {
@@ -541,6 +589,7 @@ export function createBrowserRouteContext(opts: {
           if (session.runtimeProfile.provider === 'browserless' && runtime.browserSessionId) {
             session.sessionId = runtime.browserSessionId;
           }
+          await waitForBrowserlessReadiness(session);
           session.degradedAt = undefined;
           session.degradedReason = undefined;
           session.degradedCloseAt = undefined;

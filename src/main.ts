@@ -99,6 +99,10 @@ async function main() {
         await driver.disconnectByCdpUrl(browserEndpoint);
       }
     },
+    probeBrowserEndpoint: async (browserEndpoint) => {
+      const browser = await browserDriver.connect(browserEndpoint);
+      await browserDriver.listPages(browser);
+    },
     listPages: async (browserEndpoint) => {
       const browser = await browserDriver.connect(browserEndpoint);
       const pages = await browserDriver.listPages(browser);
