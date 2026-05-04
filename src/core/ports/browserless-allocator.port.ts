@@ -31,6 +31,7 @@ export type BrowserlessWorkerSnapshot = {
   createdAt: number;
   lastAssignedAt: number;
   maxSessions: number;
+  idleSince: number | null;
 };
 
 export type BrowserlessAllocatorStatusSnapshot = {

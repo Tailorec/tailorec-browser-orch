@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryBrowserlessAllocatorAdapter } from '../../adapters/browser/in-memory-browserless-allocator.adapter.js';
 
 const profile = {
@@ -11,6 +11,10 @@ const profile = {
 };
 
 describe('InMemoryBrowserlessAllocatorAdapter', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('tracks run-to-worker assignments in status snapshots', async () => {
     const allocator = new InMemoryBrowserlessAllocatorAdapter();
 
@@ -34,6 +38,7 @@ describe('InMemoryBrowserlessAllocatorAdapter', () => {
       endpoint: 'wss://browser.example.com/?token=test-token&workerId=configured-browserless-1',
       assignedRunIds: ['run-1', 'run-2'],
       maxSessions: 5,
+      idleSince: null,
     });
     expect(status.maxTotalSessions).toBe(20);
     expect(status.maxSessionsPerWorker).toBe(5);
@@ -58,6 +63,61 @@ describe('InMemoryBrowserlessAllocatorAdapter', () => {
     const status = await allocator.getStatusSnapshot();
     expect(status.totalAssignedRuns).toBe(1);
     expect(status.workers).toHaveLength(1);
+    expect(status.workers[0]?.assignedRunIds).toEqual(['run-2']);
+  });
+
+  it('keeps an empty worker alive until the idle grace elapses', async () => {
+    vi.useFakeTimers();
+    const allocator = new InMemoryBrowserlessAllocatorAdapter({
+      idleGraceMs: 5_000,
+    });
+
+    await allocator.assignRun({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      profile,
+    });
+
+    await allocator.releaseRun('run-1');
+
+    let status = await allocator.getStatusSnapshot();
+    expect(status.workers).toHaveLength(1);
+    expect(status.workers[0]?.idleSince).toBeTypeOf('number');
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    status = await allocator.getStatusSnapshot();
+    expect(status.workers).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    status = await allocator.getStatusSnapshot();
+    expect(status.workers).toHaveLength(0);
+  });
+
+  it('reuses an idle worker if demand returns before idle shutdown', async () => {
+    vi.useFakeTimers();
+    const allocator = new InMemoryBrowserlessAllocatorAdapter({
+      maxSessionsPerWorker: 2,
+      idleGraceMs: 5_000,
+    });
+
+    const first = await allocator.assignRun({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      profile,
+    });
+    await allocator.releaseRun('run-1');
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    const second = await allocator.assignRun({
+      runId: 'run-2',
+      sessionId: 'session-2',
+      profile,
+    });
+
+    expect(second.taskId).toBe(first.taskId);
+    const status = await allocator.getStatusSnapshot();
+    expect(status.workers).toHaveLength(1);
+    expect(status.workers[0]?.idleSince).toBeNull();
     expect(status.workers[0]?.assignedRunIds).toEqual(['run-2']);
   });
 

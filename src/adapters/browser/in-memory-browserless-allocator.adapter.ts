@@ -15,11 +15,14 @@ type TrackedWorker = {
   runningAt: number;
   lastAssignedAt: number;
   maxSessions: number;
+  idleSince: number | null;
+  idleShutdownTimer?: ReturnType<typeof setTimeout>;
 };
 
 type InMemoryBrowserlessAllocatorOptions = {
   maxSessionsPerWorker?: number;
   maxTotalSessions?: number;
+  idleGraceMs?: number;
 };
 
 export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
@@ -27,17 +30,58 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
   private readonly assignmentsByRunId = new Map<string, BrowserlessWorkerAssignment>();
   private readonly maxSessionsPerWorker: number;
   private readonly maxTotalSessions: number;
+  private readonly idleGraceMs: number;
   private nextTaskNumber = 1;
 
   constructor(options: InMemoryBrowserlessAllocatorOptions = {}) {
     this.maxSessionsPerWorker = options.maxSessionsPerWorker ?? 5;
     this.maxTotalSessions = options.maxTotalSessions ?? 20;
+    this.idleGraceMs = options.idleGraceMs ?? 30_000;
   }
 
   private buildWorkerEndpoint(profile: ResolvedBrowserProfile, workerTaskId: string): string {
     const url = new URL(profile.browserEndpoint);
     url.searchParams.set('workerId', workerTaskId);
     return url.toString();
+  }
+
+  private clearIdleShutdown(worker: TrackedWorker): void {
+    if (worker.idleShutdownTimer) {
+      clearTimeout(worker.idleShutdownTimer);
+      worker.idleShutdownTimer = undefined;
+    }
+    worker.idleSince = null;
+  }
+
+  private stopWorkerIfIdle(worker: TrackedWorker): void {
+    if (worker.assignedRunIds.size > 0) {
+      return;
+    }
+    this.workersByEndpoint.delete(worker.endpoint);
+    if (worker.idleShutdownTimer) {
+      clearTimeout(worker.idleShutdownTimer);
+      worker.idleShutdownTimer = undefined;
+    }
+  }
+
+  private scheduleIdleShutdown(worker: TrackedWorker, now: number): void {
+    worker.idleSince = now;
+    if (this.idleGraceMs <= 0) {
+      this.stopWorkerIfIdle(worker);
+      return;
+    }
+
+    if (worker.idleShutdownTimer) {
+      clearTimeout(worker.idleShutdownTimer);
+    }
+
+    worker.idleShutdownTimer = setTimeout(() => {
+      worker.idleShutdownTimer = undefined;
+      this.stopWorkerIfIdle(worker);
+    }, this.idleGraceMs);
+    if (typeof worker.idleShutdownTimer.unref === 'function') {
+      worker.idleShutdownTimer.unref();
+    }
   }
 
   async assignRun(input: {
@@ -73,11 +117,13 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
         runningAt: now,
         lastAssignedAt: now,
         maxSessions: this.maxSessionsPerWorker,
+        idleSince: null,
       };
       this.nextTaskNumber += 1;
       this.workersByEndpoint.set(worker.endpoint, worker);
     }
 
+    this.clearIdleShutdown(worker);
     worker.assignedRunIds.add(input.runId);
     worker.lastAssignedAt = now;
 
@@ -109,7 +155,7 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
 
     worker.assignedRunIds.delete(runId);
     if (worker.assignedRunIds.size === 0) {
-      this.workersByEndpoint.delete(assignment.endpoint);
+      this.scheduleIdleShutdown(worker, Date.now());
     }
   }
 
@@ -139,6 +185,7 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       createdAt: worker.createdAt,
       lastAssignedAt: worker.lastAssignedAt,
       maxSessions: worker.maxSessions,
+      idleSince: worker.idleSince,
     }));
     return {
       totalAssignedRuns: this.assignmentsByRunId.size,
