@@ -279,6 +279,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
         taskArn: worker.taskArn,
         reason,
       });
+      log.info('browserless worker stopped', {
+        task_id: worker.taskId,
+        reason,
+      });
     } catch (error) {
       log.warn('browserless worker stop failed', {
         task_id: worker.taskId,
@@ -297,6 +301,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
 
   private scheduleIdleShutdown(worker: TrackedWorker, now: number): void {
     worker.idleSince = now;
+    log.info('browserless worker entered idle grace', {
+      task_id: worker.taskId,
+      idle_grace_ms: this.idleGraceMs,
+    });
     if (this.idleGraceMs <= 0) {
       void this.stopWorker(worker, 'idle browserless worker shutdown').catch(() => undefined);
       return;
@@ -353,6 +361,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
 
     if (record.lastStatus === 'RUNNING' && worker.runningAt === 0) {
       worker.runningAt = Date.now();
+      log.info('browserless worker reached running state', {
+        task_id: worker.taskId,
+        endpoint: worker.endpoint,
+      });
     }
 
     return worker;
@@ -386,6 +398,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
 
     let selectedWorker = worker;
     if (!selectedWorker) {
+      log.info('browserless worker launch requested', {
+        cluster: this.options.cluster,
+        task_definition: this.options.taskDefinition,
+      });
       const launched = await this.ecs.runTask({
         cluster: this.options.cluster,
         taskDefinition: this.options.taskDefinition,
@@ -410,6 +426,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
         unavailableReason: null,
       };
       this.workersByTaskId.set(selectedWorker.taskId, selectedWorker);
+      log.info('browserless worker launched', {
+        task_id: selectedWorker.taskId,
+        task_arn: selectedWorker.taskArn,
+      });
       try {
         await this.refreshWorkerFromEcs(selectedWorker, input.profile);
       } catch {
@@ -428,6 +448,11 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
       assignedAt: now,
     };
     this.assignmentsByRunId.set(input.runId, assignment);
+    log.info('browserless run assigned', {
+      run_id: input.runId,
+      task_id: selectedWorker.taskId,
+      assigned_runs: selectedWorker.assignedRunIds.size,
+    });
     return assignment;
   }
 
@@ -457,6 +482,11 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
     }
 
     worker.assignedRunIds.delete(runId);
+    log.info('browserless run released', {
+      run_id: runId,
+      task_id: worker.taskId,
+      assigned_runs: worker.assignedRunIds.size,
+    });
     if (worker.assignedRunIds.size === 0) {
       if (worker.unavailableSince !== null) {
         try {
@@ -529,6 +559,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
     this.clearIdleShutdown(worker);
     worker.unavailableSince = Date.now();
     worker.unavailableReason = input.reason ?? null;
+    log.warn('browserless worker marked unavailable', {
+      task_id: worker.taskId,
+      reason: worker.unavailableReason,
+    });
     if (worker.assignedRunIds.size === 0) {
       try {
         await this.stopWorker(worker, 'browserless worker marked unavailable');
@@ -589,6 +623,10 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
           reason: 'openclaw-browser startup orphan reconciliation',
         });
         stoppedWorkerCount += 1;
+        log.info('browserless orphan worker stopped', {
+          task_arn: task.taskArn,
+          owner_id: ownership.ownerId,
+        });
       } catch (error) {
         log.warn('browserless orphan stop failed', {
           task_arn: task.taskArn,
@@ -597,6 +635,13 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
       }
     }
 
+    log.info('browserless allocator orphan reconciliation completed', {
+      discovered_workers: tasks.filter((task) => {
+        const ownership = tagsToOwnership(task.tags);
+        return ownership?.ownerScope === this.ownership.ownerScope;
+      }).length,
+      stopped_workers: stoppedWorkerCount,
+    });
     return {
       discoveredWorkerCount: tasks.filter((task) => {
         const ownership = tagsToOwnership(task.tags);

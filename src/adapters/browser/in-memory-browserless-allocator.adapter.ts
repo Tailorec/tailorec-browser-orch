@@ -9,6 +9,9 @@ import type {
 } from '../../core/ports/browserless-allocator.port.js';
 import { BrowserlessCapacityExceededError } from '../../core/ports/browserless-allocator.port.js';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
+import { createSubsystemLogger } from '../logging/logger.adapter.js';
+
+const log = createSubsystemLogger('in-memory-browserless-allocator');
 
 type TrackedWorker = {
   taskId: string;
@@ -76,6 +79,10 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
     if (worker.assignedRunIds.size > 0) {
       return;
     }
+    log.info('browserless worker removed after idle shutdown', {
+      task_id: worker.taskId,
+      endpoint: worker.endpoint,
+    });
     this.workersByEndpoint.delete(worker.endpoint);
     if (worker.idleShutdownTimer) {
       clearTimeout(worker.idleShutdownTimer);
@@ -146,6 +153,10 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       };
       this.nextTaskNumber += 1;
       this.workersByEndpoint.set(worker.endpoint, worker);
+      log.info('browserless worker created', {
+        task_id: worker.taskId,
+        endpoint: worker.endpoint,
+      });
     }
 
     this.clearIdleShutdown(worker);
@@ -159,6 +170,11 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       assignedAt: now,
     };
     this.assignmentsByRunId.set(input.runId, assignment);
+    log.info('browserless run assigned', {
+      run_id: input.runId,
+      task_id: worker.taskId,
+      assigned_runs: worker.assignedRunIds.size,
+    });
     return assignment;
   }
 
@@ -179,6 +195,11 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
     }
 
     worker.assignedRunIds.delete(runId);
+    log.info('browserless run released', {
+      run_id: runId,
+      task_id: worker.taskId,
+      assigned_runs: worker.assignedRunIds.size,
+    });
     if (worker.assignedRunIds.size === 0) {
       if (worker.unavailableSince !== null) {
         this.stopWorkerIfIdle(worker);
@@ -221,6 +242,10 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
     this.clearIdleShutdown(worker);
     worker.unavailableSince = Date.now();
     worker.unavailableReason = input.reason ?? null;
+    log.warn('browserless worker marked unavailable', {
+      task_id: worker.taskId,
+      reason: worker.unavailableReason,
+    });
     if (worker.assignedRunIds.size === 0) {
       this.stopWorkerIfIdle(worker);
     }
@@ -261,6 +286,11 @@ export class InMemoryBrowserlessAllocatorAdapter implements IBrowserlessAllocato
       await this.stopOwnedWorker(worker);
       stoppedWorkerCount += 1;
     }
+
+    log.info('browserless allocator orphan reconciliation completed', {
+      discovered_workers: discoveredWorkers.length,
+      stopped_workers: stoppedWorkerCount,
+    });
 
     return {
       discoveredWorkerCount: discoveredWorkers.length,
