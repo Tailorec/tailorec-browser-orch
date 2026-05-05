@@ -314,6 +314,27 @@ export function createBrowserRouteContext(opts: {
       });
     }
 
+    const markBrowserlessWorkerUnavailableForReadinessFailure = async (error: unknown) => {
+      if (!session.browserlessTaskId || !session.browserlessWorkerEndpoint) {
+        return;
+      }
+      try {
+        await browserlessAllocator.markWorkerUnavailable({
+          taskId: session.browserlessTaskId,
+          endpoint: session.browserlessWorkerEndpoint,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      } catch (allocatorError) {
+        log.warn('browserless worker unavailable mark failed during readiness handling', {
+          profile: session.profileName,
+          run_id: session.runId,
+          session_id: session.sessionId,
+          browserless_task_id: session.browserlessTaskId,
+          error: allocatorError instanceof Error ? allocatorError.message : String(allocatorError),
+        });
+      }
+    };
+
     try {
       const runningState = await browserlessAllocator.waitForWorkerRunning({
         taskId: session.browserlessTaskId,
@@ -324,6 +345,7 @@ export function createBrowserRouteContext(opts: {
       session.browserlessWorkerEndpoint = runningState.endpoint;
       session.browserEndpoint = withTrackingId(runningState.endpoint, session.sessionId);
     } catch (error) {
+      await markBrowserlessWorkerUnavailableForReadinessFailure(error);
       throw statusError(503, 'browserless worker failed to reach running state', {
         code: 'runtime_unavailable',
       });
@@ -336,6 +358,7 @@ export function createBrowserRouteContext(opts: {
         await opts.connectBrowserEndpoint(session.browserEndpoint);
       }
     } catch (error) {
+      await markBrowserlessWorkerUnavailableForReadinessFailure(error);
       throw statusError(503, 'browserless worker failed readiness probe', {
         code: 'runtime_unavailable',
       });

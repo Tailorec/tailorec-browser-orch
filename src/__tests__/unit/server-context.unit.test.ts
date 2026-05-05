@@ -429,6 +429,7 @@ describe('createBrowserRouteContext', () => {
 
     it('fails createRunSession with 503 when browserless worker never reaches running state', async () => {
       const releaseRun = vi.fn(async () => undefined);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
       const { ctx, state } = createContext(
         {
           browserlessAllocator: {
@@ -443,7 +444,7 @@ describe('createBrowserRouteContext', () => {
             waitForWorkerRunning: vi.fn(async () => {
               throw new Error('timed out waiting for ECS task');
             }),
-            markWorkerUnavailable: vi.fn(async () => undefined),
+            markWorkerUnavailable,
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -467,10 +468,16 @@ describe('createBrowserRouteContext', () => {
       });
       expect(state.runSessions.has('run-not-running')).toBe(false);
       expect(releaseRun).toHaveBeenCalledWith('run-not-running');
+      expect(markWorkerUnavailable).toHaveBeenCalledWith({
+        taskId: 'task-not-running',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        reason: 'timed out waiting for ECS task',
+      });
     });
 
     it('fails createRunSession with 503 when browserless readiness probe fails', async () => {
       const releaseRun = vi.fn(async () => undefined);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
       const probeBrowserEndpoint = vi.fn(async () => {
         throw new Error('probe failed');
       });
@@ -490,7 +497,7 @@ describe('createBrowserRouteContext', () => {
               endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
               runningAt: 123,
             })),
-            markWorkerUnavailable: vi.fn(async () => undefined),
+            markWorkerUnavailable,
             getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
             reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
           },
@@ -515,6 +522,11 @@ describe('createBrowserRouteContext', () => {
       });
       expect(state.runSessions.has('run-probe-fail')).toBe(false);
       expect(releaseRun).toHaveBeenCalledWith('run-probe-fail');
+      expect(markWorkerUnavailable).toHaveBeenCalledWith({
+        taskId: 'task-probe-fail',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        reason: 'probe failed',
+      });
     });
 
     it('fails createRunSession retriably after a pinned browserless worker dies', async () => {
