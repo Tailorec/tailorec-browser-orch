@@ -255,4 +255,51 @@ describe('EcsBrowserlessAllocatorAdapter', () => {
       }),
     ]);
   });
+
+  it('accepts plain ECS task definition family names', async () => {
+    const ecs = createFakeControlPlane();
+    const allocator = new EcsBrowserlessAllocatorAdapter({
+      cluster: 'cluster-1',
+      taskDefinition: 'tailorec-prod-browserless',
+      subnetIds: ['subnet-1'],
+      securityGroupIds: ['sg-1'],
+      assignPublicIp: 'DISABLED',
+      browserlessPort: 3000,
+      ecsClient: ecs,
+    });
+
+    const assignment = await allocator.assignRun({ runId: 'run-1', sessionId: 'session-1', profile });
+
+    expect(assignment.taskId).toBe('task-1');
+  });
+
+  it('accepts ECS task definition family revisions and uses the family for orphan reconciliation', async () => {
+    const ecs = createFakeControlPlane();
+    ecs.tasks.set('arn:aws:ecs:us-east-1:123456789012:task/tailorec-prod-cluster/task-old', {
+      taskArn: 'arn:aws:ecs:us-east-1:123456789012:task/tailorec-prod-cluster/task-old',
+      lastStatus: 'RUNNING',
+      tags: [
+        { key: 'openclaw-browserless-owner-scope', value: 'openclaw-browser' },
+        { key: 'openclaw-browserless-owner-id', value: 'old-owner' },
+      ],
+    });
+    const listTasksSpy = vi.spyOn(ecs, 'listTasks');
+    const allocator = new EcsBrowserlessAllocatorAdapter({
+      cluster: 'cluster-1',
+      taskDefinition: 'tailorec-prod-browserless:7',
+      subnetIds: ['subnet-1'],
+      securityGroupIds: ['sg-1'],
+      assignPublicIp: 'DISABLED',
+      browserlessPort: 3000,
+      ownerId: 'current-owner',
+      ecsClient: ecs,
+    });
+
+    await allocator.reconcileOrphans();
+
+    expect(listTasksSpy).toHaveBeenCalledWith({
+      cluster: 'cluster-1',
+      family: 'tailorec-prod-browserless',
+    });
+  });
 });

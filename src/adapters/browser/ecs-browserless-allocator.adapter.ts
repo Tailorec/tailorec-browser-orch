@@ -202,11 +202,21 @@ function parseTaskId(taskArn: string): string {
 }
 
 function parseTaskDefinitionFamily(taskDefinition: string): string {
-  const match = taskDefinition.match(/task-definition\/([^:]+)(?::|$)/);
-  if (!match?.[1]) {
+  const trimmed = taskDefinition.trim();
+  if (!trimmed) {
     throw new Error(`unable to parse ECS task definition family from ${taskDefinition}`);
   }
-  return match[1];
+
+  const arnMatch = trimmed.match(/task-definition\/([^:\/]+)(?::|$)/);
+  if (arnMatch?.[1]) {
+    return arnMatch[1];
+  }
+
+  const [family] = trimmed.split(':', 1);
+  if (!family) {
+    throw new Error(`unable to parse ECS task definition family from ${taskDefinition}`);
+  }
+  return family;
 }
 
 function toOwnershipTags(ownership: BrowserlessWorkerOwnership): Tag[] {
