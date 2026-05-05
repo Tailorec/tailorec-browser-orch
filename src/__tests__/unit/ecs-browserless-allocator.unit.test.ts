@@ -156,6 +156,57 @@ describe('EcsBrowserlessAllocatorAdapter', () => {
     );
   });
 
+  it('serializes worker selection so concurrent runs pack onto one worker when capacity allows', async () => {
+    let releaseRunTask: (() => void) | null = null;
+    const runTaskGate = new Promise<void>((resolve) => {
+      releaseRunTask = resolve;
+    });
+    const ecs = createFakeControlPlane();
+    const originalRunTask = ecs.runTask;
+    let runTaskCalls = 0;
+    ecs.runTask = async (input: { tags: Array<{ key?: string; value?: string }> }) => {
+      runTaskCalls += 1;
+      if (runTaskCalls === 1) {
+        await runTaskGate;
+      }
+      return await originalRunTask(input);
+    };
+
+    const allocator = new EcsBrowserlessAllocatorAdapter({
+      cluster: 'cluster-1',
+      taskDefinition: 'arn:aws:ecs:us-east-1:123456789012:task-definition/tailorec-prod-browserless:7',
+      subnetIds: ['subnet-1'],
+      securityGroupIds: ['sg-1'],
+      assignPublicIp: 'DISABLED',
+      browserlessPort: 3000,
+      maxSessionsPerWorker: 2,
+      maxTotalSessions: 2,
+      ecsClient: ecs,
+    });
+
+    const firstAssignmentPromise = allocator.assignRun({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      profile,
+    });
+    const secondAssignmentPromise = allocator.assignRun({
+      runId: 'run-2',
+      sessionId: 'session-2',
+      profile,
+    });
+
+    releaseRunTask?.();
+
+    const [first, second] = await Promise.all([firstAssignmentPromise, secondAssignmentPromise]);
+
+    expect(runTaskCalls).toBe(1);
+    expect(first.taskId).toBe(second.taskId);
+    const status = await allocator.getStatusSnapshot();
+    expect(status.totalAssignedRuns).toBe(2);
+    expect(status.workers).toHaveLength(1);
+    expect(status.workers[0]?.assignedRunIds).toEqual(['run-1', 'run-2']);
+  });
+
   it('stops an empty worker after idle grace', async () => {
     vi.useFakeTimers();
     const ecs = createFakeControlPlane();

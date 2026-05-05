@@ -245,6 +245,7 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
   private readonly ownership: BrowserlessWorkerOwnership;
   private readonly ecs: EcsBrowserlessControlPlane;
   private readonly family: string;
+  private allocationQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: EcsBrowserlessAllocatorOptions) {
     this.maxSessionsPerWorker = options.maxSessionsPerWorker ?? 5;
@@ -380,96 +381,123 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
     return worker;
   }
 
+  private async withAllocationLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.allocationQueue;
+    let release!: () => void;
+    this.allocationQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   async assignRun(input: {
     runId: string;
     sessionId: string;
     profile: ResolvedBrowserProfile;
   }): Promise<BrowserlessWorkerAssignment> {
-    const existing = this.assignmentsByRunId.get(input.runId);
-    if (existing) {
-      return existing;
-    }
+    const { assignment, selectedWorker, needsRefresh } = await this.withAllocationLock(async () => {
+      const existing = this.assignmentsByRunId.get(input.runId);
+      if (existing) {
+        return { assignment: existing, selectedWorker: this.workersByTaskId.get(existing.taskId), needsRefresh: false };
+      }
 
-    const now = Date.now();
-    if (this.assignmentsByRunId.size >= this.maxTotalSessions) {
-      throw new BrowserlessCapacityExceededError(
-        `browserless capacity exceeded: ${this.assignmentsByRunId.size}/${this.maxTotalSessions}`,
-        this.assignmentsByRunId.size,
-        this.maxTotalSessions,
-      );
-    }
+      const now = Date.now();
+      if (this.assignmentsByRunId.size >= this.maxTotalSessions) {
+        throw new BrowserlessCapacityExceededError(
+          `browserless capacity exceeded: ${this.assignmentsByRunId.size}/${this.maxTotalSessions}`,
+          this.assignmentsByRunId.size,
+          this.maxTotalSessions,
+        );
+      }
 
-    const worker = Array.from(this.workersByTaskId.values())
-      .sort((left, right) => left.createdAt - right.createdAt)
-      .find(
-        (candidate) =>
-          candidate.unavailableSince === null && candidate.assignedRunIds.size < candidate.maxSessions,
-      );
+      const worker = Array.from(this.workersByTaskId.values())
+        .sort((left, right) => left.createdAt - right.createdAt)
+        .find(
+          (candidate) =>
+            candidate.unavailableSince === null && candidate.assignedRunIds.size < candidate.maxSessions,
+        );
 
-    let selectedWorker = worker;
-    let assignment: BrowserlessWorkerAssignment | null = null;
+      let selectedWorker = worker;
+      let assignment: BrowserlessWorkerAssignment;
+      let needsRefresh = false;
+      if (!selectedWorker) {
+        log.info('browserless worker launch requested', {
+          cluster: this.options.cluster,
+          task_definition: this.options.taskDefinition,
+        });
+        const launched = await this.ecs.runTask({
+          cluster: this.options.cluster,
+          taskDefinition: this.options.taskDefinition,
+          subnetIds: this.options.subnetIds,
+          securityGroupIds: this.options.securityGroupIds,
+          assignPublicIp: this.options.assignPublicIp,
+          startedBy: this.ownership.ownerId,
+          tags: toOwnershipTags(this.ownership),
+        });
+        selectedWorker = {
+          taskArn: launched.taskArn,
+          taskId: parseTaskId(launched.taskArn),
+          endpoint: input.profile.browserEndpoint,
+          assignedRunIds: new Set([input.runId]),
+          createdAt: now,
+          runningAt: 0,
+          lastAssignedAt: now,
+          maxSessions: this.maxSessionsPerWorker,
+          idleSince: null,
+          ownership: this.ownership,
+          unavailableSince: null,
+          unavailableReason: null,
+        };
+        assignment = {
+          runId: input.runId,
+          taskId: selectedWorker.taskId,
+          endpoint: selectedWorker.endpoint,
+          assignedAt: now,
+        };
+        this.assignmentsByRunId.set(input.runId, assignment);
+        this.workersByTaskId.set(selectedWorker.taskId, selectedWorker);
+        log.info('browserless worker launched', {
+          task_id: selectedWorker.taskId,
+          task_arn: selectedWorker.taskArn,
+        });
+        needsRefresh = true;
+      } else {
+        this.clearIdleShutdown(selectedWorker);
+        selectedWorker.assignedRunIds.add(input.runId);
+        selectedWorker.lastAssignedAt = now;
+        assignment = {
+          runId: input.runId,
+          taskId: selectedWorker.taskId,
+          endpoint: selectedWorker.endpoint,
+          assignedAt: now,
+        };
+        this.assignmentsByRunId.set(input.runId, assignment);
+      }
+
+      return { assignment, selectedWorker, needsRefresh };
+    });
+
     if (!selectedWorker) {
-      log.info('browserless worker launch requested', {
-        cluster: this.options.cluster,
-        task_definition: this.options.taskDefinition,
-      });
-      const launched = await this.ecs.runTask({
-        cluster: this.options.cluster,
-        taskDefinition: this.options.taskDefinition,
-        subnetIds: this.options.subnetIds,
-        securityGroupIds: this.options.securityGroupIds,
-        assignPublicIp: this.options.assignPublicIp,
-        startedBy: this.ownership.ownerId,
-        tags: toOwnershipTags(this.ownership),
-      });
-      selectedWorker = {
-        taskArn: launched.taskArn,
-        taskId: parseTaskId(launched.taskArn),
-        endpoint: input.profile.browserEndpoint,
-        assignedRunIds: new Set([input.runId]),
-        createdAt: now,
-        runningAt: 0,
-        lastAssignedAt: now,
-        maxSessions: this.maxSessionsPerWorker,
-        idleSince: null,
-        ownership: this.ownership,
-        unavailableSince: null,
-        unavailableReason: null,
-      };
-      assignment = {
-        runId: input.runId,
-        taskId: selectedWorker.taskId,
-        endpoint: selectedWorker.endpoint,
-        assignedAt: now,
-      };
-      this.assignmentsByRunId.set(input.runId, assignment);
-      this.workersByTaskId.set(selectedWorker.taskId, selectedWorker);
-      log.info('browserless worker launched', {
-        task_id: selectedWorker.taskId,
-        task_arn: selectedWorker.taskArn,
-      });
+      return assignment;
+    }
+
+    this.clearIdleShutdown(selectedWorker);
+    if (needsRefresh) {
       try {
         await this.refreshWorkerFromEcs(selectedWorker, input.profile);
       } catch {
         // Endpoint discovery may lag behind task launch. Readiness waits will refresh later.
       }
     }
-
-    this.clearIdleShutdown(selectedWorker);
-    if (!assignment) {
-      selectedWorker.assignedRunIds.add(input.runId);
-      selectedWorker.lastAssignedAt = now;
-      assignment = {
-        runId: input.runId,
-        taskId: selectedWorker.taskId,
-        endpoint: selectedWorker.endpoint,
-        assignedAt: now,
-      };
-      this.assignmentsByRunId.set(input.runId, assignment);
-    }
     log.info('browserless run assigned', {
       run_id: input.runId,
-      task_id: selectedWorker.taskId,
+      task_id: assignment.taskId,
       assigned_runs: selectedWorker.assignedRunIds.size,
     });
     return assignment;
