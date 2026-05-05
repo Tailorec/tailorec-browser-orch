@@ -99,6 +99,63 @@ describe('EcsBrowserlessAllocatorAdapter', () => {
     });
   });
 
+  it('reserves launched worker capacity before awaiting ECS metadata refresh', async () => {
+    let releaseDescribeTasks: (() => void) | null = null;
+    const describeTasksGate = new Promise<void>((resolve) => {
+      releaseDescribeTasks = resolve;
+    });
+    const ecs = createFakeControlPlane();
+    const originalDescribeTasks = ecs.describeTasks;
+    let describeCalls = 0;
+    ecs.describeTasks = async (input: { taskArns: string[] }) => {
+      describeCalls += 1;
+      if (describeCalls === 1) {
+        await describeTasksGate;
+      }
+      return await originalDescribeTasks(input);
+    };
+
+    const allocator = new EcsBrowserlessAllocatorAdapter({
+      cluster: 'cluster-1',
+      taskDefinition: 'arn:aws:ecs:us-east-1:123456789012:task-definition/tailorec-prod-browserless:7',
+      subnetIds: ['subnet-1'],
+      securityGroupIds: ['sg-1'],
+      assignPublicIp: 'DISABLED',
+      browserlessPort: 3000,
+      maxSessionsPerWorker: 1,
+      maxTotalSessions: 2,
+      ecsClient: ecs,
+    });
+
+    const firstAssignmentPromise = allocator.assignRun({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      profile,
+    });
+
+    await vi.waitFor(async () => {
+      expect((await allocator.getStatusSnapshot()).totalAssignedRuns).toBe(1);
+    });
+
+    const secondAssignmentPromise = allocator.assignRun({
+      runId: 'run-2',
+      sessionId: 'session-2',
+      profile,
+    });
+
+    releaseDescribeTasks?.();
+
+    const [first, second] = await Promise.all([firstAssignmentPromise, secondAssignmentPromise]);
+
+    expect(first.taskId).not.toBe(second.taskId);
+    const status = await allocator.getStatusSnapshot();
+    expect(status.totalAssignedRuns).toBe(2);
+    expect(status.workers).toHaveLength(2);
+    expect(status.workers.map((worker) => worker.assignedRunIds)).toEqual(
+      expect.arrayContaining([['run-1'], ['run-2']]),
+    );
+  });
+
   it('stops an empty worker after idle grace', async () => {
     vi.useFakeTimers();
     const ecs = createFakeControlPlane();

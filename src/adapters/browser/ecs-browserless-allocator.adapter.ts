@@ -397,6 +397,7 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
       );
 
     let selectedWorker = worker;
+    let assignment: BrowserlessWorkerAssignment | null = null;
     if (!selectedWorker) {
       log.info('browserless worker launch requested', {
         cluster: this.options.cluster,
@@ -415,7 +416,7 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
         taskArn: launched.taskArn,
         taskId: parseTaskId(launched.taskArn),
         endpoint: input.profile.browserEndpoint,
-        assignedRunIds: new Set(),
+        assignedRunIds: new Set([input.runId]),
         createdAt: now,
         runningAt: 0,
         lastAssignedAt: now,
@@ -425,6 +426,13 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
         unavailableSince: null,
         unavailableReason: null,
       };
+      assignment = {
+        runId: input.runId,
+        taskId: selectedWorker.taskId,
+        endpoint: selectedWorker.endpoint,
+        assignedAt: now,
+      };
+      this.assignmentsByRunId.set(input.runId, assignment);
       this.workersByTaskId.set(selectedWorker.taskId, selectedWorker);
       log.info('browserless worker launched', {
         task_id: selectedWorker.taskId,
@@ -438,16 +446,17 @@ export class EcsBrowserlessAllocatorAdapter implements IBrowserlessAllocator {
     }
 
     this.clearIdleShutdown(selectedWorker);
-    selectedWorker.assignedRunIds.add(input.runId);
-    selectedWorker.lastAssignedAt = now;
-
-    const assignment: BrowserlessWorkerAssignment = {
-      runId: input.runId,
-      taskId: selectedWorker.taskId,
-      endpoint: selectedWorker.endpoint,
-      assignedAt: now,
-    };
-    this.assignmentsByRunId.set(input.runId, assignment);
+    if (!assignment) {
+      selectedWorker.assignedRunIds.add(input.runId);
+      selectedWorker.lastAssignedAt = now;
+      assignment = {
+        runId: input.runId,
+        taskId: selectedWorker.taskId,
+        endpoint: selectedWorker.endpoint,
+        assignedAt: now,
+      };
+      this.assignmentsByRunId.set(input.runId, assignment);
+    }
     log.info('browserless run assigned', {
       run_id: input.runId,
       task_id: selectedWorker.taskId,
