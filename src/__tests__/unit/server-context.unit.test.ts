@@ -529,6 +529,56 @@ describe('createBrowserRouteContext', () => {
       });
     });
 
+    it('retries browserless readiness probe until the worker is actually accepting CDP connections', async () => {
+      const probeBrowserEndpoint = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('browserType.connectOverCDP: connect ECONNREFUSED 10.0.1.25:3000'))
+        .mockRejectedValueOnce(new Error('browserType.connectOverCDP: connect ECONNREFUSED 10.0.1.25:3000'))
+        .mockResolvedValueOnce(undefined);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
+      const { ctx } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun: vi.fn(async () => ({
+              runId: 'run-probe-retry',
+              taskId: 'task-probe-retry',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              assignedAt: 123,
+            })),
+            getAssignment: vi.fn(async () => null),
+            releaseRun: vi.fn(async () => undefined),
+            waitForWorkerRunning: vi.fn(async () => ({
+              taskId: 'task-probe-retry',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              runningAt: 123,
+            })),
+            markWorkerUnavailable,
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          probeBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-probe-retry')).resolves.toMatchObject({
+        runId: 'run-probe-retry',
+        created: true,
+      });
+      expect(probeBrowserEndpoint).toHaveBeenCalledTimes(3);
+      expect(markWorkerUnavailable).not.toHaveBeenCalled();
+    });
+
     it('fails createRunSession retriably after a pinned browserless worker dies', async () => {
       const assignment = {
         runId: 'run-retry-degraded',

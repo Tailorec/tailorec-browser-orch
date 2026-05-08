@@ -10,6 +10,7 @@
 import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
 import {
@@ -352,10 +353,34 @@ export function createBrowserRouteContext(opts: {
     }
 
     try {
-      if (opts.probeBrowserEndpoint) {
-        await opts.probeBrowserEndpoint(session.browserEndpoint);
-      } else if (opts.connectBrowserEndpoint) {
-        await opts.connectBrowserEndpoint(session.browserEndpoint);
+      const readinessDeadline = Date.now() + BROWSERLESS_READY_TIMEOUT_MS;
+      let readinessAttempt = 0;
+
+      for (;;) {
+        readinessAttempt += 1;
+        try {
+          if (opts.probeBrowserEndpoint) {
+            await opts.probeBrowserEndpoint(session.browserEndpoint);
+          } else if (opts.connectBrowserEndpoint) {
+            await opts.connectBrowserEndpoint(session.browserEndpoint);
+          }
+          break;
+        } catch (error) {
+          const remainingMs = readinessDeadline - Date.now();
+          if (!isBrowserDisconnectError(error) || remainingMs <= 0) {
+            throw error;
+          }
+          log.warn('browserless readiness probe not ready, retrying', {
+            profile: session.profileName,
+            run_id: session.runId,
+            session_id: session.sessionId,
+            browserless_task_id: session.browserlessTaskId,
+            attempt: readinessAttempt,
+            remaining_ms: remainingMs,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await sleep(Math.min(BROWSERLESS_READY_POLL_INTERVAL_MS, remainingMs));
+        }
       }
     } catch (error) {
       await markBrowserlessWorkerUnavailableForReadinessFailure(error);
