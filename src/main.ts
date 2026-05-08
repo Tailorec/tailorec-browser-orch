@@ -29,6 +29,7 @@ import {
   registerSnapshotRoutes,
 } from './api/routes/index.js';
 import { installControlLiveWebSocketServer } from './adapters/http/control-live.server.js';
+import { createBrowserlessAllocatorFromEnv } from './adapters/browser/browserless-allocator.factory.js';
 
 const log = createSubsystemLogger('main');
 
@@ -81,6 +82,7 @@ async function main() {
   }
 
   let state: BrowserServerState | null = null;
+  const browserlessAllocator = createBrowserlessAllocatorFromEnv();
   const browserContext = createBrowserRouteContext({
     getState: () => state,
     isBrowserAvailable: (profile, running) => browserRuntime.isAvailable(profile, running),
@@ -96,6 +98,10 @@ async function main() {
       if (driver.disconnectByCdpUrl) {
         await driver.disconnectByCdpUrl(browserEndpoint);
       }
+    },
+    probeBrowserEndpoint: async (browserEndpoint) => {
+      const browser = await browserDriver.connect(browserEndpoint);
+      await browserDriver.listPages(browser);
     },
     listPages: async (browserEndpoint) => {
       const browser = await browserDriver.connect(browserEndpoint);
@@ -127,6 +133,7 @@ async function main() {
         url: focusedPage.url(),
       };
     },
+    browserlessAllocator,
   });
 
   const simpleController = new SimpleActionController(executeActionUseCase, browserContext);
@@ -181,6 +188,12 @@ async function main() {
     runSessions: new Map(),
     targetOwners: new Map(),
   };
+
+  const orphanReconciliation = await browserlessAllocator.reconcileOrphans();
+  log.info('browserless allocator reconciled startup orphans', {
+    discovered_workers: orphanReconciliation.discoveredWorkerCount,
+    stopped_workers: orphanReconciliation.stoppedWorkerCount,
+  });
 
   installControlLiveWebSocketServer(started.server, browserContext, sessionService);
   log.info('Service ready', { port: started.port, profiles: Array.from(configuredProfiles.keys()) });

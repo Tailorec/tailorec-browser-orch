@@ -31,6 +31,26 @@ describe('status contract', () => {
         provider: z.enum(['local', 'browserless']),
         browser_endpoint: z.string(),
       })),
+      browserless_allocator: z.object({
+        total_assigned_runs: z.number(),
+        max_total_sessions: z.number(),
+        max_sessions_per_worker: z.number(),
+        workers: z.array(z.object({
+          task_id: z.string(),
+          endpoint: z.string(),
+          assigned_run_ids: z.array(z.string()),
+          created_at: z.number(),
+          last_assigned_at: z.number(),
+          max_sessions: z.number(),
+          idle_since: z.number().nullable(),
+          ownership: z.object({
+            owner_scope: z.string(),
+            owner_id: z.string(),
+          }),
+          unavailable_since: z.number().nullable(),
+          unavailable_reason: z.string().nullable(),
+        })),
+      }),
     });
 
     expect(schema.parse(response.body)).toEqual({
@@ -38,6 +58,12 @@ describe('status contract', () => {
       provider: null,
       profiles: ['default'],
       configured_profiles: [],
+      browserless_allocator: {
+        total_assigned_runs: 0,
+        max_total_sessions: 20,
+        max_sessions_per_worker: 5,
+        workers: [],
+      },
     });
   });
 });

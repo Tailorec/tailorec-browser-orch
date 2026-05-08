@@ -12,6 +12,12 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import type { ResolvedBrowserProfile } from '../../config/config.types.js';
 import type { RunningBrowserRuntime } from '../../core/ports/browser-runtime.port.js';
+import {
+  BrowserlessCapacityExceededError,
+  type BrowserlessAllocatorStatusSnapshot,
+  type IBrowserlessAllocator,
+} from '../../core/ports/browserless-allocator.port.js';
+import { InMemoryBrowserlessAllocatorAdapter } from '../../adapters/browser/in-memory-browserless-allocator.adapter.js';
 import { createSubsystemLogger } from '../../adapters/logging/logger.adapter.js';
 import { redactBrowserEndpoint } from '../../shared/utils/browser-endpoint.utils.js';
 
@@ -29,11 +35,6 @@ const DEFAULT_GLOBAL_MAX_SESSIONS = 200;
 const GLOBAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_MAX_SESSIONS, DEFAULT_GLOBAL_MAX_SESSIONS);
 const DEFAULT_LOCAL_MAX_SESSIONS = 5;
 const LOCAL_MAX_SESSIONS = parsePositiveInt(process.env.BROWSER_LOCAL_MAX_SESSIONS, DEFAULT_LOCAL_MAX_SESSIONS);
-const DEFAULT_BROWSERLESS_MAX_SESSIONS = 20;
-const BROWSERLESS_MAX_SESSIONS = parsePositiveInt(
-  process.env.BROWSER_BROWSERLESS_MAX_SESSIONS,
-  DEFAULT_BROWSERLESS_MAX_SESSIONS,
-);
 const DEFAULT_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const CREATE_IDEMPOTENCY_TTL_MS = parsePositiveInt(
   process.env.BROWSER_CREATE_IDEMPOTENCY_TTL_MS,
@@ -64,6 +65,16 @@ const SESSION_DEGRADED_CLOSE_GRACE_MS = parseNonNegativeInt(
   process.env.BROWSER_SESSION_DEGRADED_CLOSE_GRACE_MS,
   DEFAULT_SESSION_DEGRADED_CLOSE_GRACE_MS,
 );
+const DEFAULT_BROWSERLESS_READY_TIMEOUT_MS = 60_000;
+const BROWSERLESS_READY_TIMEOUT_MS = parsePositiveInt(
+  process.env.BROWSER_BROWSERLESS_READY_TIMEOUT_MS,
+  DEFAULT_BROWSERLESS_READY_TIMEOUT_MS,
+);
+const DEFAULT_BROWSERLESS_READY_POLL_INTERVAL_MS = 1_000;
+const BROWSERLESS_READY_POLL_INTERVAL_MS = parsePositiveInt(
+  process.env.BROWSER_BROWSERLESS_READY_POLL_INTERVAL_MS,
+  DEFAULT_BROWSERLESS_READY_POLL_INTERVAL_MS,
+);
 
 /**
  * Browser server state
@@ -91,6 +102,9 @@ export type RunOwnedSession = {
   runId: string;
   profileName: string;
   browserEndpoint: string;
+  browserlessTaskId?: string;
+  browserlessWorkerEndpoint?: string;
+  browserlessAssignedAt?: number;
   runtimeProfile: ResolvedBrowserProfile;
   runtime?: RunningBrowserRuntime;
   activeTargetId?: string;
@@ -123,6 +137,7 @@ export interface ProfileContext {
 export interface BrowserRouteContext {
   state(): BrowserServerState;
   forProfile(name: string): ProfileContext;
+  getBrowserlessAllocatorStatus(): Promise<BrowserlessAllocatorStatusSnapshot>;
   mapTabError(err: unknown): { status: number; message: string } | null;
 }
 
@@ -216,12 +231,15 @@ export function createBrowserRouteContext(opts: {
   ) => Promise<void>;
   connectBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
   disconnectBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
+  probeBrowserEndpoint?: (browserEndpoint: string) => Promise<void>;
   listPages: (browserEndpoint: string) => Promise<Array<{ targetId: string; url: string; title?: string }>>;
   focusPage: (browserEndpoint: string, targetId: string) => Promise<void>;
   createPage: (browserEndpoint: string, url?: string) => Promise<{ targetId: string; url: string }>;
+  browserlessAllocator?: IBrowserlessAllocator;
 }): BrowserRouteContext {
   const ensureInFlight = new Map<string, Promise<RunningProfile['runtime']>>();
   const runLocks = new Map<string, Promise<void>>();
+  const browserlessAllocator = opts.browserlessAllocator ?? new InMemoryBrowserlessAllocatorAdapter();
   const createIdempotencyResults = new Map<
     string,
     { expiresAt: number; response: { targetId: string; url: string; browserEndpoint: string } }
@@ -250,6 +268,101 @@ export function createBrowserRouteContext(opts: {
       session.createdAt = now;
     }
     session.lastTouchedAt = now;
+  };
+
+  const ensureBrowserlessPinnedWorker = async (session: RunOwnedSession) => {
+    if (session.runtimeProfile.provider !== 'browserless') {
+      return;
+    }
+
+    const existingAssignment = await browserlessAllocator.getAssignment(session.runId);
+    let assignment = existingAssignment;
+    if (!assignment) {
+      try {
+        assignment = await browserlessAllocator.assignRun({
+          runId: session.runId,
+          sessionId: session.sessionId,
+          profile: session.runtimeProfile,
+        });
+      } catch (error) {
+        if (error instanceof BrowserlessCapacityExceededError) {
+          throw statusError(429, error.message, {
+            code: 'capacity_exceeded',
+            retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
+            active: error.active,
+            max: error.max,
+          });
+        }
+        throw error;
+      }
+    }
+
+    session.browserlessTaskId = assignment.taskId;
+    session.browserlessWorkerEndpoint = assignment.endpoint;
+    session.browserlessAssignedAt = assignment.assignedAt;
+    session.browserEndpoint = withTrackingId(assignment.endpoint, session.sessionId);
+  };
+
+  const waitForBrowserlessReadiness = async (session: RunOwnedSession) => {
+    if (session.runtimeProfile.provider !== 'browserless') {
+      return;
+    }
+
+    if (!session.browserlessTaskId || !session.browserlessWorkerEndpoint) {
+      throw statusError(503, 'browserless worker assignment is missing', {
+        code: 'runtime_unavailable',
+      });
+    }
+
+    const markBrowserlessWorkerUnavailableForReadinessFailure = async (error: unknown) => {
+      if (!session.browserlessTaskId || !session.browserlessWorkerEndpoint) {
+        return;
+      }
+      try {
+        await browserlessAllocator.markWorkerUnavailable({
+          taskId: session.browserlessTaskId,
+          endpoint: session.browserlessWorkerEndpoint,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      } catch (allocatorError) {
+        log.warn('browserless worker unavailable mark failed during readiness handling', {
+          profile: session.profileName,
+          run_id: session.runId,
+          session_id: session.sessionId,
+          browserless_task_id: session.browserlessTaskId,
+          error: allocatorError instanceof Error ? allocatorError.message : String(allocatorError),
+        });
+      }
+    };
+
+    try {
+      const runningState = await browserlessAllocator.waitForWorkerRunning({
+        taskId: session.browserlessTaskId,
+        endpoint: session.browserlessWorkerEndpoint,
+        timeoutMs: BROWSERLESS_READY_TIMEOUT_MS,
+        pollIntervalMs: BROWSERLESS_READY_POLL_INTERVAL_MS,
+      });
+      session.browserlessWorkerEndpoint = runningState.endpoint;
+      session.browserEndpoint = withTrackingId(runningState.endpoint, session.sessionId);
+    } catch (error) {
+      await markBrowserlessWorkerUnavailableForReadinessFailure(error);
+      throw statusError(503, 'browserless worker failed to reach running state', {
+        code: 'runtime_unavailable',
+      });
+    }
+
+    try {
+      if (opts.probeBrowserEndpoint) {
+        await opts.probeBrowserEndpoint(session.browserEndpoint);
+      } else if (opts.connectBrowserEndpoint) {
+        await opts.connectBrowserEndpoint(session.browserEndpoint);
+      }
+    } catch (error) {
+      await markBrowserlessWorkerUnavailableForReadinessFailure(error);
+      throw statusError(503, 'browserless worker failed readiness probe', {
+        code: 'runtime_unavailable',
+      });
+    }
   };
 
   const clearIdempotencyForRun = (profileName: string, runId: string) => {
@@ -301,12 +414,16 @@ export function createBrowserRouteContext(opts: {
     }
     s.runSessions.delete(runId);
     clearIdempotencyForRun(session.profileName, runId);
+    if (session.runtimeProfile.provider === 'browserless') {
+      await browserlessAllocator.releaseRun(runId);
+    }
     log.info('run session closed', {
       profile: session.profileName,
       run_id: runId,
       session_id: session.sessionId,
       target_id: closeTargetId,
       reason,
+      browserless_task_id: session.browserlessTaskId,
     });
     return { targetId: closeTargetId, closed: true };
   };
@@ -373,6 +490,10 @@ export function createBrowserRouteContext(opts: {
       return s;
     },
 
+    async getBrowserlessAllocatorStatus(): Promise<BrowserlessAllocatorStatusSnapshot> {
+      return await browserlessAllocator.getStatusSnapshot();
+    },
+
     forProfile(name: string) {
       const s = opts.getState();
       if (!s) throw new Error('Server not started');
@@ -408,6 +529,28 @@ export function createBrowserRouteContext(opts: {
         });
       };
 
+      const markBrowserlessSessionDegraded = async (session: RunOwnedSession, error: unknown, now = Date.now()) => {
+        markSessionDegraded(session, error, now);
+        if (!session.browserlessTaskId || !session.browserlessWorkerEndpoint) {
+          return;
+        }
+        try {
+          await browserlessAllocator.markWorkerUnavailable({
+            taskId: session.browserlessTaskId,
+            endpoint: session.browserlessWorkerEndpoint,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        } catch (allocatorError) {
+          log.warn('browserless worker unavailable mark failed', {
+            profile: session.profileName,
+            run_id: session.runId,
+            session_id: session.sessionId,
+            browserless_task_id: session.browserlessTaskId,
+            error: allocatorError instanceof Error ? allocatorError.message : String(allocatorError),
+          });
+        }
+      };
+
       const throwIfSessionDegraded = (session: RunOwnedSession, now = Date.now()) => {
         if (!session.degradedAt) {
           return;
@@ -425,7 +568,7 @@ export function createBrowserRouteContext(opts: {
 
         if (session.runtime && !available) {
           if (session.runtimeProfile.provider === 'browserless') {
-            markSessionDegraded(session, new Error('browserless session disconnected'));
+            await markBrowserlessSessionDegraded(session, new Error('browserless session disconnected'));
             throwIfSessionDegraded(session);
           }
           try {
@@ -434,6 +577,19 @@ export function createBrowserRouteContext(opts: {
             // Ignore stop errors
           }
           session.runtime = undefined;
+        }
+
+        if (session.runtime && session.runtimeProfile.provider === 'browserless') {
+          try {
+            if (opts.probeBrowserEndpoint) {
+              await opts.probeBrowserEndpoint(session.browserEndpoint);
+            } else if (opts.connectBrowserEndpoint) {
+              await opts.connectBrowserEndpoint(session.browserEndpoint);
+            }
+          } catch (error) {
+            await markBrowserlessSessionDegraded(session, error);
+            throwIfSessionDegraded(session);
+          }
         }
 
         if (!session.runtime) {
@@ -471,24 +627,6 @@ export function createBrowserRouteContext(opts: {
             }
           }
 
-          if (session.runtimeProfile.provider === 'browserless') {
-            const activeBrowserlessSessions = Array.from(s.runSessions.values()).filter(
-              (candidate) => candidate.runtimeProfile.provider === 'browserless' && candidate.runtime,
-            ).length;
-            if (activeBrowserlessSessions >= BROWSERLESS_MAX_SESSIONS) {
-              throw statusError(
-                429,
-                `browserless capacity exceeded: ${activeBrowserlessSessions}/${BROWSERLESS_MAX_SESSIONS}`,
-                {
-                  code: 'capacity_exceeded',
-                  retryAfterSeconds: ADMISSION_RETRY_AFTER_SECONDS,
-                  active: activeBrowserlessSessions,
-                  max: BROWSERLESS_MAX_SESSIONS,
-                },
-              );
-            }
-          }
-
           let ensurePromise = ensureInFlight.get(ensureKey);
           if (!ensurePromise) {
             ensurePromise = opts.ensureBrowser(session.runtimeProfile).finally(() => {
@@ -505,11 +643,14 @@ export function createBrowserRouteContext(opts: {
           }
           session.runtime = runtime;
           if (session.runtimeProfile.provider === 'browserless' && runtime.browserEndpoint) {
-            session.browserEndpoint = runtime.browserEndpoint;
+            session.browserEndpoint = session.browserlessWorkerEndpoint
+              ? withTrackingId(session.browserlessWorkerEndpoint, session.sessionId)
+              : runtime.browserEndpoint;
           }
           if (session.runtimeProfile.provider === 'browserless' && runtime.browserSessionId) {
             session.sessionId = runtime.browserSessionId;
           }
+          await waitForBrowserlessReadiness(session);
           session.degradedAt = undefined;
           session.degradedReason = undefined;
           session.degradedCloseAt = undefined;
@@ -584,7 +725,10 @@ export function createBrowserRouteContext(opts: {
               session.browserEndpoint = session.runtimeProfile.browserEndpoint;
             }
             if (!existing && resolvedProfile.provider === 'browserless') {
-              session.browserEndpoint = withTrackingId(resolvedProfile.browserEndpoint, session.sessionId);
+              await ensureBrowserlessPinnedWorker(session);
+            }
+            if (existing && resolvedProfile.provider === 'browserless') {
+              await ensureBrowserlessPinnedWorker(session);
             }
 
             touchSession(session);
@@ -600,6 +744,9 @@ export function createBrowserRouteContext(opts: {
                   }
                   s.runSessions.delete(normalizedRunId);
                   clearIdempotencyForRun(latest.profileName, normalizedRunId);
+                  if (latest.runtimeProfile.provider === 'browserless') {
+                    await browserlessAllocator.releaseRun(normalizedRunId);
+                  }
                 }
               }
               throw error;
@@ -609,6 +756,7 @@ export function createBrowserRouteContext(opts: {
               run_id: normalizedRunId,
               session_id: session.sessionId,
               provider: session.runtimeProfile.provider,
+              browserless_task_id: session.browserlessTaskId,
             });
             return {
               runId: normalizedRunId,
@@ -683,7 +831,7 @@ export function createBrowserRouteContext(opts: {
                 pages = await opts.listPages(session.browserEndpoint);
               } catch (error) {
                 if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                  markSessionDegraded(session, error);
+                  await markBrowserlessSessionDegraded(session, error);
                   throwIfSessionDegraded(session);
                 }
                 throw error;
@@ -695,7 +843,7 @@ export function createBrowserRouteContext(opts: {
                   await opts.focusPage(session.browserEndpoint, targetId);
                 } catch (error) {
                   if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                    markSessionDegraded(session, error);
+                    await markBrowserlessSessionDegraded(session, error);
                     throwIfSessionDegraded(session);
                   }
                   throw error;
@@ -725,7 +873,7 @@ export function createBrowserRouteContext(opts: {
                 pages = await opts.listPages(session.browserEndpoint);
               } catch (error) {
                 if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                  markSessionDegraded(session, error);
+                  await markBrowserlessSessionDegraded(session, error);
                   throwIfSessionDegraded(session);
                 }
                 throw error;
@@ -740,7 +888,7 @@ export function createBrowserRouteContext(opts: {
                 await opts.focusPage(session.browserEndpoint, current.targetId);
               } catch (error) {
                 if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                  markSessionDegraded(session, error);
+                  await markBrowserlessSessionDegraded(session, error);
                   throwIfSessionDegraded(session);
                 }
                 throw error;
@@ -804,7 +952,7 @@ export function createBrowserRouteContext(opts: {
               result = await opts.createPage(session.browserEndpoint);
             } catch (error) {
               if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                markSessionDegraded(session, error);
+                await markBrowserlessSessionDegraded(session, error);
                 throwIfSessionDegraded(session);
               }
               throw error;
@@ -814,7 +962,7 @@ export function createBrowserRouteContext(opts: {
               pagesAfterCreate = await opts.listPages(session.browserEndpoint);
             } catch (error) {
               if (session.runtimeProfile.provider === 'browserless' && isBrowserDisconnectError(error)) {
-                markSessionDegraded(session, error);
+                await markBrowserlessSessionDegraded(session, error);
                 throwIfSessionDegraded(session);
               }
               throw error;

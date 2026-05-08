@@ -42,6 +42,7 @@ function createContext(
     listPages: vi.fn(async () => [{ targetId: 'tab-1', url: 'https://example.test' }]),
     focusPage: vi.fn(async () => undefined),
     createPage: vi.fn(async () => ({ targetId: 'new-tab', url: 'about:blank' })),
+    probeBrowserEndpoint: vi.fn(async () => undefined),
     ...overrides,
   };
 
@@ -98,7 +99,7 @@ describe('createBrowserRouteContext', () => {
     });
 
     it('creates a new tab when explicitly requested without a targetId', async () => {
-      const { ctx, deps, state } = createContext();
+      const { ctx, deps, state } = createContext({ listPages: vi.fn(async () => []) });
       state.profiles.set('default', {
         name: 'default',
         config: state.configuredProfiles.get('default'),
@@ -220,6 +221,7 @@ describe('createBrowserRouteContext', () => {
     it('does not treat remote profiles as locally launched browsers when navigate creates a fresh session', async () => {
       const { ctx, deps } = createContext(
         {
+          listPages: vi.fn(async () => []),
           isBrowserAvailable: vi.fn(async () => true),
           ensureBrowser: vi.fn(async () => ({
             provider: 'browserless' as const,
@@ -238,7 +240,7 @@ describe('createBrowserRouteContext', () => {
       await ctx.forProfile('default').ensureTabAvailable('run-1', undefined, { createNewTab: true });
       expect(deps.ensureBrowser).toHaveBeenCalled();
       expect(deps.createPage).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&workerId=configured-browserless-1&trackingId=[^&]{1,31}$/),
       );
     });
 
@@ -266,13 +268,333 @@ describe('createBrowserRouteContext', () => {
       const created = await ctx.forProfile('default').ensureRunSession('run-lifecycle');
       expect(created.created).toBe(true);
       expect(connectBrowserEndpoint).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&trackingId=[^&]{1,31}$/),
+        expect.stringMatching(/^wss:\/\/browser\.example\.com\/\?token=test-token&workerId=configured-browserless-1&trackingId=[^&]{1,31}$/),
       );
 
       await ctx.forProfile('default').closeRunSession('run-lifecycle');
       expect(disconnectBrowserEndpoint).toHaveBeenCalledTimes(1);
       expect(disconnectBrowserEndpoint).toHaveBeenCalledWith(expect.any(String));
       expect(deps.releaseBrowser).toHaveBeenCalled();
+    });
+
+    it('pins browserless sessions to allocator-owned worker identity', async () => {
+      const assignRun = vi.fn(async () => ({
+        runId: 'run-pinned',
+        taskId: 'task-1',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        assignedAt: 123,
+      }));
+      const getAssignment = vi.fn(async () => null);
+      const { ctx, state } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun,
+            getAssignment,
+            releaseRun: vi.fn(async () => undefined),
+            waitForWorkerRunning: vi.fn(async () => ({
+              taskId: 'task-1',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              runningAt: 123,
+            })),
+            markWorkerUnavailable: vi.fn(async () => undefined),
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-pinned');
+
+      expect(assignRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: 'run-pinned',
+          profile: expect.objectContaining({
+            provider: 'browserless',
+          }),
+        }),
+      );
+      expect(state.runSessions.get('run-pinned')).toMatchObject({
+        browserlessTaskId: 'task-1',
+        browserlessWorkerEndpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        browserlessAssignedAt: 123,
+      });
+      expect(state.runSessions.get('run-pinned')?.browserEndpoint).toMatch(
+        /^wss:\/\/10\.0\.1\.25\/devtools\/browser\?token=test-token&trackingId=[^&]{1,31}$/,
+      );
+    });
+
+    it('releases browserless allocator assignment when closing a run session', async () => {
+      const releaseRun = vi.fn(async () => undefined);
+      const { ctx } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun: vi.fn(async () => ({
+              runId: 'run-close',
+              taskId: 'task-1',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              assignedAt: Date.now(),
+            })),
+            getAssignment: vi.fn(async () => null),
+            releaseRun,
+            waitForWorkerRunning: vi.fn(async () => ({
+              taskId: 'task-1',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              runningAt: Date.now(),
+            })),
+            markWorkerUnavailable: vi.fn(async () => undefined),
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-close');
+      await ctx.forProfile('default').closeRunSession('run-close');
+
+      expect(releaseRun).toHaveBeenCalledWith('run-close');
+    });
+
+    it('waits for browserless worker running state and endpoint probe before session creation succeeds', async () => {
+      const waitForWorkerRunning = vi.fn(async () => ({
+        taskId: 'task-ready',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        runningAt: 123,
+      }));
+      const probeBrowserEndpoint = vi.fn(async () => undefined);
+      const { ctx } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun: vi.fn(async () => ({
+              runId: 'run-ready',
+              taskId: 'task-ready',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              assignedAt: 123,
+            })),
+            getAssignment: vi.fn(async () => null),
+            releaseRun: vi.fn(async () => undefined),
+            waitForWorkerRunning,
+            markWorkerUnavailable: vi.fn(async () => undefined),
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          probeBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await ctx.forProfile('default').ensureRunSession('run-ready');
+
+      expect(waitForWorkerRunning).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'task-ready',
+          endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        }),
+      );
+      expect(probeBrowserEndpoint).toHaveBeenCalledWith(
+        expect.stringMatching(/^wss:\/\/10\.0\.1\.25\/devtools\/browser\?token=test-token&trackingId=[^&]{1,31}$/),
+      );
+    });
+
+    it('fails createRunSession with 503 when browserless worker never reaches running state', async () => {
+      const releaseRun = vi.fn(async () => undefined);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
+      const { ctx, state } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun: vi.fn(async () => ({
+              runId: 'run-not-running',
+              taskId: 'task-not-running',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              assignedAt: 123,
+            })),
+            getAssignment: vi.fn(async () => null),
+            releaseRun,
+            waitForWorkerRunning: vi.fn(async () => {
+              throw new Error('timed out waiting for ECS task');
+            }),
+            markWorkerUnavailable,
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-not-running')).rejects.toMatchObject({
+        status: 503,
+        code: 'runtime_unavailable',
+      });
+      expect(state.runSessions.has('run-not-running')).toBe(false);
+      expect(releaseRun).toHaveBeenCalledWith('run-not-running');
+      expect(markWorkerUnavailable).toHaveBeenCalledWith({
+        taskId: 'task-not-running',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        reason: 'timed out waiting for ECS task',
+      });
+    });
+
+    it('fails createRunSession with 503 when browserless readiness probe fails', async () => {
+      const releaseRun = vi.fn(async () => undefined);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
+      const probeBrowserEndpoint = vi.fn(async () => {
+        throw new Error('probe failed');
+      });
+      const { ctx, state } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun: vi.fn(async () => ({
+              runId: 'run-probe-fail',
+              taskId: 'task-probe-fail',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              assignedAt: 123,
+            })),
+            getAssignment: vi.fn(async () => null),
+            releaseRun,
+            waitForWorkerRunning: vi.fn(async () => ({
+              taskId: 'task-probe-fail',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              runningAt: 123,
+            })),
+            markWorkerUnavailable,
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          probeBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-probe-fail')).rejects.toMatchObject({
+        status: 503,
+        code: 'runtime_unavailable',
+      });
+      expect(state.runSessions.has('run-probe-fail')).toBe(false);
+      expect(releaseRun).toHaveBeenCalledWith('run-probe-fail');
+      expect(markWorkerUnavailable).toHaveBeenCalledWith({
+        taskId: 'task-probe-fail',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        reason: 'probe failed',
+      });
+    });
+
+    it('fails createRunSession retriably after a pinned browserless worker dies', async () => {
+      const assignment = {
+        runId: 'run-retry-degraded',
+        taskId: 'task-retry-degraded',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        assignedAt: 123,
+      };
+      const assignRun = vi.fn(async () => assignment);
+      const markWorkerUnavailable = vi.fn(async () => undefined);
+      const getAssignment = vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(assignment);
+      const probeBrowserEndpoint = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('WebSocket is not open'));
+      const { ctx, state } = createContext(
+        {
+          browserlessAllocator: {
+            assignRun,
+            getAssignment,
+            releaseRun: vi.fn(async () => undefined),
+            waitForWorkerRunning: vi.fn(async () => ({
+              taskId: 'task-retry-degraded',
+              endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+              runningAt: 123,
+            })),
+            markWorkerUnavailable,
+            getStatusSnapshot: vi.fn(async () => ({ totalAssignedRuns: 0, workers: [] })),
+            reconcileOrphans: vi.fn(async () => ({ discoveredWorkerCount: 0, stoppedWorkerCount: 0 })),
+          },
+          probeBrowserEndpoint,
+          isBrowserAvailable: vi.fn(async () => true),
+          ensureBrowser: vi.fn(async () => ({
+            provider: 'browserless' as const,
+            startedAt: Date.now(),
+          })),
+        },
+        {
+          provider: 'browserless',
+          browserPort: undefined,
+          browserEndpoint: 'wss://browser.example.com?token=test-token',
+          browserEndpointIsLoopback: false,
+        },
+      );
+
+      await expect(ctx.forProfile('default').ensureRunSession('run-retry-degraded')).resolves.toMatchObject({
+        runId: 'run-retry-degraded',
+        created: true,
+      });
+      await expect(ctx.forProfile('default').ensureRunSession('run-retry-degraded')).rejects.toMatchObject({
+        status: 503,
+        code: 'session_degraded',
+      });
+
+      expect(assignRun).toHaveBeenCalledTimes(1);
+      expect(markWorkerUnavailable).toHaveBeenCalledWith({
+        taskId: 'task-retry-degraded',
+        endpoint: 'wss://10.0.1.25/devtools/browser?token=test-token',
+        reason: 'WebSocket is not open',
+      });
+      expect(state.runSessions.get('run-retry-degraded')).toMatchObject({
+        degradedAt: expect.any(Number),
+        degradedCloseAt: expect.any(Number),
+      });
     });
 
     it('retries after a connection refused error while resolving a target', async () => {
@@ -346,8 +668,8 @@ describe('createBrowserRouteContext', () => {
       );
     });
 
-    it('enforces browserless max sessions (20)', async () => {
-      const { ctx, state } = createContext(
+    it('maps allocator browserless capacity exhaustion to 429', async () => {
+      const { ctx } = createContext(
         { listPages: vi.fn(async () => []) },
         {
           provider: 'browserless',
@@ -356,20 +678,17 @@ describe('createBrowserRouteContext', () => {
           browserEndpointIsLoopback: false,
         },
       );
-      const runtimeProfile = state.configuredProfiles.get('default');
+
       for (let i = 1; i <= 20; i += 1) {
-        state.runSessions.set(`run-${i}`, {
-          runId: `run-${i}`,
-          profileName: 'default',
-          browserEndpoint: `wss://browser.example.com?session=${i}`,
-          runtimeProfile,
-          runtime: { provider: 'browserless', startedAt: Date.now() },
-        });
+        await ctx.forProfile('default').ensureRunSession(`run-${i}`);
       }
 
-      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toThrow(
-        'browserless capacity exceeded',
-      );
+      await expect(ctx.forProfile('default').ensureRunSession('run-overflow')).rejects.toMatchObject({
+        status: 429,
+        code: 'capacity_exceeded',
+        active: 20,
+        max: 20,
+      });
     });
 
     it('enforces global browser max sessions (200)', async () => {
