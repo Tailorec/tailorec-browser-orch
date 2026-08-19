@@ -1,49 +1,41 @@
-node_modules/\ndist/\nlogs/\n.DS_Store
-
-# dependencies
-/node_modules
-
+# Dependencies
 node_modules/
 
-
-# logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-node_modules/
-*.log
-logs/
-
-# build output
+# Build output
 dist/
 build/
 
-# environment variables
+# Environment and local secrets
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# temporary upload resumes
-upload-resumes/
-upload-resume/
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# test coverage
+# Browser and test artifacts
 coverage/
 *.lcov
-
-# playwright
 playwright-report/
 test-results/
 playwright/.cache/
-
-# vitest
 *.snap
 
-# plans and reports
-TEST_PLAN.md
+# Runtime uploads and downloads
+upload-resume/
+upload-resumes/
+
+# Local plans and reports
 plans/
 reports/
+TEST_PLAN.md
+
+# Tooling and OS files
+graphify-out/
+.DS_Store
