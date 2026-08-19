@@ -29,6 +29,12 @@ describe('basic routes integration', () => {
           browser_endpoint: 'http://127.0.0.1:9222/',
         },
       ],
+      browserless_allocator: {
+        total_assigned_runs: 0,
+        max_total_sessions: 20,
+        max_sessions_per_worker: 5,
+        workers: [],
+      },
     });
     expect(status.headers['x-correlation-id']).toBe('corr-1');
   });

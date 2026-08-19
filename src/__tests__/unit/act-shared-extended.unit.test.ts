@@ -18,7 +18,7 @@ describe('ActionCompatController validation', () => {
     const res = createMockRes();
 
     await controller.handleAct(
-      createMockReq({ body: { kind: 'click', ref: 'e1', selector: '#bad' } }),
+      createMockReq({ body: { run_id: 'run-1', kind: 'click', ref: 'e1', selector: '#bad' } }),
       res,
     );
 
@@ -31,14 +31,14 @@ describe('ActionCompatController validation', () => {
 
     const badButton = createMockRes();
     await controller.handleAct(
-      createMockReq({ body: { kind: 'click', ref: 'e1', button: 'bad' } }),
+      createMockReq({ body: { run_id: 'run-1', kind: 'click', ref: 'e1', button: 'bad' } }),
       badButton,
     );
     expect(badButton.payload).toEqual({ ok: false, error: 'button must be left|right|middle' });
 
     const badModifiers = createMockRes();
     await controller.handleAct(
-      createMockReq({ body: { kind: 'click', ref: 'e1', modifiers: ['Bad'] } }),
+      createMockReq({ body: { run_id: 'run-1', kind: 'click', ref: 'e1', modifiers: ['Bad'] } }),
       badModifiers,
     );
     expect(badModifiers.payload).toEqual({
@@ -51,12 +51,15 @@ describe('ActionCompatController validation', () => {
     const disabledController = new ActionCompatController({} as any, {} as any, {} as any, false);
 
     const missingConditions = createMockRes();
-    await disabledController.handleAct(createMockReq({ body: { kind: 'wait' } }), missingConditions);
+    await disabledController.handleAct(
+      createMockReq({ body: { run_id: 'run-1', kind: 'wait' } }),
+      missingConditions,
+    );
     expect(missingConditions.statusCode).toBe(400);
 
     const disabledFn = createMockRes();
     await disabledController.handleAct(
-      createMockReq({ body: { kind: 'wait', fn: '() => true' } }),
+      createMockReq({ body: { run_id: 'run-1', kind: 'wait', fn: '() => true' } }),
       disabledFn,
     );
     expect(disabledFn.statusCode).toBe(403);
@@ -65,7 +68,7 @@ describe('ActionCompatController validation', () => {
   it('dispatches evaluate requests to the advanced controller when enabled', async () => {
     const advanced = { handleEvaluate: vi.fn(async () => undefined) };
     const controller = new ActionCompatController({} as any, {} as any, advanced as any, true);
-    const req = createMockReq({ body: { kind: 'evaluate', fn: '() => 1' } });
+    const req = createMockReq({ body: { run_id: 'run-1', kind: 'evaluate', fn: '() => 1' } });
     const res = createMockRes();
 
     await controller.handleAct(req, res);

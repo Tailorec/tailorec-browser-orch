@@ -83,7 +83,7 @@ describe("unit: upload staging + file chooser", () => {
     );
 
     const req = createMockReq({
-      body: { inputRef: "e-file", paths: ["/tmp/resume.pdf"] },
+      body: { run_id: "run-1", inputRef: "e-file", paths: ["/tmp/resume.pdf"] },
     });
     const res = createMockRes();
 
