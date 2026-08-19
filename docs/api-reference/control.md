@@ -12,21 +12,32 @@ Tailorec Browser Service OK
 
 ## `GET /status`
 
-Returns runtime health and the currently active runtime profiles.
+Returns provider, active-profile, configured-profile, and Browserless allocator diagnostics.
 
 ### Response
 
 ```json
 {
   "ok": true,
-  "profiles": ["default"]
+  "provider": "local",
+  "profiles": ["default"],
+  "configured_profiles": [
+    { "name": "default", "provider": "local", "browser_endpoint": "http://127.0.0.1:9222" }
+  ],
+  "browserless_allocator": {
+    "total_assigned_runs": 0,
+    "max_total_sessions": 20,
+    "max_sessions_per_worker": 5,
+    "workers": []
+  }
 }
 ```
 
 Notes:
 
 - `profiles` reflects live runtime state, not just static configuration
-- use this endpoint as the basic readiness check
+- endpoint credentials and query values are redacted
+- this is service-owned diagnostic state, not a live external-provider probe
 
 ## `GET /control`
 
@@ -79,9 +90,10 @@ Interactive websocket channel used after a successful `/control` exchange.
 
 Typical flow:
 
-1. caller obtains a valid control token
-2. caller requests `/control?token=...`
-3. service returns `ws_url`
-4. caller connects to `/control/live`
+1. caller creates a run session and navigates to a tab
+2. trusted backend issues a valid control token for that run
+3. caller requests `/control?token=...`
+4. service returns `ws_url`
+5. caller connects to `/control/live`
 
 The websocket server is installed at runtime by `installControlLiveWebSocketServer(...)` in `src/main.ts`.

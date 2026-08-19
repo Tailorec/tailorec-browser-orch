@@ -1,179 +1,140 @@
 # Tailorec Browser Service
 
-Standalone browser automation service for LLM-driven workflows. The service exposes pages as semantic snapshots with stable element refs and executes browser actions through a small HTTP API.
+A run-isolated browser control service for agentic workflows. It turns web pages into semantic snapshots with stable element references, executes browser actions through HTTP, and supports either local Chromium or remote Browserless workers.
 
-## What Ships Now
+The service owns browser mechanics. It does not decide what an agent should do.
 
-- Runtime entrypoint: `src/main.ts`
-- HTTP API on `127.0.0.1:4000` by default
-- Clean architecture split across `api`, `adapters`, `core`, `config`, `container`, and `shared`
-- Playwright-backed browser/session management with pluggable browser providers
-- Snapshot, action, hooks, media, and interactive control endpoints
-- Vitest unit/integration/contract coverage plus Playwright E2E coverage
+## Why this service exists
 
-## Quick Start
+Raw DOM selectors are brittle in modern applications. Tailorec Browser Service gives callers a smaller, auditable contract:
 
-```bash
-npm install
-# required only when running the local browser provider or Playwright E2E tests
-npx playwright install chromium
-npm run dev
-```
+1. create a run-owned browser session
+2. navigate to a page
+3. take a semantic snapshot
+4. act on a returned reference such as `e12`
+5. take a fresh snapshot after the page changes
+6. close the run session
 
-Docker images:
+Each `run_id` owns its browser session and active `targetId`. Cross-run target access fails closed instead of falling back to an arbitrary tab.
 
-- `Dockerfile`: slim production image for `BROWSER_PROVIDER=browserless`
-- `Dockerfile.local`: Playwright-based image for `BROWSER_PROVIDER=local`
+## Capabilities
 
-Service URLs:
-
-- `GET /` health text response
-- `GET /status` JSON status response
-- API base URL: `http://127.0.0.1:4000`
-
-## Example Workflow
-
-Navigate:
-
-```bash
-curl -X POST http://127.0.0.1:4000/act \
-  -H 'Content-Type: application/json' \
-  -d '{"kind":"navigate","url":"https://example.com"}'
-```
-
-Take a snapshot:
-
-```bash
-curl -X POST http://127.0.0.1:4000/snapshot \
-  -H 'Content-Type: application/json' \
-  -d '{"interactiveOnly":true,"compact":true}'
-```
-
-Click by ref:
-
-```bash
-curl -X POST http://127.0.0.1:4000/act \
-  -H 'Content-Type: application/json' \
-  -d '{"kind":"click","ref":"e2"}'
-```
+- Semantic accessibility snapshots with stable, action-ready refs
+- Click, type, fill, select, drag, wait, evaluate, navigation, and blocker actions
+- Run-scoped session and tab ownership with idempotent session creation
+- Local Chromium and remote Browserless providers
+- Optional on-demand Browserless worker allocation on AWS ECS/Fargate
+- Screenshots, labeled screenshots, file uploads, downloads, and dialog hooks
+- JWT-scoped WebSocket control for human takeover
+- Structured correlation logs and provider/allocator diagnostics
+- Unit, integration, contract, and Playwright end-to-end test suites
 
 ## Architecture
 
-The runtime composes the application in `src/main.ts`:
+```mermaid
+flowchart LR
+    Caller[Agent runtime or API client]
+    Human[Human controller]
 
-1. Load config from `src/config/config.ts`
-2. Build the dependency container in `src/container/container.ts`
-3. Create browser route context and controllers
-4. Register route modules from `src/api/routes/`
-5. Install error middleware and `/control/live` WebSocket support
+    subgraph Service[Tailorec Browser Service]
+        API[Express HTTP routes]
+        Control[JWT-authenticated control WebSocket]
+        UseCases[Core use cases and services]
+        Ownership[Run sessions and target ownership]
+        Ports[Browser ports]
+    end
 
-Current source layout:
+    subgraph Providers[Browser providers]
+        Local[Local Chromium]
+        Remote[Browserless endpoint]
+        ECS[AWS ECS allocator]
+    end
 
-```text
-src/
-├── main.ts
-├── api/          # Routes, controllers, middlewares, validators
-├── adapters/     # HTTP, Playwright, Chrome, logging, in-memory adapters
-├── config/       # Config loading and validation
-├── container/    # Dependency wiring
-├── core/         # Entities, ports, services, use cases
-├── shared/       # Shared errors, utils, types
-└── __tests__/    # Unit, integration, contract, and E2E suites
+    Caller -->|run session, snapshot, act| API
+    Human -->|browser:control JWT| Control
+    API --> UseCases
+    Control --> Ownership
+    UseCases --> Ownership
+    Ownership --> Ports
+    Ports --> Local
+    Ports --> Remote
+    ECS -->|assigns and retires workers| Remote
 ```
 
-More detail:
+The code follows a ports-and-adapters layout: domain logic in `src/core` does not import Express, Playwright, Chrome, or AWS SDK implementations. See [Architecture](./docs/architecture/overview.md) for lifecycle and trust-boundary diagrams.
 
-- [Docs Index](./docs/README.md)
-- [Architecture Overview](./docs/architecture/overview.md)
-- [Clean Architecture](./docs/architecture/clean-architecture.md)
+## Quick start
 
-## API Surface
-
-Routes registered by the current runtime:
-
-- `GET /`
-- `GET /status`
-- `GET /control`
-- `POST /snapshot`
-- `POST /snapshot/delta`
-- `POST /act`
-- `POST /hooks/file-chooser`
-- `POST /hooks/dialog`
-- `POST /wait/download`
-- `POST /download`
-- `POST /screenshot`
-- `POST /screenshot/labeled`
-- `POST /highlight`
-- `WS /control/live`
-
-API reference:
-
-- [Overview](./docs/api-reference/overview.md)
-- [Snapshot](./docs/api-reference/snapshot.md)
-- [Actions](./docs/api-reference/act.md)
-- [Hooks and Downloads](./docs/api-reference/hooks.md)
-- [Screenshots](./docs/api-reference/screenshot.md)
-- [Control](./docs/api-reference/control.md)
-
-## Configuration
-
-Primary environment variables:
-
-- `PORT` default `4000`
-- `AGENT_RUNTIME_JWT_SECRET` required for `/control` and `/control/live` JWT verification
-- `AGENT_RUNTIME_JWT_ISSUER` default `tailorec-backend`
-- `AGENT_RUNTIME_JWT_AUDIENCE` default `tailorec-agent-runtime`
-- `BROWSER_PROVIDER` one of `local` or `browserless`
-- `BROWSER_CDP_PORT` local provider only, default `9222`
-- `BROWSER_ENDPOINT` browserless provider only, must be a full `ws(s)` or `http(s)` endpoint
-- `BROWSER_HEADLESS` default `true` in `.env.example`
-- `BROWSER_NO_SANDBOX`
-- `BROWSER_VIEWPORT` format `WIDTHxHEIGHT`
-- `LOG_LEVEL` (in `production`/`staging`, effective log level is clamped to at least `warn`)
-- `LOG_FORMAT`
-- `LOG_TO_FILE`
-- `LOG_FILE_PATH`
-- `LOG_MAX_BYTES`
-- `LOG_BACKUP_COUNT`
-
-Details: [Configuration](./docs/getting-started/configuration.md)
-
-Provider examples:
+Requirements: Node.js 20+, npm, and a Chromium-compatible runtime.
 
 ```bash
-# local browser runtime
-AGENT_RUNTIME_JWT_SECRET=replace-me
-BROWSER_PROVIDER=local
-BROWSER_CDP_PORT=9222
-BROWSER_HEADLESS=true
+npm ci
+npx playwright install chromium
+cp .env.example .env
+npm run dev
 ```
+
+In another terminal, run a complete session:
 
 ```bash
-# remote/browserless runtime
-AGENT_RUNTIME_JWT_SECRET=replace-me
-BROWSER_PROVIDER=browserless
-BROWSER_ENDPOINT=wss://browser.example.com?token=YOUR_TOKEN
-BROWSER_HEADLESS=true
+# 1. Create a run-owned browser session.
+curl -sS -X POST http://127.0.0.1:4000/runs/demo-run/session
+
+# 2. Navigate. Every browser operation includes run_id.
+curl -sS -X POST http://127.0.0.1:4000/act \
+  -H 'Content-Type: application/json' \
+  -d '{"run_id":"demo-run","kind":"navigate","url":"https://example.com"}'
+
+# 3. Read the page and collect refs.
+curl -sS -X POST http://127.0.0.1:4000/snapshot \
+  -H 'Content-Type: application/json' \
+  -d '{"run_id":"demo-run","interactiveOnly":true,"compact":true}'
+
+# 4. Release the browser runtime when the workflow ends.
+curl -sS -X DELETE http://127.0.0.1:4000/runs/demo-run/session
 ```
 
-Container builds:
+Use a ref returned by `/snapshot` in a later action:
 
 ```bash
-# browserless / production
-docker build -t tailorec-browser .
-
-# local browser runtime
-docker build -f Dockerfile.local -t tailorec-browser-local .
+curl -sS -X POST http://127.0.0.1:4000/act \
+  -H 'Content-Type: application/json' \
+  -d '{"run_id":"demo-run","kind":"click","targetId":"TARGET_ID","ref":"e12"}'
 ```
 
-Current v1 constraints:
+Refs may become stale after navigation or a meaningful DOM update. Snapshot again before the next decision.
 
-- One provider per process. Mixed local and remote profiles are rejected.
-- One active browser connection per process.
-- Remote disconnects fail the current request; the client should retry explicitly.
-- `/status` reports provider diagnostics with redacted endpoints and does not perform live provider health checks.
+## Providers
 
-## Testing
+| Provider | Use case | Required configuration | Runtime behavior |
+|---|---|---|---|
+| `local` | Development, CI, trusted single-host deployments | Playwright Chromium; optional `BROWSER_CDP_PORT` | Launches a run-owned local Chromium runtime |
+| `browserless` | Hosted Chrome or Browserless deployments | `BROWSER_ENDPOINT` | Pins each run to a remote browser connection |
+| `browserless` + ECS allocator | Elastic production workers | Browserless endpoint template plus ECS cluster, task, subnet, and security-group settings | Assigns capacity, waits for readiness, quarantines failed workers, and stops idle workers |
+
+Only one provider may be configured in a process. See [Configuration](./docs/getting-started/configuration.md) and [Browserless operations](./docs/operations/browserless.md).
+
+## API at a glance
+
+| Area | Endpoints |
+|---|---|
+| Health | `GET /`, `GET /status` |
+| Run lifecycle | `POST /runs/:runId/session`, `DELETE /runs/:runId/session` |
+| Page state | `POST /snapshot`, `POST /snapshot/delta` |
+| Actions | `POST /act` |
+| Uploads/downloads | `POST /hooks/file-chooser`, `POST /hooks/dialog`, `POST /wait/download`, `POST /download` |
+| Media | `POST /screenshot`, `POST /screenshot/labeled`, `POST /highlight` |
+| Human control | `GET /control`, `WS /control/live` |
+
+Execution endpoints require a `run_id` in their JSON body. The session must already exist. See the [API reference](./docs/api-reference/overview.md).
+
+## Security model
+
+`/control` and `/control/live` verify a short-lived HS256 JWT with the expected issuer, audience, token type, and `browser:control` scope. The regular execution endpoints do not implement application-level authentication, so expose this service only on a private network or behind an authenticated gateway. Never publish a raw Browserless endpoint or token.
+
+See [Security policy](./SECURITY.md) for reporting and deployment guidance.
+
+## Development
 
 ```bash
 npm run check
@@ -181,17 +142,46 @@ npm run test
 npm run test:unit
 npm run test:integration
 npm run test:contract
+npm run test:gate:run-isolation
 npm run test:e2e
 ```
 
-Testing docs:
+Build and run the compiled service:
 
-- [Testing Overview](./docs/testing/overview.md)
-- [Test Suite README](./src/__tests__/README.md)
-- [Test Contributing Guide](./src/__tests__/TEST-CONTRIBUTING.md)
+```bash
+npm run build
+npm start
+```
 
-## Planning Docs
+Container images:
 
-The refactor planning documents have been removed. The only retained planning set is:
+```bash
+# Remote Browserless runtime; no browser bundled.
+docker build -t tailorec-browser .
 
-- [Skyvern Plan](./docs/skyvern-plan/00-overview.md)
+# Local runtime; Playwright Chromium bundled.
+docker build -f Dockerfile.local -t tailorec-browser-local .
+```
+
+## Documentation
+
+- [Documentation index](./docs/README.md)
+- [Quick start](./docs/getting-started/quickstart.md)
+- [Configuration reference](./docs/getting-started/configuration.md)
+- [Architecture and design decisions](./docs/architecture/overview.md)
+- [API reference](./docs/api-reference/overview.md)
+- [Browserless operations](./docs/operations/browserless.md)
+- [Testing guide](./docs/testing/overview.md)
+- [Contributing](./CONTRIBUTING.md)
+
+## Current constraints
+
+- Runtime ownership state is process-local. Do not expect active runs to survive a process restart.
+- A run supports one active non-blank tab in the current isolation model. Unsupported extra-tab flows return `409` and close the run session.
+- Capacity is bounded. Admission failures return `429`, `Retry-After`, and machine-readable capacity details.
+- A disconnected remote session becomes degraded and fails with `503`; callers must create a new run rather than silently rebind the old one.
+- `/status` returns diagnostics and redacts endpoint credentials, but it is not an external provider health probe.
+
+## License
+
+This repository does not currently contain a license file. Until the maintainers add one, copyright law reserves all rights and third-party reuse is not granted.

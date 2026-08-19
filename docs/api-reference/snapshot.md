@@ -4,10 +4,13 @@
 
 Returns the current page as a semantic accessibility tree plus a ref metadata map.
 
+Create the run session before taking a snapshot. Every request requires `run_id`.
+
 ### Request Body
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
+| `run_id` | string | — | required run-session owner |
 | `targetId` | string | current tab | optional browser tab |
 | `timeoutMs` | number | runtime default | snapshot timeout |
 | `maxChars` | number | unlimited | maximum snapshot length |
@@ -21,6 +24,7 @@ Returns the current page as a semantic accessibility tree plus a ref metadata ma
 curl -X POST http://127.0.0.1:4000/snapshot \
   -H 'Content-Type: application/json' \
   -d '{
+    "run_id": "run-123",
     "interactiveOnly": true,
     "compact": true,
     "maxChars": 5000
@@ -127,6 +131,7 @@ Starts or stops DOM observation for incremental change tracking.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `targetId` | string | optional browser tab |
 | `action` | string | required: `start` or `stop` |
 | `anchorRef` | string | optional observer anchor ref |
@@ -136,7 +141,7 @@ Starts or stops DOM observation for incremental change tracking.
 ```bash
 curl -X POST http://127.0.0.1:4000/snapshot/delta \
   -H 'Content-Type: application/json' \
-  -d '{"action":"start","anchorRef":"e12"}'
+  -d '{"run_id":"run-123","action":"start","anchorRef":"e12"}'
 ```
 
 ### Example Stop
@@ -144,7 +149,7 @@ curl -X POST http://127.0.0.1:4000/snapshot/delta \
 ```bash
 curl -X POST http://127.0.0.1:4000/snapshot/delta \
   -H 'Content-Type: application/json' \
-  -d '{"action":"stop"}'
+  -d '{"run_id":"run-123","action":"stop"}'
 ```
 
 ### Validation Error

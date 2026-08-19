@@ -1,43 +1,28 @@
-# Documentation Index
+# Documentation
 
-This repository now documents the completed refactored runtime, not the migration process that produced it.
+The documentation is organized by reader intent: learn the workflow, complete a task, look up a contract, or understand a design decision.
 
-## Start Here
+## Start here
 
-- [Getting Started](./getting-started/installation.md)
-- [Configuration](./getting-started/configuration.md)
-- [Quick Start](./getting-started/quickstart.md)
+- [Quick start](./getting-started/quickstart.md): run a local browser session and complete the snapshot/act loop
+- [Configuration](./getting-started/configuration.md): environment variables, defaults, and provider examples
+- [Architecture](./architecture/overview.md): boundaries, session lifecycle, isolation, and trade-offs
 
-## Architecture
+## API reference
 
-- [Architecture Overview](./architecture/overview.md)
-- [Clean Architecture](./architecture/clean-architecture.md)
+- [API conventions and endpoint index](./api-reference/overview.md)
+- [Run sessions](./api-reference/run-sessions.md)
+- [Actions](./api-reference/act.md)
+- [Snapshots](./api-reference/snapshot.md)
+- [Hooks and downloads](./api-reference/hooks.md)
+- [Screenshots and highlights](./api-reference/screenshot.md)
+- [Human control](./api-reference/control.md)
 
-## API Reference
+## Operate and contribute
 
-- [API Overview](./api-reference/overview.md)
-- [Snapshot API](./api-reference/snapshot.md)
-- [Action API](./api-reference/act.md)
-- [Hooks and Download API](./api-reference/hooks.md)
-- [Screenshot API](./api-reference/screenshot.md)
-- [Control API](./api-reference/control.md)
+- [Browserless operations](./operations/browserless.md)
+- [Testing](./testing/overview.md)
+- [Contributing](../CONTRIBUTING.md)
+- [Security](../SECURITY.md)
 
-## Feature Notes
-
-- [Semantic Snapshots](./features/semantic-snapshots.md)
-- [Dropdown Handling](./features/dropdown-handling.md)
-- [Form Filling](./features/form-filling.md)
-- [Job Applications](./features/job-applications.md)
-
-## Testing
-
-- [Testing Overview](./testing/overview.md)
-- [Test Suite README](../src/__tests__/README.md)
-- [Test Contributing Guide](../src/__tests__/TEST-CONTRIBUTING.md)
-- [Test Helpers](../src/__tests__/HELPERS.md)
-
-## Retained Planning Docs
-
-Only the Skyvern planning set is retained:
-
-- [Skyvern Plan Overview](./skyvern-plan/00-overview.md)
+All browser-operation examples use a pre-created `run_id`. If you receive `missing_run_id` or `run session is not initialized`, start with the [run-session contract](./api-reference/run-sessions.md).

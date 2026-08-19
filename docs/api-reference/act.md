@@ -4,10 +4,13 @@
 
 Executes browser actions through a single compatibility endpoint keyed by `kind`.
 
+Create the run first with `POST /runs/:runId/session`. Every request to this endpoint requires the same `run_id`.
+
 ### Common Request Fields
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `kind` | string | required action kind |
 | `targetId` | string | optional browser tab |
 | `timeoutMs` | number | optional action timeout |
@@ -37,7 +40,7 @@ Executes browser actions through a single compatibility endpoint keyed by `kind`
 Example:
 
 ```json
-{ "kind": "click", "ref": "e12", "button": "left", "doubleClick": false }
+{ "run_id": "run-123", "kind": "click", "ref": "e12", "button": "left", "doubleClick": false }
 ```
 
 ### `type`
@@ -126,6 +129,8 @@ If `fn` is used, `browser.evaluateEnabled` must be enabled.
 ### `navigate`
 
 - requires `url`
+- supports `createNewTab`
+- supports `idempotencyKey` or `idempotency_key` for retry-safe tab creation
 
 ### `close`
 
@@ -156,6 +161,8 @@ For non-`wait` actions, sending `selector` returns a validation error and the AP
 
 Other common errors:
 
+- `run_id is required` with code `missing_run_id`
+- `run session is not initialized. Call CreateRunSession first.`
 - `ref is required`
 - `text is required`
 - `key is required`
@@ -165,3 +172,5 @@ Other common errors:
 - `button must be left|right|middle`
 - `modifiers must be Alt|Control|ControlOrMeta|Meta|Shift`
 - `wait requires at least one of: timeMs, text, textGone, selector, url, loadState, fn`
+
+Ownership conflicts return `409`; provider capacity returns `429`; degraded remote sessions return `503`. See [Run sessions](./run-sessions.md).

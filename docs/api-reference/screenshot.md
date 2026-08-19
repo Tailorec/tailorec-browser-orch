@@ -4,10 +4,13 @@
 
 Captures a page screenshot, a ref-targeted screenshot, or a selector-targeted screenshot.
 
+All media endpoints require a previously created run session and `run_id` in the JSON body.
+
 ### Request Body
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `targetId` | string | optional browser tab |
 | `fullPage` | boolean | capture the entire page |
 | `type` | string | `png` or `jpeg` |
@@ -32,6 +35,7 @@ Captures a page screenshot, a ref-targeted screenshot, or a selector-targeted sc
 
 ```json
 {
+  "run_id": "run-123",
   "fullPage": true,
   "type": "png"
 }
@@ -41,6 +45,7 @@ Captures a page screenshot, a ref-targeted screenshot, or a selector-targeted sc
 
 ```json
 {
+  "run_id": "run-123",
   "ref": "e12",
   "type": "jpeg",
   "quality": 90
@@ -67,6 +72,7 @@ Captures a viewport screenshot with ref labels and bounding boxes overlaid.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `targetId` | string | optional browser tab |
 | `type` | string | `png` or `jpeg` |
 | `maxLabels` | number | max overlays to render |
@@ -76,6 +82,7 @@ Example:
 
 ```json
 {
+  "run_id": "run-123",
   "refs": {
     "e1": { "role": "button", "name": "Submit" },
     "e2": { "role": "textbox", "name": "Email" }
@@ -113,6 +120,7 @@ Highlights a ref-backed element in the current page.
 
 ```json
 {
+  "run_id": "run-123",
   "ref": "e12",
   "targetId": "optional"
 }

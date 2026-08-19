@@ -4,10 +4,13 @@
 
 Stages files and arms a browser upload flow.
 
+All endpoints on this page require a previously created run session and `run_id` in the JSON body.
+
 ### Request Body
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `paths` | array | required local paths or URLs |
 | `targetId` | string | optional tab |
 | `ref` | string | click this ref to trigger chooser |
@@ -21,6 +24,7 @@ Stages files and arms a browser upload flow.
 
 ```json
 {
+  "run_id": "run-123",
   "paths": ["/path/to/resume.pdf"],
   "ref": "e12",
   "timeoutMs": 10000
@@ -31,6 +35,7 @@ Stages files and arms a browser upload flow.
 
 ```json
 {
+  "run_id": "run-123",
   "paths": ["/path/to/resume.pdf"],
   "inputRef": "e15"
 }
@@ -40,6 +45,7 @@ Stages files and arms a browser upload flow.
 
 ```json
 {
+  "run_id": "run-123",
   "paths": ["https://example.com/resume.pdf"],
   "ref": "e12"
 }
@@ -70,6 +76,7 @@ Arms handling for alert, confirm, and prompt dialogs.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `accept` | boolean | required accept or dismiss flag |
 | `promptText` | string | optional prompt response |
 | `targetId` | string | optional tab |
@@ -79,6 +86,7 @@ Arms handling for alert, confirm, and prompt dialogs.
 
 ```json
 {
+  "run_id": "run-123",
   "accept": true,
   "promptText": "John Doe"
 }
@@ -98,6 +106,7 @@ Waits for an expected browser download.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `targetId` | string | optional tab |
 | `path` | string | optional output path |
 | `timeoutMs` | number | optional timeout |
@@ -123,6 +132,7 @@ Clicks a ref-backed download element and waits for the resulting file.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `run_id` | string | required run-session owner |
 | `ref` | string | required download trigger ref |
 | `path` | string | required output path |
 | `targetId` | string | optional tab |

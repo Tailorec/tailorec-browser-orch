@@ -1,156 +1,96 @@
-# API Overview
+# API reference
 
-Base URL:
+Default base URL: `http://127.0.0.1:4000`.
+
+## Lifecycle contract
+
+Every browser workflow follows this order:
 
 ```text
-http://127.0.0.1:4000
+create run session -> navigate -> snapshot -> act -> snapshot -> close run session
 ```
 
-## Request Conventions
+Browser-operation JSON bodies require `run_id`. `targetId` is optional when the run already has an active tab; callers should still retain and reuse the latest returned target ID. A `targetId` owned by another run returns `409`.
 
-- JSON endpoints use `Content-Type: application/json`
-- `targetId` is optional on most browser operations
-- `timeoutMs` is supported where the underlying action can block
-- the standard workflow is `navigate -> snapshot -> act -> snapshot`
+## Endpoints
 
-Example:
+| Method | Path | Purpose | Detail |
+|---|---|---|---|
+| `GET` | `/` | Plain-text liveness | — |
+| `GET` | `/status` | Provider, profile, and allocator diagnostics | This page |
+| `POST` | `/runs/:runId/session` | Create or reuse a run session | [Run sessions](./run-sessions.md) |
+| `DELETE` | `/runs/:runId/session` | Close a run session | [Run sessions](./run-sessions.md) |
+| `POST` | `/snapshot` | Semantic snapshot and refs | [Snapshots](./snapshot.md) |
+| `POST` | `/snapshot/delta` | Start or stop DOM-delta observation | [Snapshots](./snapshot.md) |
+| `POST` | `/act` | Execute an action selected by `kind` | [Actions](./act.md) |
+| `POST` | `/hooks/file-chooser` | Stage and attach upload files | [Hooks](./hooks.md) |
+| `POST` | `/hooks/dialog` | Arm dialog handling | [Hooks](./hooks.md) |
+| `POST` | `/wait/download` | Wait for a browser download | [Hooks](./hooks.md) |
+| `POST` | `/download` | Click a ref and capture its download | [Hooks](./hooks.md) |
+| `POST` | `/screenshot` | Page or element screenshot | [Media](./screenshot.md) |
+| `POST` | `/screenshot/labeled` | Screenshot with ref overlays | [Media](./screenshot.md) |
+| `POST` | `/highlight` | Highlight a ref-backed element | [Media](./screenshot.md) |
+| `GET` | `/control` | Validate a control JWT and return WebSocket URL | [Control](./control.md) |
+| `WS` | `/control/live` | Stream frames and accept human input | [Control](./control.md) |
 
-```bash
-curl -X POST http://127.0.0.1:4000/endpoint \
-  -H 'Content-Type: application/json' \
-  -d '{"key":"value"}'
-```
+## Request conventions
 
-## Response Conventions
+- Send JSON with `Content-Type: application/json`.
+- Use `profile=default` unless another configured profile exists.
+- Include `run_id` in every browser-operation body.
+- Use refs from the latest snapshot instead of arbitrary selectors. `selector` is accepted only by the `wait` action.
+- Use `timeoutMs` only on endpoints that document it.
+- The JSON parser limit is 50 MiB; production gateways should enforce a smaller policy appropriate to the deployment.
 
-### Success
+## Responses
+
+Successful JSON responses include `ok: true`. Browser operations normally include `targetId` and may include the current URL.
 
 ```json
 {
   "ok": true,
-  "targetId": "ABC123.1"
+  "targetId": "ABC123.1",
+  "url": "https://example.com"
 }
 ```
 
-### Errors
-
-Handled controller errors typically use the flat response contract:
+Errors use a flat contract:
 
 ```json
 {
   "ok": false,
-  "error": "human-readable message"
+  "error": "run_id is required",
+  "code": "missing_run_id"
 }
 ```
 
-Uncaught failures may be normalized by global middleware. Client integrations should rely on HTTP status and `ok` first.
+Capacity and degraded-session responses can also include `active`, `max`, `retry_after_seconds`, and a `Retry-After` header.
 
-## HTTP Status Codes
+## Status codes
 
 | Code | Meaning |
-|------|---------|
-| `200` | Success |
-| `400` | Validation or request error |
+|---:|---|
+| `200` | Successful operation or idempotent close |
+| `201` | Run session accepted/created |
+| `400` | Invalid input or missing run ID |
 | `401` | Missing or invalid control token |
-| `403` | Feature disabled by config |
-| `500` | Internal server failure |
+| `403` | Code evaluation disabled |
+| `404` | Profile or target not found |
+| `409` | Run/target ownership conflict, uninitialized session, or unsupported tab flow |
+| `429` | Session capacity exhausted |
+| `500` | Unhandled internal error |
+| `503` | Browser runtime unavailable or session degraded |
 
-## Public Endpoint Surface
+## `GET /status`
 
-### Basic
+Returns the configured provider, active profiles, redacted endpoints, and allocator state. Worker entries expose task ID, assigned run IDs, ownership tags, capacity, idle state, and unavailability details. Endpoint credentials and query parameter values are redacted.
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/` | plain-text health check |
-| `GET` | `/status` | runtime status |
+`/status` reports service-owned state; it does not perform a live external health check for every configured provider.
 
-### Snapshot
+## Correlation IDs
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `POST` | `/snapshot` | semantic page snapshot |
-| `POST` | `/snapshot/delta` | DOM observation start/stop |
+Send the configured correlation header, `x-correlation-id` by default, to join caller and service logs. The service creates one when absent and includes it in the response.
 
-### Actions
+## Ref freshness
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `POST` | `/act` | execute browser action by `kind` |
-
-Supported action kinds:
-
-- `navigate`
-- `click`
-- `type`
-- `press`
-- `hover`
-- `scrollIntoView`
-- `drag`
-- `select`
-- `fill`
-- `resize`
-- `wait`
-- `evaluate`
-- `close`
-- `query_state`
-- `discover_dropdown`
-- `close_dropdown`
-- `detect_blocker`
-- `dismiss_blocker`
-
-### Hooks and Downloads
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `POST` | `/hooks/file-chooser` | stage and arm uploads |
-| `POST` | `/hooks/dialog` | arm alert/confirm/prompt handling |
-| `POST` | `/wait/download` | wait for a download |
-| `POST` | `/download` | click and capture a download |
-
-### Media
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `POST` | `/screenshot` | page or element screenshot |
-| `POST` | `/screenshot/labeled` | viewport screenshot with ref overlays |
-| `POST` | `/highlight` | highlight a ref-backed element |
-
-### Control
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/control` | validate control token and return websocket URL |
-| `WS` | `/control/live` | interactive browser control channel |
-
-## Target IDs
-
-`targetId` identifies the active browser tab.
-
-Example:
-
-```json
-{
-  "targetId": "ABC123.1"
-}
-```
-
-Operational rules:
-
-1. responses may return a `targetId` even if the request did not specify one
-2. clients should reuse the latest returned `targetId`
-3. after navigation or close, the active tab state may change
-
-## Reference IDs
-
-Snapshot responses provide stable refs like `e12`:
-
-```text
-- button "Login" [ref=e12]
-- textbox "Email" [ref=e13]
-```
-
-Operational rules:
-
-1. refs come from `/snapshot`
-2. refs can become stale after DOM changes or navigation
-3. clients should take a fresh snapshot after meaningful page updates
+Snapshot refs such as `e12` are stable for the captured page state, not forever. Navigation, rerendering, and dynamic UI changes can invalidate them. After a mutation, take a fresh snapshot before choosing the next action.
