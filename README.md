@@ -1,5 +1,9 @@
 # Tailorec Browser Service
 
+<p align="center">
+  <img src="docs/assets/tailorec-browser-orchestrator-logo.png" alt="Tailorec Browser Orchestrator logo" width="180">
+</p>
+
 A run-isolated browser control service for agentic workflows. It turns web pages into semantic snapshots with stable element references, executes browser actions through HTTP, and supports either local Chromium or remote Browserless workers.
 
 The service owns browser mechanics. It does not decide what an agent should do.
